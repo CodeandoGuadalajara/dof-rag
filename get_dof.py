@@ -53,7 +53,7 @@ def get_dof(year, month, day):
         return None  # Return None instead of raising an error
 
 
-def is_file_valid(filepath):
+def is_file_valid(filepath: str) -> bool:
     """Check if a file exists and is a valid PDF"""
     if not os.path.exists(filepath):
         return False  # File does not exist
