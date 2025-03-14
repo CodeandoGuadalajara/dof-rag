@@ -1,0 +1,120 @@
+Resultados de predicciones:
+
+================================================================================
+Timestamp: 2025-03-13T14:38:25.080681
+Modelo: model/moondream-0_5b-int8.mf
+Imagen: ./imagenes_prueba\_page_337_Figure_4.jpeg
+Tiempo de codificación: 15.9565 s
+Tiempo de caption: 46.4083 s
+Tiempo de query: 2.0592 s
+Tiempo total de la imagen: 64.5692 s
+Caption (inglés):  The image presents a vibrant infographic that is a riot of colors and shapes. At the heart of the infographic, a person is depicted in a dynamic pose, suggesting movement or action. The person's head is tilted to the side, adding a dynamic element to the otherwise static structure. The infographic is composed of a series of interconnected lines and rectangles, each filled with text in various colors, including green, yellow, and beige. The text is arranged in a hierarchical manner, with the topmost line being the largest and the text descending from the largest to the smallest. The text is organized in a hierarchical format, starting with the topmost line and ending with the lowest. The colors used in the infographic are predominantly green, yellow, and beige, with the exception of the text in the circles. The text is written in a variety of sizes and colors, and it appears to be in a language like Spanish or Portuguese. The layout of the infographic is meticulous and precise, with each element meticulously placed to create a harmonious balance. The overall design of the infographic is visually striking, with its use of shapes and colors to convey a sense of dynamism and energy. The text is written in a variety of sizes and colors, and it is written in a language that appears to be Spanish or Portuguese.
+Answer (inglés):  ��Qué se observa en esta imagen?
+Caption (traducido): La imagen presenta una vibrante infografía que es un disturbio de colores y formas. En el corazón de la infografía, una persona se representa en una pose dinámica, sugiriendo movimiento o acción. La cabeza de la persona se inclina hacia un lado, añadiendo un elemento dinámico a la estructura estática de otro modo. La infografía se compone de una serie de líneas interconectadas y rectángulos, cada uno lleno de texto en varios colores, incluyendo verde, amarillo y beige. El texto está dispuesto de una manera jerárquica, siendo la línea más alta la más grande y el texto descendiendo de la más grande a la más pequeña. El texto está organizado en un formato jerárquico, comenzando con la línea más alta y terminando con la más baja. Los colores utilizados en la infografía son predominantemente verdes, amarillos y beige, con la excepción del texto en los círculos. El texto está escrito en una variedad de tamaños y colores, y parece estar en un idioma como el español o el portugués. El diseño de la infografía es meticuloso y preciso, con cada elemento meticulosamente colocado para crear un equilibrio armonioso.
+Answer (traducido): Qué se observa en esta imagen?
+
+================================================================================
+
+
+================================================================================
+Timestamp: 2025-03-13T14:39:30.350660
+Modelo: model/moondream-0_5b-int8.mf
+Imagen: ./imagenes_prueba\_page_694_Figure_5.jpeg
+Tiempo de codificación: 17.7579 s
+Tiempo de caption: 52.1023 s
+Tiempo de query: 7.3685 s
+Tiempo total de la imagen: 141.7999 s
+Caption (inglés):  The image presents a detailed map of the Superficie Superficie, located in Mexico. The map is divided into various sections, including a legend that provides information about the different areas. The legend, titled "Superficie Superficie", is situated in the top left corner. The map is primarily in shades of blue and green, with the exception of the yellow and orange areas. It features a legend in the top right corner that lists the locations of key landmarks and points of interest. The Superficie Superficie is labeled in blue and is located in the top left corner. The map also includes a legend in the bottom left corner that lists the locations of landmarks and points of interest. The Superficie Superficie is labeled in blue and is located in the top right corner. The map also includes a legend in the bottom left corner that lists the locations of landmarks and points of interest. The Superficie Superficie is labeled in blue and is located in the top right corner. The map includes a legend in the bottom left corner that lists the locations of landmarks and points of interest. The Superficie Superficie is labeled in blue and is located in the top right corner.
+Answer (inglés):  The text in the image is about the Superficie, which is a place in Mexico. It is not directly related to the Superficie itself. However, it is implied that the Superficie is located in the area and serves as a focal point for the people living there.
+Caption (traducido): La imagen presenta un mapa detallado del Superficie, ubicado en México. El mapa está dividido en varias secciones, incluyendo una leyenda que proporciona información sobre las diferentes áreas. La leyenda, titulada "Superficie Superficie", está situada en la esquina superior izquierda. El mapa está principalmente en tonos de azul y verde, con la excepción de las áreas amarilla y naranja. Cuenta con una leyenda en la esquina superior derecha que enumera los lugares de referencia y puntos de interés. El Superficie Superficie está etiquetado en azul y se encuentra en la esquina superior derecha. El mapa también incluye una leyenda en la esquina inferior izquierda que enumera los lugares de referencia y puntos de interés. El Superficie Superficie está etiquetado en azul y está situado en la esquina superior derecha. El mapa incluye una leyenda en la esquina inferior izquierda que enumera los lugares de referencia y puntos de interés. El Superficie está etiquetado en azul y está situado en la esquina superior derecha.
+Answer (traducido): El texto de la imagen es sobre el Superficie, que es un lugar en México. No está directamente relacionado con el Superficie mismo. Sin embargo, se da a entender que el Superficie está ubicado en la zona y sirve como punto focal para las personas que viven allí.
+
+================================================================================
+
+
+================================================================================
+Timestamp: 2025-03-13T14:40:18.640626
+Modelo: model/moondream-0_5b-int8.mf
+Imagen: ./imagenes_prueba\_page_736_Figure_7.jpeg
+Tiempo de codificación: 22.1935 s
+Tiempo de caption: 30.1147 s
+Tiempo de query: 2.3457 s
+Tiempo total de la imagen: 196.4695 s
+Caption (inglés):  The image presents a detailed map of the Rio Grande Valley region, specifically the Zona region, as indicated by the text. The map is divided into two distinct sections. The top section, outlined in blue, provides a geographical perspective of the region, including the Rio Grande Valley, and includes a legend that lists various geographical features and landmarks. The bottom section, outlined in green, offers a more detailed view of the region, including the Rio Grande Valley, and includes a legend that lists geographical features and landmarks. The map is meticulously labeled with various locations and features, including the Rio Grande Valley, the Zona region, and the La Campagnera, as well as the Estado de Nayarit and the Zona region, highlighting the diverse aspects of the region. The map is meticulously labeled with numbers, including the number of locations and features, to ensure a comprehensive understanding of the region's geography and layout.
+Answer (inglés):  The map shows the location of the Superficio Total de Santiago in the Lazio Valley.
+Caption (traducido): La imagen presenta un mapa detallado de la región del Valle del Río Grande, específicamente la región de la Zona, como se indica en el texto. El mapa está dividido en dos secciones distintas. La sección superior, delineada en azul, proporciona una perspectiva geográfica de la región, incluyendo el Valle del Río Grande, e incluye una leyenda que enumera varias características geográficas y puntos de referencia. La sección inferior, delineada en verde, ofrece una vista más detallada de la región, incluyendo el Valle del Río Grande, e incluye una leyenda que enumera características geográficas y puntos de referencia. El mapa está meticulosamente etiquetado con varios lugares y características, incluyendo el Valle del Río Grande, la región de la Zona, y la Campagnera, así como el Estado de Nayarit y la región de la Zona, destacando los diversos aspectos de la región. El mapa está meticulosamente etiquetado con números, incluyendo el número de lugares y características, para asegurar una comprensión completa de la geografía y distribución de la región.
+Answer (traducido): El mapa muestra la ubicación del Superficie Total de Santiago en el Valle del Lacio.
+
+================================================================================
+
+
+================================================================================
+Timestamp: 2025-03-13T14:41:30.510326
+Modelo: model/moondream-0_5b-int8.mf
+Imagen: ./imagenes_prueba\_page_350_Figure_4.jpeg
+Tiempo de codificación: 21.2541 s
+Tiempo de caption: 39.4924 s
+Tiempo de query: 2.6485 s
+Tiempo total de la imagen: 259.8824 s
+Caption (inglés):  The image presents a vibrant infographic set against a white background. The left side features a series of green checkboxes with a checkmark, each accompanied by a black arrow pointing to a different checkbox. The checkboxes are labeled "Predictas de la", "Prodétado", "Prodétado", and "Predictas de la", and are accompanied by a green checkmark. On the right side, a series of green checkboxes are labeled "Vidacion", "Vidacion", and "Vidacion", and are accompanied by a green checkmark. The right side of the infographic is a panel of text, written in black, providing a framework for the content. It includes phrases like "Predictas de la", "Prodétado", "Prodétado", "Vidacion", "Predictas de la", "Vidacion", "Vidacion", "Predictas de la", and "Vidacion", and is repeated multiple times, with each checkbox also featuring a green checkmark. The text is arranged in a hierarchical manner, with the left side leading down and the right side ascending the image. The text is primarily in black, with the exception of the checkboxes.
+Answer (inglés):  The text in the image is in Spanish and translates to "The Science of the World".
+Caption (traducido): La imagen presenta un vibrante conjunto de infografía sobre un fondo blanco. El lado izquierdo presenta una serie de casillas de verificación verdes con una marca de verificación, cada una acompañada de una flecha negra que apunta a una casilla de verificación diferente. Las casillas de verificación están etiquetadas como "Predictas de la", "Prodétado", "Prodétado", y "Predictas de la", y están acompañadas de una marca de verificación verde. En el lado derecho, una serie de casillas de verificación verdes están etiquetadas como "Vidacion", "Vidacion", y "Vidacion", y están acompañadas de una marca de verificación verde. El lado derecho de la infografía es un panel de texto, escrito en negro, que proporciona un marco para el contenido. Incluye frases como "Predictas de la", "Prodétado", "Prodétado", "Vidacion", "Predictas de la", "Vidacion", "Vidacion", "Predictas de la", "Vidacion", "Predictas de la", y "Vidacion", y "Vidacion", y se repite varias veces, con cada casilla de verificación también con una marca verde.
+Answer (traducido): El texto de la imagen está en español y se traduce a "La ciencia del mundo".
+
+================================================================================
+
+
+================================================================================
+Timestamp: 2025-03-13T14:43:15.673480
+Modelo: model/moondream-0_5b-int8.mf
+Imagen: ./imagenes_prueba\_page_351_Figure_4.jpeg
+Tiempo de codificación: 21.5824 s
+Tiempo de caption: 60.5460 s
+Tiempo de query: 17.6844 s
+Tiempo total de la imagen: 359.7005 s
+Caption (inglés):  The image presents a vibrant and informative infographic about the concept of a "Sistema", a condition characterized by rapid swelling and rapid mobilization of the muscles. The infographic is divided into nine sections, each dedicated to a different aspect of the condition. The left section features a black and white illustration of a person with a broken arm, a black and white illustration of a person with a broken arm, and a black and white illustration of a person with a broken arm. The right section begins with a black and white illustration of a person with a broken arm, a black and white illustration of a person with a broken arm, and a black and white illustration of a person with a broken arm. The background of the infographic is white, providing a stark contrast to the black and white illustrations, and is further adorned with yellow and orange arrows, each pointing towards different aspects of the condition. The text is written in black, providing a stark and authoritative visual that is easy to understand and read. The text is written in black, providing a stark contrast to the white illustrations and the yellow and orange arrows. The text is written in black, providing a stark and clear, and the illustrations are easily readable. The right section begins with a black and white illustration of a person with a broken arm, a black and white illustration of a person with a broken arm, and a black and white illustration of a person with a broken arm. The background of the image is white, providing a clean and simple backdrop that allows the black and white illustrations to stand out. The text is written in black, providing a stark and clear, and explains the condition in a simple and clear, and in a clear, and explains the symptoms.
+Answer (inglés):  The text in the image is about the concept of "Qué se observa en esta imagen", which means "Qué se observa in the eye of the observer". This phrase is derived from the phrase "Qué se observa en esta imagen" and is commonly used in various contexts, such as educational materials, literature, and literature-related topics. The image itself features a diagram that illustrates the relationship between the speaker, a device, and the observer, as well as the observer's actions and the device's actions.
+Caption (traducido): La imagen presenta una infografía vibrante e informativa sobre el concepto de un "sistema", una condición caracterizada por una rápida hinchazón y una rápida movilización de los músculos. La infografía se divide en nueve secciones, cada una dedicada a un aspecto diferente de la condición. La sección izquierda presenta una ilustración en blanco y negro de una persona con un brazo roto, una ilustración en blanco y negro de una persona con un brazo roto, y una ilustración en blanco y negro de una persona con un brazo roto. La sección derecha comienza con una ilustración en blanco y negro de una persona con un brazo roto, una ilustración en blanco y negro de una persona con un brazo roto, y una ilustración en blanco y negro de una persona con un brazo roto. El fondo de la infografía es blanco, proporcionando un marcado contraste con las ilustraciones en blanco y negro, y además está adornado con flechas amarillas y naranjas, cada uno apuntando hacia diferentes aspectos de la condición. El texto está escrito en negro, proporcionando una imagen clara y fidedigna que es fácil de entender y leer.
+Answer (traducido): El texto de la imagen se refiere al concepto de "Qué se observa en esta imagen", que significa "Qué se observa en el ojo del observador". Esta frase se deriva de la frase "Qué se observa en esta imagen" y se utiliza comúnmente en diversos contextos, como materiales educativos, literatura y temas relacionados con la literatura. La imagen misma presenta un diagrama que ilustra la relación entre el orador, un dispositivo y el observador, así como las acciones del observador y las acciones del dispositivo.
+
+================================================================================
+
+
+================================================================================
+Timestamp: 2025-03-13T14:44:32.432309
+Modelo: model/moondream-0_5b-int8.mf
+Imagen: ./imagenes_prueba\_page_352_Figure_4.jpeg
+Tiempo de codificación: 22.0458 s
+Tiempo de caption: 65.1197 s
+Tiempo de query: 2.6919 s
+Tiempo total de la imagen: 449.5567 s
+Caption (inglés):  The image presents a detailed educational poster titled "Mechaien Orthognopfia LaAdrijens de Lechten", authored by L. L. Lechten and published by the University of Lechten-De-Lun. The poster is divided into multiple sections, each containing a text and a photograph related to the orthognopfia. The text on the poster is written in both French and English, providing a comprehensive overview of the orthognopfia's structure and function. The images depict various parts of the orthognopfia, including the spine, legs, and joints, and illustrate different parts of the orthognopfia, which are essential components of the orthognopfia. The text is presented in a clear and organized manner, making it easy for viewers to understand and analyze the content. The poster is primarily in French, with some minor variations in the text and images. The poster is published by the University of Lechten-De-Lun and is published by the University of Lechten-De-Lun. It also includes a section titled "La Acadigneur" which provides information about the orthognopfia. The poster features a red banner at the top, which contains the title "Mechaien Orthognopfia LaAdrijens de Lechten" and the subtitle "LaAdrijens de Lechten". The poster is printed in a white paper-like material and is presented in a cover format, likely printed on cardboard or a similar material.
+Answer (inglés):  ��Qué se observa en esta imagen?
+Caption (traducido): La imagen presenta un detallado cartel educativo titulado "Mechaien Orthognopfia LaAdrijens de Lechten", escrito por L. L. Lechten y publicado por la Universidad de Lechten-De-Lun. El cartel se divide en varias secciones, cada una de las cuales contiene un texto y una fotografía relacionados con la ortognopfia. El texto del cartel está escrito en francés e inglés, proporcionando una visión completa de la estructura y función de la ortognopfia. Las imágenes representan varias partes de la ortognopfia, incluyendo la columna vertebral, las piernas y las articulaciones, e ilustran diferentes partes de la ortognopfia, que son componentes esenciales de la ortognopfia. El cartel se presenta de manera clara y organizada, lo que facilita a los espectadores la comprensión y el análisis del contenido. El cartel está principalmente en francés, con algunas variaciones menores en el texto y las imágenes.
+Answer (traducido): Qué se observa en esta imagen?
+
+================================================================================
+
+
+================================================================================
+Timestamp: 2025-03-13T14:46:25.319314
+Modelo: model/moondream-0_5b-int8.mf
+Imagen: ./imagenes_prueba\_page_615_Figure_3.jpeg
+Tiempo de codificación: 15.9045 s
+Tiempo de caption: 103.9639 s
+Tiempo de query: 6.7865 s
+Tiempo total de la imagen: 576.2167 s
+Caption (inglés):  The image presents a graph titled "INCEN��A DELICIT��" (Indecile Delicacy), which is a measure of the percentage of medical and healthcare services in Brazil. The graph is divided into three sections, each representing a different stage of the medical process:
+
+1. Inc. (20) - The 20th stage
+2. Inc. (16) - The 16th stage
+3. Inc. (20) - The 20th stage
+4. Inc. (20) - The 20th stage
+
+The vertical axis of the graph shows the percentage of medical services in the 20th stage, ranging from 100% to 100%. The vertical axis shows the percentage of services in the 20th stage, ranging from 100% to 100%. The horizontal axis of the graph shows the percentage of services in the 20th stage, ranging from 100% to 100%. The vertical axis also shows the percentage of services in the 20th stage, ranging from 100% to 100%. The horizontal axis of the graph shows the percentage of services in the 20th stage, ranging from 100% to 100%. The horizontal axis includes the percentage of services in the 20th stage, ranging from 100% to 100%. The vertical axis includes the percentage of services in the 20th stage, ranging from 100% to 100%. The horizontal axis includes the percentage of services in the 20th stage, ranging from 100% to 100%. The vertical axis includes the percentage of services in the 20th stage, ranging from 100% to 100%. The horizontal axis includes the percentage of services in the 20th stage, ranging from 100% to 100%. The vertical axis includes the percentage of services in the 20th stage, ranging from 100% to 100%. The horizontal axis includes the percentage of services in the 20th stage, ranging from 100% to 100%. The vertical axis includes the percentage of services in the 20th stage, ranging from 100% to 100%. The horizontal axis includes the percentage of services in the 20th stage, ranging from 100% to 100%. The vertical axis includes the percentage of services in the 20th stage, ranging from 100% to 100%. The horizontal axis includes the percentage of services in the 20th stage, ranging from 100% to 100%. The vertical axis includes the percentage of services in the 20th stage, ranging from 100% to 100%. The horizontal axis includes the percentage of services in the 20th stage, ranging from 100% to 100%. The vertical axis includes the percentage of services in
+Answer (inglés):  The image shows a graph titled "Seuestro E-observado en esta imagen" (Seuestro is the only observant), which indicates that the graph shows the number of observations made by the Seuestro telescope.
+Caption (traducido): La imagen presenta un gráfico titulado "INCEN A DELICIT" (Delicacy Indecile), que es una medida del porcentaje de servicios médicos y sanitarios en Brasil. El gráfico se divide en tres secciones, cada una representa una etapa diferente del proceso médico: 1. Inc. (20) - La 20a etapa 2. Inc. (16) - La 16a etapa 3. Inc. (20) - La 20a etapa 4. Inc. (20) - La 20a etapa El eje vertical del gráfico muestra el porcentaje de servicios médicos en la 20a etapa, que oscila entre el 100% y el 100%. El eje vertical muestra el porcentaje de servicios en la 20a etapa, que oscila entre el 100% y el 100%. El eje horizontal del gráfico muestra el porcentaje de servicios en la 20a etapa, que abarca del 100% al 100% en la etapa. La 20a etapa incluye el porcentaje de servicios en la 20a etapa.
+Answer (traducido): La imagen muestra un gráfico titulado "Seuestro E-observado en esta imagen" (Seuestro es el único observador), que indica que el gráfico muestra el número de observaciones realizadas por el telescopio Seuestro.
+
+================================================================================
+

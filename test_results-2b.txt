@@ -1,0 +1,17 @@
+Resultados de predicciones:
+
+================================================================================
+Timestamp: 2025-03-13T15:09:57.197398
+Modelo: model/moondream-2b-int8.mf
+Imagen: ./imagenes_prueba\_page_615_Figure_3.jpeg
+Tiempo de codificación: 25.7899 s
+Tiempo de caption: 71.0572 s
+Tiempo de query: 27.0942 s
+Tiempo total de la imagen: 125.2049 s
+Caption (inglés):  The image presents a bar chart titled "Incidence Delicativa En El País" (Incidence of Delicativeness in the Spanish population) and "Incidence Delicativa En El País" (Incidence of Delicativeness in the Spanish population) in Spanish. The chart displays two bars, one for each year, with the years 2022 and 2023 represented on the x-axis. The y-axis represents the percentage of the population. The bars are colored in shades of blue and are labeled with the respective years. The bars are positioned on a white background, and the chart is labeled with the title and subtitle in Spanish. The chart also includes a legend that explains the color coding of the bars.
+Answer (inglés):  In this image, the bar chart displays the number of people affected by a certain event or situation. The chart shows that in the year 2022, there were 15,000 people affected, and in the year 2023, there were 16,000 people affected. The difference between the two years is 1,000.
+Caption (traducido): La imagen presenta una tabla de barras titulada "Incidencia Delicativa en El País" y "Incidencia Delicativa en El País" en español. La tabla muestra dos barras, una por cada año, con los años 2022 y 2023 representados en el eje x. El eje y representa el porcentaje de la población. Las barras están coloreadas en tonos azules y etiquetadas con los años respectivos. Las barras están colocadas sobre un fondo blanco, y la tabla está etiquetada con el título y el subtítulo en español. La tabla también incluye una leyenda que explica la codificación de color de las barras.
+Answer (traducido): En esta imagen, el gráfico de barras muestra el número de personas afectadas por un determinado evento o situación. El gráfico muestra que en el año 2022, había 15.000 personas afectadas, y en el año 2023, había 16.000 personas afectadas. La diferencia entre los dos años es de 1.000.
+
+================================================================================
+

@@ -14,8 +14,13 @@ dependencies = [
     "semantic-text-splitter>=0.24.1",
     "sentence-transformers>=3.4.1",
     "ruff>=0.9.9",
-    "tokenizers>=0.21.0",
+    "tokenizers>=0.20.1,<0.21.0", # Se cambio la version de tokenizers para el uso de moondream
     "tqdm>=4.67.1",
+    "moondream>=0.0.6", # Se agrego moondream para extraer el contexto de las imagenes
+    "sentencepiece>=0.2.0",
+    "sacremoses>=0.1.1",
+    "google>=3.0.0",
+    "dotenv>=0.9.9",
 ]
 
 [tool.ruff]

@@ -1,0 +1,348 @@
+Resultados de predicciones con Gemini:
+
+================================================================================
+Timestamp: 2025-03-13T15:45:10.787874
+Modelo: Gemini gemini-2.0-flash
+Imagen: ./imagenes_prueba\_page_337_Figure_4.jpeg
+Tiempo de descripción: 15.9701 s
+Tiempo de query: 1.6337 s
+Tiempo total de la imagen: 17.6384 s
+Tokens en descripción: 823
+Tokens en respuesta: 87
+Total de tokens: 910
+Descripción: Aquí hay una descripción detallada de la imagen:
+
+La imagen es un anuncio informativo del programa "Precios de Garantía" de SEGALMEX, una organización mexicana de seguridad alimentaria. El anuncio está dirigido a productores de maíz y frijol, y describe los beneficios, requisitos y compromisos del programa.
+
+La imagen está organizada en un diseño circular, con secciones numeradas del 1 al 8. Cada sección responde a una pregunta específica sobre el programa:
+
+1.  **¿Qué busca el programa?** El programa busca incentivar el ingreso de pequeños y medianos productores agropecuarios, mejorar su nivel de vida y aumentar la producción agropecuaria mediante el establecimiento de Precios de Garantía.
+2.  **¿A quién está dirigido?** El programa está dirigido a todos los productores de maíz y frijol que cumplan con los criterios de elegibilidad del programa.
+3.  **Se otorga Precio de Garantía a:** Esta sección detalla los límites de superficie y acopio para maíz y frijol. Para maíz, se aplica a productores con hasta 5 hectáreas de cultivo, con un máximo de 35 toneladas acopiadas, y un promedio nacional de 7 toneladas por hectárea. Adicionalmente, se ofrece un apoyo de $160 por tonelada para el traslado. Para frijol, se aplica a productores con hasta 30 hectáreas de temporal o 5 hectáreas de riego, con un máximo de 15 toneladas acopiadas, y un promedio de 750 kilogramos por hectárea.
+4.  **¿Qué ofrece el programa?** El programa ofrece un precio de garantía de $17,344 por tonelada para el caso del frijol, y un precio de garantía de $6,805 por tonelada de maíz, con apoyo para flete de $160 por tonelada, a través de una red de Centros de Acopio distribuida a nivel nacional cerca de las zonas de producción.
+5.  **¿Cuáles son los requisitos del productor?** Los requisitos incluyen estar dentro del Padrón de Productores de la Sader y/o estar inscritos en alguno de los padrones como el Censo del Bienestar, Producción para el Bienestar, o los generados por SEGALMEX. También se requiere revisión de documentos de identidad (INE, CURP, comprobante de domicilio) y comprobación de posesión de predio sembrado (certificado parcelario, escritura pública, o contrato de arrendamiento con soporte documental).
+6.  **¿Cómo obtener el apoyo?** El productor debe acudir a un centro de acopio operado por SEGALMEX, donde se revisarán sus documentos para validar el cumplimiento de los requisitos y criterios de elegibilidad, y la calidad del producto (maíz o frijol).
+7.  **¿A qué se compromete el solicitante?** El solicitante se compromete a facilitar y atender verificaciones, auditorías, inscripciones y solicitudes de información de SEGALMEX, brindar con veracidad los datos productivos y personales solicitados, y cumplir con requisitos y disposiciones definidas en la mecánica operativa de acuerdo al grano que produzca.
+8.  **¿En qué puede utilizar el apoyo?** El apoyo se puede utilizar para mejorar el nivel de vida de los productores con mayor ingreso, e incrementar la producción de granos básicos.
+
+El anuncio utiliza un diseño visualmente atractivo con diferentes colores para cada sección. El logo de SEGALMEX está presente en la esquina superior derecha. El texto es claro y conciso, facilitando la comprensión del programa.
+
+Respuesta: La imagen muestra una infografía del programa "Precios de Garantía" de SEGALMEX para productores de maíz y frijol. La infografía explica los objetivos del programa, a quién está dirigido, los precios de garantía ofrecidos, los requisitos para los productores, cómo obtener el apoyo y a qué se compromete el solicitante, y en qué se puede utilizar el apoyo.
+
+
+================================================================================
+
+
+================================================================================
+Timestamp: 2025-03-13T15:45:17.854544
+Modelo: Gemini gemini-2.0-flash
+Imagen: ./imagenes_prueba\_page_351_Figure_4.jpeg
+Tiempo de descripción: 4.7095 s
+Tiempo de query: 2.3542 s
+Tiempo total de la imagen: 24.7050 s
+Tokens en descripción: 748
+Tokens en respuesta: 254
+Total de tokens: 1002
+Descripción: The image is a flowchart that describes a process, likely related to agricultural producers and a governmental or institutional system. Here is a detailed description:
+
+**Overall Structure**
+
+*   The flowchart consists of a series of boxes arranged sequentially, connected by yellow arrows. This indicates the progression of steps in the process.
+*   Each box contains a black and white icon representing an action or item, along with a text label written in Spanish, inside a green rounded border.
+
+**Detailed Description of Each Step**
+
+1.  **"Productor se presenta al"**:
+    *   Icon: Two farmers wearing hats and holding pitchforks.
+    *   Text: "Productor se presenta al" (Producer shows up at) - This implies the producer is starting the process at a particular location or office.
+2.  **"Revisión de document"**:
+    *   Icon: A document with lines of text on it.
+    *   Text: "Revisión de document" (Document review) - Suggests a document submitted by the producer is being examined.
+3.  **"Dictamen de la"**:
+    *   Icon: A group of people with a speech bubble above them.
+    *   Text: "Dictamen de la" (Opinion of the) - Indicates a group or authority is providing their judgment or opinion.
+4.  **"Registro en SISTEMA"**:
+    *   Icon: A laptop displaying a globe.
+    *   Text: "Registro en SISTEMA" (Registration in SYSTEM) - This implies the information or case is being registered in an electronic system.
+5.  **"Constancia de Registro"**:
+    *   Icon: A clipboard with a checkmark.
+    *   Text: "Constancia de Registro" (Registration Certificate) - A certificate confirming the registration of a producer.
+6.  **"Análisis de calidad"**:
+    *   Icon: An hourglass next to a microscope.
+    *   Text: "Análisis de calidad" (Quality Analysis) - Indicates the product is being checked for quality.
+7.  **"Recepción del"**:
+    *   Icon: A truck carrying an ear of corn.
+    *   Text: "Recepción del" (Reception of) - This is a reception truck that has corn inside.
+8.  **"Expedición del Document"**:
+    *   Icon: An envelope with a document coming out.
+    *   Text: "Expedición del Document" (Issuance of Document) - A document or check it's being issued.
+9.  **"Productor cobra en institución"**:
+    *   Icon: Cash with coins.
+    *   Text: "Productor cobra en institución" (Producer gets paid at the institution) - The farmer receives payment.
+
+**Overall Interpretation**
+
+The flowchart illustrates a process where a producer (likely agricultural) registers with an institution, goes through document reviews and quality checks, and eventually receives payment. It's a linear representation of the steps involved in this interaction.
+Respuesta: The image shows a flowchart that describes a process, likely related to agriculture or agricultural production. Here's a breakdown of what's observable:
+
+*   **Start:** The flowchart begins with two farmers presenting themselves.
+*   **Document Review:** The farmers' documents are reviewed.
+*   **Resolution:** A statement or verdict is determined.
+*   **System Registration:** The registration is recorded in the system.
+*   **Registration Certificate:** The registration receives a certificate.
+*   **Quality Check:** A quality analysis is performed.
+*   **Corn delivery:** The crop is deliviered in truck to an institution.
+*   **Document Issuance:** A document is issued.
+*   **Payment:** The producer is paid at an institution.
+
+In essence, the diagram depicts a step-by-step process, from the initial presentation by farmers to receiving payment, likely for a specific agricultural product.
+
+================================================================================
+
+
+================================================================================
+Timestamp: 2025-03-13T15:45:22.770474
+Modelo: Gemini gemini-2.0-flash
+Imagen: ./imagenes_prueba\_page_352_Figure_4.jpeg
+Tiempo de descripción: 3.2702 s
+Tiempo de query: 1.6384 s
+Tiempo total de la imagen: 29.6147 s
+Tokens en descripción: 448
+Tokens en respuesta: 87
+Total de tokens: 535
+Descripción: The image is a flowchart, titled "Mecánica Operativa para la Adquisición de Leche, LICONSA, S.A. de C.V." It outlines the operational mechanics for the acquisition of milk by LICONSA, S.A. de C.V., a company.
+
+The flowchart begins with the "Inicio" (Start) step, which is connected to a step where "El Productor solicita requisitos en Centro de Acopio para ser proveedor de leche de liconsa" (The Producer requests requirements at the Collection Center to become a milk supplier for Liconsa).
+
+From there, the process involves multiple steps and departments, including the Subgerente de Operaciones de Centro de Acopio (Operations Submanager of the Collection Center), the Productor (Producer), the Subgerencia Recepción de Maquila y Leche (Submanagement Reception of Maquila and Milk), the Área de Administración y Finanzas (Administration and Finance Area), and the Centro de Trabajo y/o Centro de Acopio (Work Center and/or Collection Center).
+
+There is a decision point in the flowchart, asking "¿Expediente Completo?" (Is the file Complete?), which determines whether the process continues or the producer is informed of missing documentation.
+
+The flowchart also involves several documents, such as the "Boleta de Recibo de Leche Cruda en Centro de Acopio" (Raw Milk Receipt Ticket at the Collection Center) and the process for its issuance.
+
+The final steps include financial procedures like "La Gerencia de Tesorería libera el pago al Centro de Trabajo" (The Treasury Management releases the payment to the Work Center) and "El Centro de Trabajo dispersa el pago a la cuenta de cada Productor" (The Work Center disperses the payment to the account of each Producer), leading to the "FIN" (End).
+
+Respuesta: The image is a flowchart outlining the operating mechanics for the acquisition of milk by LICONSA, S.A. de C.V. It details the process from when a producer applies to become a milk supplier to when they receive payment. The steps involve documentation, quality control, delivery of milk, and financial transactions involving various departments within LICONSA.
+
+
+================================================================================
+
+
+================================================================================
+Timestamp: 2025-03-13T15:45:29.218159
+Modelo: Gemini gemini-2.0-flash
+Imagen: ./imagenes_prueba\_page_736_Figure_7.jpeg
+Tiempo de descripción: 4.5122 s
+Tiempo de query: 1.9370 s
+Tiempo total de la imagen: 36.0682 s
+Tokens en descripción: 749
+Tokens en respuesta: 90
+Total de tokens: 839
+Descripción: Here's a detailed description of the image:
+
+**Overall Layout:**
+
+The image is a map showing a portion of the state of Nayarit, Mexico, specifically focusing on the "Playa Platanitos" Sanctuary. The map displays geographical features, zone designations, infrastructure, and coordinate information.
+
+**Key Features and Zones:**
+
+*   **"Playa Platanitos" Sanctuary:** The central feature of the map is the highlighted polygon representing the Playa Platanitos Sanctuary within the state of Nayarit.
+*   **Zoning:** Within the sanctuary, areas are categorized into:
+    *   **Zonas Núcleo (Core Zones):** Marked in a dark green, these appear along the coastline. Specific named core zones include "La Cangrejera," "Arenosa," and "Huizachera."
+    *   **Zonas de Amortiguamiento (Buffer Zones):** Indicated in a light green, these zones surround or border the core zones. They are labeled as "Las Fuentes," "Boca Ixtapa," and "Pozo del Caimán."
+*   **Political Boundaries:**
+    *   **Límite Estatal (State Boundary):** Outlined in a solid line.
+    *   **Límite Municipal (Municipal Boundary):** Represented by a dashed line. The municipalities of San Blas and Compostela are labeled.
+
+**Geographical Features:**
+
+*   **Océano Pacífico (Pacific Ocean):** Occupies the western side of the map.
+*   **Coastline:** Defines the boundary between the land and the ocean, with the zones (núcleo and amortiguamiento) following its shape.
+*   **Urban Areas:** A few small urban areas are indicated.
+
+**Infrastructure:**
+
+*   **Carreteras (Highways):** Represented by solid lines.
+*   **Caminos (Roads/Paths):** Shown as dotted lines.
+
+**Textual Information:**
+
+*   **Title:** "Santuario 'Playa Platanitos' Estado de Nayarit"
+*   **Total Area:** "Superficie Total: 79-81-31.85 ha" (Total Area: 79-81-31.85 hectares).
+*   **Symbology (Simbología):** A legend explains the symbols used on the map, including the different zone types, boundaries, and infrastructure.
+*   **Cartographic Specifications (Especificaciones Cartográficas):** Provides technical details about the map's projection, datum, ellipsoid, and scale.
+*   **Coordinate System:** UTM Zone 13 North.
+
+**Coordinate System & Grid:**
+
+The map includes a grid system with labeled coordinates. Coordinates are provided along the borders.
+
+**Overall Impression:**
+
+The image is a cartographic representation of a protected area, detailing its geographical location, administrative boundaries, and internal zoning. The map serves to define and delineate the Playa Platanitos Sanctuary and its various conservation zones.
+
+Respuesta: La imagen es un mapa del santuario "Playa Platanitos" en el Estado de Nayarit, México. Muestra las zonas núcleo, las zonas de amortiguamiento, los límites estatales y municipales, áreas urbanas, carreteras, caminos y cuerpos de agua. Incluye especificaciones cartográficas como el sistema de coordenadas UTM, la escala numérica y gráfica, y la superficie total del santuario.
+
+================================================================================
+
+
+================================================================================
+Timestamp: 2025-03-13T15:45:34.546055
+Modelo: Gemini gemini-2.0-flash
+Imagen: ./imagenes_prueba\_page_615_Figure_3.jpeg
+Tiempo de descripción: 3.2780 s
+Tiempo de query: 2.0475 s
+Tiempo total de la imagen: 41.3965 s
+Tokens en descripción: 408
+Tokens en respuesta: 94
+Total de tokens: 502
+Descripción: Here is a detailed description of the image:
+
+**Overview**
+The image shows a bar graph comparing crime incidence in a country for the years 2022 and 2023. The y-axis represents the number of incidents, ranging from 0 to 16,000. The x-axis has two categories: 2022 and 2023. Each category contains bar graphs depicting the number of incidents for different types of crimes, with a key at the bottom indicating which crime each bar represents. 
+
+**Data Representation**
+The crimes are listed as follows in the key:
+- Secuestro (Kidnapping)
+- Extorsión (Extortion)
+- Trata de personas (Human Trafficking)
+- Narcomenudeo (Petty Drug Dealing)
+- Robos (Thefts)
+
+**Specific Values for 2022**
+- Secuestro: 23
+- Extorsión: 147
+- Trata de personas: 8
+- Narcomenudeo: 665
+- Robos: 15,196
+
+**Specific Values for 2023**
+- Secuestro: 27
+- Extorsión: 214
+- Trata de personas: 1
+- Narcomenudeo: 514
+- Robos: 14,023
+
+**Title**
+The graph's title is "INCIDENCIA DELICTIVA EN EL PAÍS" (Crime Incidence in the Country), and it specifies the years "2022-2023".
+
+**Additional Information**
+At the bottom of the graph, there is a note: "Gráfica elaborada con base en el informe de indicencia delictiva de fuero común, elaborada por el secretariado ejecutivo del sistema nacional de seguridad pública." This translates to: "Graph created based on the report of common crime incidence, prepared by the executive secretariat of the national public security system."
+Respuesta: La imagen muestra un gráfico de barras que compara la incidencia delictiva en un país entre los años 2022 y 2023. Los tipos de delitos representados son: secuestro, extorsión, trata de personas, narcomenudeo y robo. Se observa que el robo es el delito con mayor incidencia, seguido por el narcomenudeo. En general, la incidencia delictiva parece haber disminuido entre 2022 y 2023.
+
+
+================================================================================
+
+
+================================================================================
+Timestamp: 2025-03-13T15:45:42.122003
+Modelo: Gemini gemini-2.0-flash
+Imagen: ./imagenes_prueba\_page_694_Figure_5.jpeg
+Tiempo de descripción: 5.1201 s
+Tiempo de query: 2.4569 s
+Tiempo total de la imagen: 48.9735 s
+Tokens en descripción: 815
+Tokens en respuesta: 257
+Total de tokens: 1072
+Descripción: Here's a detailed description of the image:
+
+**Overall Impression:**
+
+The image is a map, likely for a protected area or conservation zone. It depicts a coastal region, showing the boundary between land and the Gulf of Mexico, along with various zones and features. The text is in Spanish.
+
+**Key Elements:**
+
+*   **Geographical Features:**
+    *   **Gulf of Mexico (Golfo de México):** Occupies a large portion of the upper-left area.
+    *   **Coastline:** A narrow strip of land extends along the coast.
+    *   **State of Campeche (Estado de Campeche):** Denotes the region's administrative division on the mainland, in the southeast part of the image.
+    *   **Municipality of Champotón (Municipio de Champotón):** Mentioned to indicate the specific local administrative unit.
+    *   The map shows the sanctuary "Playa Chenkan" State of Campeche
+
+*   **Zones & Areas:**
+    *   **Nucleus Zone (Zona núcleo):** Highlighted in dark green. Several areas are labeled as "Zona núcleo": Km 107, Campamento Tortuguero.
+    *   **Buffer Zone (Zona de amortiguamiento):** A lighter green area surrounds the nucleus zones. Areas labeled as "Zona de amortiguamiento" are: Los Puentes, Km 106, Las Casas.
+    *   **Surface area (Superficie):** The area covered by the "Poligono general" is 39-55-59.96 ha.
+    *   **Inundation Zone (Zona de inundación)**
+
+*   **Labels and Locations:**
+    *   Names of places are displayed: Playa Azul, El Rosario, Chencán, Campamento Tortuguero, Las Amazonas, Niche, Los Cocos.
+    *   Kilometer markers: Km 106, Km 107.
+
+*   **Cartographic Elements:**
+    *   **Grid lines:** Present, with coordinates marked on the edges of the map.
+    *   **North Arrow:** Indicates the direction.
+    *   **Scale:** Mentioned in "Especificaciones Cartográficas," showing numerical and graphical scales.
+
+*   **Legend (Simbolia):**
+    *   Explains the symbols used on the map.
+    *   Polygon, nucleus zone, buffer zone, inundation zone.
+    *   Municipal boundary, state boundary.
+    *   Roads (Carreteras) and tracks (Caminos).
+    *   Locations (Localidades)
+
+*   **Other Textual Information:**
+    *   **Cartographic Specifications (Especificaciones Cartográficas):** Includes information about the coordinate system (UTM Zone 15 Norte), Datum (ITRF08), Spheroid (GRS80), and numerical scale.
+    *   **Location (Localización):** Section, with coordinates displayed for the bottom of the image.
+
+**Overall Purpose and Interpretation:**
+
+The map appears to delineate a protected coastal area, with specific zones designated for conservation purposes. The nucleus zones likely represent critical habitats or areas requiring strict protection, while the buffer zones are intended to mitigate human impacts on these core areas. The map provides cartographic information to understand the location, boundaries, and important features within the "Playa Chenkan" sanctuary in the State of Campeche, Mexico.
+Respuesta: The image is a map of the "Playa Chenkan" Sanctuary in the State of Campeche, Mexico. It shows the sanctuary's general polygon, core zones ("Zona núcleo"), buffer zones ("Zona de amortiguamiento"), potential flood zones ("Zona de inundación"), municipal and state boundaries, roads ("Carreteras"), paths ("Caminos"), and locations ("Localidades"). The map also includes specific locations such as "Los Puentes," "Km 107," "Km 106," "Campamento Tortuguero," and "Las Casas" within the designated zones. It also provides cartographic specifications like the coordinate system (UTM), zone number (15 Norte), datum (ITRF08), spheroid (GRS80), and a scale of 1:90,000. The map also indicates the surface area within a certain range (39-55-59.96 ha), and shows its location in relation to the Gulf of Mexico.
+
+================================================================================
+
+
+================================================================================
+Timestamp: 2025-03-13T15:45:48.062439
+Modelo: Gemini gemini-2.0-flash
+Imagen: ./imagenes_prueba\_page_350_Figure_4.jpeg
+Tiempo de descripción: 3.7890 s
+Tiempo de query: 2.1505 s
+Tiempo total de la imagen: 54.9159 s
+Tokens en descripción: 673
+Tokens en respuesta: 225
+Total de tokens: 898
+Descripción: Here's a detailed description of the image:
+
+**Overall Impression:**
+
+The image is a flowchart outlining the process for farmers in Mexico to receive an incentive for producing wheat, rice, and corn. It's designed to be easy to understand, using numbered steps and clear language.
+
+**Layout and Elements:**
+
+*   **Header:** The top of the image features the logos of "GOBIERNO DE MEXICO," "AGRICULTURA" (Ministry of Agriculture), and "SEGALMEX" (Mexican Food Security).
+*   **Title:** Below the logos, the title reads "PROCESO PARA EL PAGO DEL INCENTIVO A TRIGO, ARROZ Y MAÍZ MEDIANOS PRODUCTORES" (Process for the Payment of the Incentive to Medium Wheat, Rice, and Corn Producers).
+*   **Flowchart:** The main part of the image is a flowchart consisting of six steps, each represented by a number (1-6) in a diamond shape. Arrows connect the steps in a sequential order.
+
+**Step-by-Step Description:**
+
+1.  **Validation of Documentation:** The first step involves validating the personal, productive, and signed registration documents of the producer. An icon shows a magnifying glass over a document with text lines.
+2.  **Registration of Commercialization Invoices:** Step two involves registering the invoices of the commercialization of the grain. The icon shows hands holding a clipboard with a checklist.
+3.  **Validation of Commercialization Invoices:** The third step involves validating the commercialization invoices. The icon is a brown folder with documents sticking out.
+4.  **File (Personal, Productive, and Commercialization Data):** Step four indicates that the file containing personal, productive, and commercialization data is complete and in positive status. The icon shows hands with a clipboard.
+5.  **Payment Area:** The fifth step is where the payment process is initiated in the payment area. The icon shows a laptop.
+6.  **Producer Receives Incentive:** The final step is where the producer receives their incentive through a bank transfer or payment order. The icon shows hands holding money and a clipboard.
+
+**Style and Color Palette:**
+
+*   The image uses a clean and simple design with icons to represent each step.
+*   The color palette includes green (logos), black, and white.
+
+**Overall Message:**
+
+The image aims to explain the process for farmers to receive incentives in a clear and accessible way. It breaks down the steps involved and uses visual cues to guide the viewer through the information.
+Respuesta: The image is a flowchart outlining the process for producers to receive an incentive for wheat, rice, and corn. The flowchart is titled "Proceso para el Pago del Incentivo a Trigo, Arroz y Maíz Medianos Productores" which translates to "Process for the Payment of the Incentive to Wheat, Rice and Corn Medium Producers." The flowchart has six steps.
+
+1. Validation of personal, productive documentation, and the producer's signed registration.
+2. Registration of grain marketing invoices.
+3. Validation of grain marketing invoices.
+4. File (personal, productive, and marketing data), complete and in positive status.
+5. Payments area: the payment process is initiated.
+6. The producer receives their incentive by bank transfer or payment order.
+
+The image also features the logos of the Mexican government, the Agriculture Secretariat, and SEGALMEX (Seguridad Alimentaria Mexicana - Mexican Food Security).
+
+
+================================================================================
+
