@@ -11,14 +11,31 @@ Una vez instalado uv, ejecuta el siguiente comando para iniciar el proyecto:
 uv venv # Crear un entorno virtual
 uv sync # Sincronizar dependencias
 ```
+## Activacion del Entorno Virtual
+Cada vez que trabajes en el proyecto, activa el entorno virtual:
+
+* ### **Linux/macOs:**
+```bash
+source .venv/bin/activate
+```
+
+* ### **Windows:**
+```bash
+.venv\Scripts\activate
+```
+
+Para desactivar el entorno virtual, ejecuta:
+```bash
+deactivate
+```
 
 ## Bajar archivos del DOF
 
 Para bajar archivos del DOF se usa el script get_dof.py de la siguiente manera:
 
 ```bash
-uv run get_dof.py --help
-uv run get_dof.py --start-year=2025 --end-year=2023
+python get_dof.py --help
+python get_dof.py --start-year=2025 --end-year=2023
 ```
 
 Esto crea directorios como:
