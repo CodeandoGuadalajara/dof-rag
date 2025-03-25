@@ -1,0 +1,51 @@
+Resultados de descripción de imagen con Ollama - Modelo: gemma3:4b - max_tokens: 4096
+
+================================================================================
+RESULTADOS DE IMAGEN
+Timestamp: 2025-03-14T22:52:09.994742
+Modelo: gemma3:4b, Tokens máx: 4096
+Imagen: _page_337_Figure_4.jpeg
+
+MÉTRICAS:
+- Descripción: 129.4466s | Total: 129.4466s | Tokens: 110
+
+RESULTADOS:
+Pregunta: ¿Qué se observa en esta imagen?
+
+Descripción: La imagen muestra una fotografía de un joven, presumiblemente un niño, sentado en una silla de ruedas. El niño tiene una expresión seria y se le ve concentrado.  La foto parece ser de un contexto educativo o informativo, posiblemente relacionada con la sensibilización sobre la discapacidad o la movilidad infantil.  No se identifica un lugar o región específica, pero la composición sugiere un mensaje de apoyo, comprensión y, posiblemente, de promoción de la inclusión.
+
+================================================================================
+================================================================================
+RESULTADOS DE IMAGEN
+Timestamp: 2025-03-14T23:04:58.135387
+Modelo: gemma3:4b, Tokens máx: 4096
+Imagen: _page_337_Figure_4.jpeg
+
+MÉTRICAS:
+- Descripción: 111.2459s | Total: 111.2459s | Tokens: 166
+
+RESULTADOS:
+Pregunta: ¿Qué se observa en esta imagen?
+
+Descripción: La imagen muestra un diagrama de flujo o proceso, probablemente relacionado con la gestión de proyectos. Se observa una serie de etapas numeradas, indicando un flujo estructurado de tareas. El diagrama incluye elementos como "Inicio", "Planificación", "Ejecución", "Monitoreo y control" y "Cierre".
+
+El objetivo principal del diagrama es ilustrar un proceso paso a paso para llevar a cabo un proyecto, enfatizando la importancia de la planificación, ejecución, seguimiento y finalización de manera sistemática. 
+
+El contexto probable de la imagen es el de un curso o material educativo relacionado con la gestión de proyectos, donde se presenta un modelo de proceso común y ampliamente utilizado.
+
+================================================================================
+================================================================================
+RESULTADOS DE IMAGEN
+Timestamp: 2025-03-14T23:38:58.985999
+Modelo: gemma3:4b, Tokens máx: 4096
+Imagen: _page_337_Figure_4.jpeg
+
+MÉTRICAS:
+- Descripción: 121.9237s | Total: 121.9237s | Tokens: 137
+
+RESULTADOS:
+Pregunta: ¿Qué se observa en esta imagen?
+
+Descripción: La imagen muestra un diagrama de flujo que representa el proceso de desarrollo de un software. Se distingue un ciclo de vida que incluye fases como la planificación, el análisis, el diseño, la implementación, las pruebas y el mantenimiento. El diagrama destaca la iteración continua y la importancia de la retroalimentación en cada etapa del desarrollo.  El objetivo principal es ilustrar un enfoque estructurado para el desarrollo de software, enfatizando la necesidad de adaptarse y mejorar constantemente el producto. Es, por lo tanto, un recurso informativo y educativo sobre metodologías de desarrollo de software.
+
+================================================================================

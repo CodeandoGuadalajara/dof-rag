@@ -1,0 +1,19 @@
+
+------------------------------------------------------------
+RESULTADOS DE IMAGEN
+Timestamp: 2025-03-14T20:41:21.554246
+Modelo: moondream-0_5b-int8.mf
+Imagen: _page_337_Figure_4.jpeg
+
+MÉTRICAS:
+- Encode: 12.2987s | Caption: 40.9216s | Query: 4.8157s | Total: 58.0786s
+
+RESULTADOS:
+Pregunta: ¿Qué se muestra en esta imagen? Describe todos los elementos visibles con detalle.
+
+Descripción: La imagen presenta una vibrante infografía que es un disturbio de colores y formas. En el corazón de la infografía, una persona se representa en una pose dinámica, sugiriendo movimiento o acción. La cabeza de la persona se inclina hacia un lado, añadiendo un elemento dinámico a la estructura estática de otro modo. La infografía se compone de una serie de líneas interconectadas y rectángulos, cada uno lleno de texto en varios colores, incluyendo verde, amarillo y beige. El texto está dispuesto de una manera jerárquica, siendo la línea más alta la más grande y el texto descendiendo de la más grande a la más pequeña. El texto está organizado en un formato jerárquico, comenzando con la línea más alta y terminando con la más baja. Los colores utilizados en la infografía son predominantemente verdes, amarillos y beige, con la excepción del texto en los círculos. El texto está escrito en una variedad de tamaños y colores, y parece estar en un idioma como el español o el portugués. El diseño de la infografía es meticuloso y preciso, con cada elemento meticulosamente colocado para crear un equilibrio armonioso.
+
+Respuesta: Qué se muestra en esta imagen: Describir todos los elementos visibles con detalle.
+
+------------------------------------------------------------
+

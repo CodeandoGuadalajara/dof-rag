@@ -1,0 +1,48 @@
+Resultados de descripción de imagen con Ollama - Modelo: moondream:latest - max_tokens: 4096
+
+================================================================================
+RESULTADOS DE IMAGEN
+Timestamp: 2025-03-14T22:48:48.923672
+Modelo: moondream:latest, Tokens máx: 4096
+Imagen: _page_337_Figure_4.jpeg
+
+MÉTRICAS:
+- Descripción: 14.2601s | Total: 14.2601s | Tokens: 54
+
+RESULTADOS:
+Pregunta: ¿Qué se observa en esta imagen?
+
+Descripción: 1. Resume su contenido porque tiene una respuesta más completa.
+ 2. Descriptar el tipo de imagen y su propósito probable, pero no te extiendas en detalles visuales menores, pero asegúrate de IDENTIFICAR todos los elementos importantes.
+
+================================================================================
+================================================================================
+RESULTADOS DE IMAGEN
+Timestamp: 2025-03-15T00:04:40.658805
+Modelo: moondream:latest, Tokens máx: 4096
+Imagen: _page_337_Figure_4.jpeg
+
+MÉTRICAS:
+- Descripción: 26.3168s | Total: 26.3168s | Tokens: 28
+
+RESULTADOS:
+Pregunta: ¿Qué se observa en esta imagen?
+
+Descripción: 1. Resume su contenido principal y mencionar títulos o encabezados importantes. (Identify the main points of the image)
+
+================================================================================
+================================================================================
+RESULTADOS DE IMAGEN
+Timestamp: 2025-03-15T00:06:00.972077
+Modelo: moondream:latest, Tokens máx: 4096
+Imagen: _page_337_Figure_4.jpeg
+
+MÉTRICAS:
+- Descripción: 11.6578s | Total: 11.6578s | Tokens: 16
+
+RESULTADOS:
+Pregunta: ¿Qué se observa en esta imagen?
+
+Descripción: 1. Resume su contenido principal y mencionar títulos o encabezados importantes.
+
+================================================================================
