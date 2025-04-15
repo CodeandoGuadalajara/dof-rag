@@ -1,0 +1,10 @@
+[project]
+name = "pymupdf-handler"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pdf2image>=1.17.0",
+    "pymupdf>=1.25.5",
+]
