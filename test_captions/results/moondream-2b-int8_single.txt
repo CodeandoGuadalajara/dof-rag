@@ -1,0 +1,18 @@
+
+------------------------------------------------------------
+RESULTADOS DE IMAGEN
+Timestamp: 2025-03-14T21:58:57.449580
+Modelo: moondream-2b-int8.mf
+Imagen: _page_337_Figure_4.jpeg
+
+MÉTRICAS:
+- Encode: 24.0008s | Caption: 102.9176s | Query: 71.7274s | Total: 198.9261s
+
+RESULTADOS:
+Pregunta: ¿Qué se muestra en esta imagen? Describe todos los elementos visibles con detalle.
+
+Descripción: La imagen presenta una infografía detallada sobre el proceso de obtención de un producto de la más alta calidad, centrándose específicamente en los pasos de producción de un producto de la más alta calidad. La infografía se divide en cuatro secciones distintas, cada una representando un paso en el proceso. La primera sección, denominada "Procedimiento 1", describe los pasos de producción del producto. La segunda sección, denominada "Procedimiento 2", describe los pasos de producción del producto. La infografía utiliza un esquema de color verde y beige para diferenciar entre los pasos y el producto. La infografía también incluye texto en español, proporcionando una explicación detallada de cada paso. La infografía se presenta de manera visualmente atractiva y organizada, con cada paso claramente etiquetado y acompañado por una imagen correspondiente. La infografía se establece en un fondo blanco, dando una explicación detallada de cada paso. La infografía se presenta de manera visualmente atractiva y organizada, con cada paso claramente etiquetado y acompañado por una imagen correspondiente.
+
+Respuesta: En esta imagen, el enfoque principal es una guía paso a paso sobre cómo preparar un producto, específicamente un producto relacionado con la industria alimentaria. La guía está diseñada para ayudar a los usuarios a entender el proceso y hacerlo más fácil de seguir. La guía se divide en varios pasos, cada uno con una imagen correspondiente. Los pasos incluyen: 1. El primer paso es reunir todos los ingredientes y equipos necesarios. 2. El segundo paso consiste en preparar los ingredientes y mezclarlos juntos. 3. El tercer paso es cocinar la mezcla de una manera específica, como hervir o hornear. 4. El paso final es cocinar la mezcla hasta que esté completamente cocida y lista para servir. La guía también incluye imágenes de los ingredientes y equipos utilizados en cada paso, así como descripciones de texto para explicar el proceso. La guía tiene como objetivo hacer que el proceso de preparación sea más accesible y fácil de usar, ayudando a los usuarios a crear un producto de alta calidad en un tiempo más corto.
+
+------------------------------------------------------------

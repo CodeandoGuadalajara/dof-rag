@@ -15,7 +15,7 @@ dependencies = [
     "sentence-transformers>=3.4.1",
     "ruff>=0.9.9",
     "tokenizers>=0.21.0",
-    "tqdm>=4.67.1",
+    "ipywidgets>=8.1.5",
 ]
 
 [tool.ruff]

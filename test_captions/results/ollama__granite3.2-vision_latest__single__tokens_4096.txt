@@ -1,0 +1,17 @@
+Resultados de descripción de imágenes con Ollama - Modelo: granite3.2-vision:latest - max_tokens: 4096
+
+================================================================================
+RESULTADOS DE IMAGEN
+Timestamp: 2025-03-15T00:09:26.845939
+Modelo: granite3.2-vision:latest, Tokens máx: 4096
+Imagen: _page_337_Figure_4.jpeg
+
+MÉTRICAS:
+- Descripción: 139.7775s | Total: 139.7775s | Tokens: 126
+
+RESULTADOS:
+Pregunta: ¿Qué se observa en esta imagen?
+
+Descripción: La imagen es un archivo JPEG de 1183x1213 píxeles que parece mostrar una página web con contenido educativo sobre garantías agrícolas. El título principal del documento se encuentra en la parte superior de la página, y el texto indica que se trata de un programa que busca mejorar la vida de los productores agropecuarios. La página también muestra una gráfica que representa la cantidad de garantías agrícolas que se otorgan cada año en diferentes regiones. El propósito del documento es informar sobre el programa y cómo puede beneficiarse a los productores agrícolas.
+
+================================================================================

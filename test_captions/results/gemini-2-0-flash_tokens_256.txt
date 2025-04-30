@@ -1,0 +1,204 @@
+Resultados de predicciones con Gemini (gemini-2.0-flash) - max_tokens: 256
+
+================================================================================
+RESULTADOS DE IMAGEN
+Timestamp: 2025-03-19T00:27:23.313859
+Modelo: gemini-2.0-flash, Tokens máx: 256
+Imagen: _page_337_Figure_4.jpeg
+
+MÉTRICAS:
+- Descripción: 2.8209s | Query: 1.8460s | Total: 4.7901s | Tokens: 408
+
+RESULTADOS:
+Pregunta: ¿Qué se observa en esta imagen?
+
+Descripción: Aquí está la descripción de la imagen, priorizando la información clave:
+
+**Título:** El documento se titula "PROGRAMA PRECIOS DE GARANTÍA A PRODUCTOS ALIMENTARIOS BÁSICOS MAÍZ Y FRIJOL".
+
+**Logotipo:** En la esquina superior derecha aparece el logotipo de "SEGALMEX SEGURIDAD ALIMENTARIA MEXICANA". El logotipo combina texto en color verde sobre un fondo blanco.
+
+**Contenido principal:** El documento presenta información sobre un programa de precios de garantía para productores de maíz y frijol, estructurado en forma de preguntas y respuestas:
+
+*   **1. ¿Qué busca el programa?** Incentivar el ingreso de los pequeños y medianos productores agropecuarios, mejorar su nivel de vida y aumentar la producción mediante el establecimiento de Precios de Garantía.
+*   **2. ¿A quién está dirigido?** A todos los productores de maíz y frijol que cumplan con los criterios de elegibilidad del programa.
+*   **3. Se otorga Precio de Garantía a:** Para maíz: productores con hasta 5 hectáreas de cultivo, con un acopio máximo de 35 toneladas (promedio de 7 toneladas por hectárea) y
+
+Respuesta: La imagen es un folleto informativo del programa "Precios de Garantía a Productos Alimentarios Básicos" de SEGALMEX, enfocado en maíz y frijol. Describe el objetivo del programa (1), a quién va dirigido (2), los precios de garantía y los límites de superficie cultivada (3, 4), los requisitos para los productores (5), cómo obtener el apoyo (6), a qué se compromete el solicitante (7) y en qué se puede utilizar el apoyo (8).
+
+================================================================================
+
+
+================================================================================
+RESULTADOS DE IMAGEN
+Timestamp: 2025-03-19T00:27:28.002062
+Modelo: gemini-2.0-flash, Tokens máx: 256
+Imagen: _page_615_Figure_3.jpeg
+
+MÉTRICAS:
+- Descripción: 2.6898s | Query: 1.9984s | Total: 9.4773s | Tokens: 286
+
+RESULTADOS:
+Pregunta: ¿Qué se observa en esta imagen?
+
+Descripción: Aquí tienes una descripción detallada de la imagen:
+
+La imagen muestra un gráfico de barras que compara la incidencia delictiva en el país durante los años 2022 y 2023. El título del gráfico es "INCIDENCIA DELICTIVA EN EL PAÍS 2022-2023". El eje vertical representa la cantidad de delitos, con valores que van desde 0 hasta 16000.
+
+Los delitos considerados son:
+*   **Secuestro:** 23 en 2022 y 27 en 2023
+*   **Extorsión:** 147 en 2022 y 214 en 2023
+*   **Trata de personas:** 8 en 2022 y 1 en 2023.
+*   **Narcomenudeo:** 665 en 2022 y 514 en 2023.
+*   **Robo:** 15,196 en 2022 y 14,023 en 2023.
+
+Se observa que el robo
+
+Respuesta: La imagen muestra un gráfico comparativo de la incidencia delictiva en el país entre 2022 y 2023, desglosado por tipo de delito: secuestro, extorsión, trata de personas, narcomenudeo y robo. Se observa que el robo es el delito más frecuente en ambos años, aunque disminuye de 15.196 casos en 2022 a 14.023 en 2023.
+
+================================================================================
+
+
+================================================================================
+RESULTADOS DE IMAGEN
+Timestamp: 2025-03-19T00:27:32.179642
+Modelo: gemini-2.0-flash, Tokens máx: 256
+Imagen: _page_350_Figure_4.jpeg
+
+MÉTRICAS:
+- Descripción: 2.7953s | Query: 1.3808s | Total: 13.6534s | Tokens: 337
+
+RESULTADOS:
+Pregunta: ¿Qué se observa en esta imagen?
+
+Descripción: La imagen es un diagrama de flujo que describe el "PROCESO PARA EL PAGO DEL INCENTIVO A TRIGO, ARROZ Y MAÍZ MEDIANOS PRODUCTORES". El diagrama, con el logo del "GOBIERNO DE MÉXICO / AGRICULTURA" y "SEGALMEX", está numerado del 1 al 6, e ilustra los siguientes pasos:
+
+1. **Validación de la documentación personal, productiva y el registro firmado del productor:** Se muestra una lupa sobre documentos.
+2. **Registro de las facturas de comercialización del grano:**  Se ve una mano escribiendo en un portapapeles con facturas.
+3. **Validación de las facturas de comercialización del grano:** Representado por un folder con documentos.
+4. **Expediente (datos personales, productivos y de comercialización), completo y en estatus positivo:** Se observa un portapapeles con una lista de verificación y una mano marcando.
+5. **Área de pagos Se inicia el trámite de pago:**  Se ilustra una computadora portátil con manos tecleando.
+6. **El productor recibe su incentivo por trasferencia bancaria u orden de pago
+
+Respuesta: La imagen muestra un diagrama de flujo que describe el proceso para que los productores de trigo, arroz y maíz medianos reciban un incentivo del gobierno mexicano. El diagrama detalla los pasos, desde la validación de la documentación hasta la recepción del pago.
+
+================================================================================
+
+
+================================================================================
+RESULTADOS DE IMAGEN
+Timestamp: 2025-03-19T00:27:36.510505
+Modelo: gemini-2.0-flash, Tokens máx: 256
+Imagen: _page_736_Figure_7.jpeg
+
+MÉTRICAS:
+- Descripción: 2.8459s | Query: 1.4854s | Total: 17.9837s | Tokens: 370
+
+RESULTADOS:
+Pregunta: ¿Qué se observa en esta imagen?
+
+Descripción: Aquí está la descripción detallada de la imagen:
+
+**Tipo de imagen:** Mapa.
+
+**Contenido principal:**
+
+El mapa muestra la ubicación del Santuario "Playa Platanitos" en el Estado de Nayarit, México. Incluye la división entre zonas núcleo y zonas de amortiguamiento.
+
+**Texto relevante:**
+
+*   **Título:** Santuario "Playa Platanitos" Estado de Nayarit.
+*   **Superficie Total:** 79-81-31.85 ha.
+*   **Estado de Nayarit:** Denota la ubicación geográfica general.
+*   **Municipio de San Blas, Municipio de Compostela:** Indica municipios adyacentes.
+*   **Zona de amortiguamiento:** Las Fuentes, Boca Ixtapa, Pozo del Caimán.
+*   **Zona núcleo:** La Cangrejera, Arenosa, Huizachera.
+*   **Océano Pacífico:** Indica la masa de agua adyacente.
+*   **Otros:** Platanitos, Otates y Cantarranas (nombres de localidades).
+
+**Simbología (leyenda):**
+
+*   Polígono Playa Platanitos (sin relleno
+
+Respuesta: Es un mapa del Santuario "Playa Platanitos" en el Estado de Nayarit, México. Muestra el polígono de la playa, zonas núcleo (La Cangrejera, Arenosa, Huizachera) y zonas de amortiguamiento (Las Fuentes, Boca Ixtapa, Pozo del Caimán). Incluye límites estatales y municipales, carreteras, áreas urbanas y especificaciones cartográficas.  También indica la superficie total del área.
+
+================================================================================
+
+
+================================================================================
+RESULTADOS DE IMAGEN
+Timestamp: 2025-03-19T00:27:40.880949
+Modelo: gemini-2.0-flash, Tokens máx: 256
+Imagen: _page_351_Figure_4.jpeg
+
+MÉTRICAS:
+- Descripción: 2.8094s | Query: 1.5598s | Total: 22.3549s | Tokens: 403
+
+RESULTADOS:
+Pregunta: ¿Qué se observa en esta imagen?
+
+Descripción: Aquí está la descripción de la imagen:
+
+La imagen es un diagrama de flujo que describe un proceso, probablemente relacionado con la producción agrícola y un sistema de registro y pago. Los pasos, indicados con flechas amarillas, son los siguientes:
+
+1.  **"Productor se presenta al..."**: Representado por dos figuras que simbolizan a productores agrícolas.
+2.  **"Revisión de document"**: Un documento con líneas que simulan texto.
+3.  **"Dictamen de la..."**: Un grupo de figuras representando personas en una reunión.
+4.  **"Registro en SISTEMA"**: Un ordenador portátil con un icono de un globo terráqueo, indicando registro online.
+5.  **"Constancia de Registro"**: Un documento con un icono de un gráfico o reporte.
+6.  **"Análisis de calidad"**: Un reloj de arena junto a un microscopio, aludiendo a pruebas de calidad.
+7.  **"Recepción del"**: Un camión con un maíz en la parte de carga.
+8.  **"Expedición del Document"**: Un documento que parece ser un cheque.
+9.  **"Productor cobra
+
+Respuesta: Se observa un diagrama de flujo que describe un proceso. Este comienza con la presentación de un productor y continúa con la revisión de documentos, un dictamen, el registro en un sistema, la obtención de una constancia de registro, el análisis de calidad, la recepción y la expedición de un documento. Finalmente, el productor cobra en una institución.
+
+
+================================================================================
+
+
+================================================================================
+RESULTADOS DE IMAGEN
+Timestamp: 2025-03-19T00:27:45.830536
+Modelo: gemini-2.0-flash, Tokens máx: 256
+Imagen: _page_352_Figure_4.jpeg
+
+MÉTRICAS:
+- Descripción: 2.8487s | Query: 2.1006s | Total: 27.3047s | Tokens: 393
+
+RESULTADOS:
+Pregunta: ¿Qué se observa en esta imagen?
+
+Descripción: Aquí hay una descripción detallada de la imagen, priorizando la información clave:
+
+**Tipo de Imagen:** Diagrama de flujo.
+
+**Título Principal:** "MECÁNICA OPERATIVA PARA LA ADQUISICIÓN DE LECHE, LICONSA, S.A. DE C.V."
+
+**Descripción General:** El diagrama de flujo describe el proceso para la adquisición de leche por parte de LICONSA, S.A. de C.V., desde el inicio con la solicitud del productor hasta el pago final.
+
+**Etapas Clave y Texto Principal:**
+
+*   **Inicio:** El proceso comienza con un recuadro que indica "INICIO" y se refiere a "Manual de Procedimientos para la Adquisición, Recepción y Pago de Leche Nacional en Liconsa, S.A. de C.V."
+*   **Solicitud del Productor:** El productor solicita requisitos en el Centro de Acopio.
+*   **Entrega de Documentación:** El productor entrega la solicitud y documentos al Centro de Acopio.
+*   **Revisión del Expediente:** El Subgerente de Operaciones del Centro de Acopio revisa el expediente.
+*   **Estado del Expediente:**
+
+Respuesta: Se observa un diagrama de flujo que describe la "Mecánica Operativa para la Adquisición de Leche" por LICONSA, S.A. de C.V. El diagrama detalla los pasos desde que un productor solicita ser proveedor hasta que recibe el pago por la leche entregada, incluyendo la revisión de documentos, la calidad de la leche, y los procesos administrativos y financieros involucrados.
+
+================================================================================
+
+
+================================================================================
+RESUMEN FINAL DE PROCESAMIENTO
+Timestamp finalización: 2025-03-19T00:27:45.831605
+Modelo: gemini-2.0-flash, Tokens máx: 256
+Total imágenes procesadas: 6
+Exitosas: 6, Errores: 0
+Tiempo total de procesamiento: 27.31 segundos
+
+Tiempos promedio por imagen:
+- Descripción: 2.8017s | Query: 1.7285s | Total: 15.9273s | Tokens: 366.2
+
+================================================================================
