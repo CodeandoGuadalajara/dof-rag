@@ -1,26 +1,47 @@
 # %%
 """
-DOF Document Embedding Generator
+DOF Document Embedding Generator with Structured Headers
 
 This script processes markdown files from the Mexican Official Gazette (DOF),
-extracts their content, splits them into semantic chunks, and generates vector
+extracts their content with advanced header structure recognition, splits them 
+into page-based chunks maintaining hierarchical context, and generates vector
 embeddings for efficient semantic search. The embeddings are stored in a SQLite
 database with vector search capabilities.
+
+NEW FEATURES:
+- Structured header detection and hierarchical context maintenance
+- Page-based chunking using {number}----- patterns
+- Contextual headers for improved embedding quality
+- Debug output files for manual inspection
 
 Usage:
 python extract_embeddings.py /path/to/markdown/files
 """
 
 import os
+import re
+import logging
 from datetime import datetime
 
 import typer
 from fastlite import database
-from sqlite_vec import load, serialize_float32
-from semantic_text_splitter import MarkdownSplitter
+from sqlite_vec import load
 from sentence_transformers import SentenceTransformer
 from tokenizers import Tokenizer
 from tqdm import tqdm
+
+# -----------------------------------------------------
+# Logging system configuration
+# -----------------------------------------------------
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("dof_processing.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("dof_embeddings")
 
 # %%
 
@@ -28,7 +49,6 @@ tokenizer = Tokenizer.from_pretrained("nomic-ai/modernbert-embed-base")
 
 # Model configuration
 model = SentenceTransformer("nomic-ai/modernbert-embed-base", trust_remote_code=True)
-splitter = MarkdownSplitter.from_huggingface_tokenizer(tokenizer, 2048)
 
 # %%
 # Database initialization and schema setup
@@ -48,12 +68,122 @@ db.t.chunks.create(
     id=int,
     document_id=int,
     text=str,
+    header=str,
     embedding=bytes,
     created_at=datetime,
-    pk="id",
-    foreign_keys=[("document_id", "documents")],
+    pk="id",    foreign_keys=[("document_id", "documents")],
     ignore=True,
 )
+
+# -----------------------------------------------------
+# Header pattern (Markdown)
+# -----------------------------------------------------
+HEADING_PATTERN = re.compile(r'^(#{1,6})\s+(.*)$')
+
+# -----------------------------------------------------
+# Header processing functions
+# -----------------------------------------------------
+def get_heading_level(line: str):
+    """
+    Returns the heading level and text,
+    or (None, None) if the line is not a heading.
+    """
+    match = HEADING_PATTERN.match(line)
+    if match:
+        hashes = match.group(1)
+        heading_text = match.group(2).strip()
+        level = len(hashes)
+        return level, heading_text
+    return None, None
+
+
+def update_open_headings(open_headings, line):
+    """
+    Updates the list of open headings according to the line.
+    
+    - If an H1 is found, the list is reset.
+    - If the line is a heading of level >1:
+        * If the list is empty, it is added.
+        * If the last open heading has a lower or equal level,
+          it is added without removing the previous one (to preserve siblings).
+        * If the new heading is of a higher level (lower number)
+          than the last one, those with a level lower than the new one
+          are preserved and the heading is added.
+    """
+    lvl, txt = get_heading_level(line)
+    if lvl is None:
+        # Line without heading, state is not modified
+        return open_headings
+
+    if lvl == 1:
+        # An H1 closes all previous context.
+        return [(1, txt)]
+    else:
+        if not open_headings:
+            return [(lvl, txt)]
+        else:
+            # If the last heading has a lower or equal level, the current one is added.
+            if open_headings[-1][0] <= lvl:
+                open_headings.append((lvl, txt))
+            else:
+                # If the new heading is of a higher level (more important)
+                # only headings that are of a lower level (higher) than the new one are preserved.
+                new_chain = [item for item in open_headings if item[0] < lvl]
+                new_chain.append((lvl, txt))
+                open_headings = new_chain
+        return open_headings
+
+
+def build_header(doc_title: str, page: str, open_headings: list, chunk_number: int):
+    """
+    Builds the chunk header with the format:
+    
+    # Document: <Document Name> | page: <Page Number>
+    
+    Additionally, in chunk #1 the first detected heading is added (if it exists),
+    while in other chunks all open headings are listed in order.
+    """
+    header_lines = [f"# Document: {doc_title} | page: {page}"]
+
+    if chunk_number == 1:
+        if open_headings:
+            # For the first chunk, only the first detected heading is included.
+            top_level, top_text = open_headings[0]
+            hashes = "#" * top_level
+            header_lines.append(f"{hashes} {top_text}")
+    else:
+        for (lvl, txt) in open_headings:
+            hashes = "#" * lvl
+            header_lines.append(f"{hashes} {txt}")
+
+    return "\n".join(header_lines)
+
+
+def split_text_by_page_break(text: str):
+    """
+    Splits the text into chunks based on the page pattern:
+    {number} followed by at least 5 hyphens.
+    """
+    page_pattern = re.compile(r'\{(\d+)\}\s*-{5,}')
+    chunks = []
+    last_index = 0
+    last_page = None
+
+    for match in page_pattern.finditer(text):
+        page_num = match.group(1)
+        chunk_text = text[last_index:match.start()].strip()
+        if chunk_text:
+            chunks.append({"text": chunk_text, "page": page_num})
+        last_index = match.end()
+        last_page = page_num
+
+    # Last fragment after the last page mark
+    remaining = text[last_index:].strip()
+    if remaining:
+        final_page = last_page if last_page else "1"
+        chunks.append({"text": remaining, "page": final_page})
+
+    return chunks
 
 # %%
 
@@ -95,48 +225,99 @@ def get_url_from_filename(filename: str):
 
 def process_file(file_path):
     """
-    Process a markdown file, extract content, generate embeddings and store in database.
+    Process a markdown file with structured headers support.
     This function:
     1. Reads file content
     2. Extracts metadata from filename
     3. Deletes any previous version of this document
-    4. Splits content into semantic chunks
-    5. Generates vector embeddings for each chunk
-    6. Stores chunks and embeddings in the database
+    4. Splits content by page breaks using the improved algorithm
+    5. Maintains hierarchical context with open headings
+    6. Generates contextual headers for each chunk
+    7. Generates vector embeddings for each chunk (including header)
+    8. Stores chunks and embeddings in the database
+    9. Creates a debug file for manual inspection
 
     Args:
         file_path (str): Path to the markdown file to process
-
     """
     with open(file_path, "r", encoding="utf-8") as file:
         content = file.read()
 
-        # Extract metadata from filename
-        title = os.path.splitext(os.path.basename(file_path))[0]
-        url = get_url_from_filename(file_path)
+    title = os.path.splitext(os.path.basename(file_path))[0]
+    url = get_url_from_filename(file_path)
+    logger.debug(f"Processing file '{file_path}' with title '{title}'")
 
-        # Delete any existing document with the same URL to avoid duplicates
-        db.t.documents.delete_where("url = ?", [url])
+    # Delete any existing document with the same URL to avoid duplicates
+    db.t.documents.delete_where("url = ?", [url])
+    doc = db.t.documents.insert(
+        title=title,
+        url=url,
+        file_path=file_path,
+        created_at=datetime.now()
+    )
 
-        # Insert document metadata into the documents table
-        doc = db.t.documents.insert(
-            title=title, url=url, file_path=file_path, created_at=datetime.now()
-        )
+    # Divide the content into chunks based on page breaks
+    if re.search(r'\{\d+\}\s*-{5,}', content):
+        page_chunks = split_text_by_page_break(content)
+    else:
+        page_chunks = [{"text": content, "page": "1"}]
 
-        # Split content into semantic chunks based on configured tokenizer
-        chunks = splitter.chunks(content)
+    chunks_file_path = os.path.splitext(file_path)[0] + "_chunks.txt"
+    open_headings = []  # List of (level, text) that are "open"
+    chunk_counter = 0
 
-        # Store chunks and embeddings
-        for i, chunk in enumerate(tqdm(chunks, desc=f"Processing {file_path}")):
-            # Prefix with 'search_document:' to identify this text as a document for the embedding model
-            # This prefix tells the model to encode the text as a document
-            embedding = model.encode(f"search_document: {chunk}")
+    with open(chunks_file_path, "w", encoding="utf-8") as chunks_file:
+        for chunk in page_chunks:
+            chunk_counter += 1
+            chunk_text = chunk["text"]
+            page_number = chunk["page"]
+
+            # For the first chunk, pre-read the lines until the first heading is obtained.
+            if chunk_counter == 1:
+                lines = chunk_text.splitlines()
+                initial_headings = []
+                for line in lines:
+                    lvl, txt = get_heading_level(line)
+                    if lvl is not None:
+                        initial_headings.append((lvl, txt))
+                        # If the first heading is H1, we stop the pre-reading.
+                        if lvl == 1:
+                            break
+                    else:
+                        # Stop if the first line that is not a heading is found.
+                        break
+                if initial_headings:
+                    open_headings = initial_headings.copy()
+
+            # Build the header using the "open" headings at the beginning of the chunk.
+            header = build_header(title, page_number, open_headings, chunk_counter)
+
+            # Prepare text to generate the embedding.
+            text_for_embedding = f"{header}\n\n{chunk_text}"
+            embedding = model.encode(f"search_document: {text_for_embedding}")
+
+            # Write the chunk details to the _chunks.txt file.
+            chunks_file.write(f"--- CHUNK #{chunk_counter} ---\n")
+            chunks_file.write(f"Header:\n{header}\n\n")
+            chunks_file.write(f"Text:\n{chunk_text}\n")
+            chunks_file.write("\n" + "-"*50 + "\n\n")
+
+            # Save the chunk in the database.
             db.t.chunks.insert(
                 document_id=doc["id"],
-                text=chunk,
+                text=chunk_text,
+                header=header,
                 embedding=embedding,
                 created_at=datetime.now(),
             )
+
+            # Update the state of open headings for the following chunks.
+            lines = chunk_text.splitlines()
+            for line in lines:
+                open_headings = update_open_headings(open_headings, line)
+
+    logger.info(f"Processing completed for: {file_path}")
+    logger.info(f"Chunks file generated at: {chunks_file_path}")
 
 
 def process_directory(directory_path):
