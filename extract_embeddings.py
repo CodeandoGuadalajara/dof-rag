@@ -1,6 +1,5 @@
 # %%
-"""
-DOF Document Embedding Generator with Structured Headers
+"""DOF Document Embedding Generator with Structured Headers and Image Integration
 
 This script processes markdown files from the Mexican Official Gazette (DOF),
 extracts their content with advanced header structure recognition, splits them 
@@ -8,11 +7,20 @@ into page-based chunks maintaining hierarchical context, and generates vector
 embeddings for efficient semantic search. The embeddings are stored in a SQLite
 database with vector search capabilities.
 
-NEW FEATURES:
+FEATURES:
 - Structured header detection and hierarchical context maintenance
 - Page-based chunking using {number}----- patterns
 - Contextual headers for improved embedding quality
+- Image descriptions integration for enhanced semantic search
+- Automatic migration of image descriptions from modules_captions database
 - Debug output files for manual inspection
+
+IMAGE INTEGRATION:
+The script automatically integrates image descriptions into the embedding process:
+- Migrates image descriptions from modules_captions/db/captions.db
+- Associates image descriptions with document chunks by page number
+- Appends relevant image descriptions to chunk text before embedding generation
+- Maintains backward compatibility when no image descriptions are available
 
 Usage:
 python extract_embeddings.py /path/to/markdown/files [--verbose]
@@ -46,6 +54,9 @@ logger = logging.getLogger("dof_embeddings")
 # Model configuration
 model = SentenceTransformer("nomic-ai/modernbert-embed-base", trust_remote_code=True)
 
+# Database paths configuration
+MODULES_CAPTIONS_DB_PATH = "modules_captions/db/captions.db"
+
 # %%
 # Database initialization and schema setup
 # Using SQLite with sqlite-vec extension for vector similarity search
@@ -71,6 +82,20 @@ db.t.chunks.create(
     foreign_keys=[("document_id", "documents")],
     ignore=True,
 )
+
+# Image descriptions table: stores image descriptions for integration with embeddings
+db.t.image_descriptions.create(
+    id=int,
+    document_name=str,
+    page_number=int,
+    image_filename=str,
+    description=str,
+    created_at=datetime,
+    updated_at=datetime,
+    pk="id",
+    ignore=True,
+)
+db.t.image_descriptions.create_index(["document_name", "page_number"], if_not_exists=True)
 
 HEADING_PATTERN = re.compile(r'^(#{1,6})\s+(.*)$')
 
@@ -297,33 +322,37 @@ def _initialize_chunk_processing(file_path: str, verbose: bool) -> tuple:
     return open_headings_dict, chunks_file, chunks_file_path
 
 
-def _process_first_chunk_headers(chunk_text: str, open_headings_dict: dict) -> dict:
+def _get_chunk_image_descriptions(document_name: str, page_number: int) -> str:
     """
-    Pre-read the first chunk to extract initial headers.
+    Get image descriptions for a specific document and page.
     
     Args:
-        chunk_text (str): Text of the first chunk
-        open_headings_dict (dict): Dictionary of open headings
+        document_name (str): Name of the document
+        page_number (int): Page number
         
     Returns:
-        dict: Updated open_headings_dict
+        str: Formatted image descriptions or empty string if none found
     """
-    lines = chunk_text.splitlines()
-    for line in lines:
-        lvl, txt = get_heading_level(line)
-        if lvl is not None:
-            # Update headings dictionary directly
-            open_headings_dict = update_open_headings_dict(open_headings_dict, line)
-            # If the first heading is H1, we stop the pre-reading.
-            if lvl == 1:
-                break
-        else:
-            # Stop if the first line that is not a heading is found.
-            break
-    return open_headings_dict
+    try:
+        descriptions = db.q(
+            "SELECT description FROM image_descriptions WHERE document_name = ? AND page_number = ?",
+            [document_name, page_number]
+        )
+        
+        if descriptions:
+            logger.info(f"Image found on page {page_number} of document {document_name}")
+            formatted_descriptions = []
+            for i, desc in enumerate(descriptions, 1):
+                formatted_descriptions.append(f"Imagen {i}: {desc['description']}")
+            return f"\n\nImágenes en esta página: {'. '.join(formatted_descriptions)}."
+        
+        return ""
+    except Exception as e:
+        logger.warning(f"Error querying image descriptions for {document_name}, page {page_number}: {str(e)}")
+        return ""
 
 
-def _generate_chunk_embedding(header: str, chunk_text: str, file_path: str, chunk_counter: int) -> bytes:
+def _generate_chunk_embedding(header: str, chunk_text: str, file_path: str, chunk_counter: int, description_images: str = "") -> bytes:
     """
     Generate embedding for a chunk.
     
@@ -332,11 +361,12 @@ def _generate_chunk_embedding(header: str, chunk_text: str, file_path: str, chun
         chunk_text (str): Chunk text
         file_path (str): Path to the file (for error logging)
         chunk_counter (int): Chunk counter (for error logging)
+        description_images (str): Image descriptions for this chunk (optional)
         
     Returns:
         bytes: Embedding vector
     """
-    text_for_embedding = f"{header}\n\n{chunk_text}"
+    text_for_embedding = f"{header}\n\n{chunk_text}{description_images}"
     
     try:
         embedding = model.encode(f"search_document: {text_for_embedding}")
@@ -346,7 +376,7 @@ def _generate_chunk_embedding(header: str, chunk_text: str, file_path: str, chun
         raise
 
 
-def _write_debug_chunk(chunks_file, chunk_counter: int, header: str, chunk_text: str):
+def _write_debug_chunk(chunks_file, chunk_counter: int, header: str, chunk_text: str, description_images: str = ""):
     """
     Write chunk details to debug file.
     
@@ -355,11 +385,19 @@ def _write_debug_chunk(chunks_file, chunk_counter: int, header: str, chunk_text:
         chunk_counter (int): Chunk counter
         header (str): Chunk header
         chunk_text (str): Chunk text
+        description_images (str): Image descriptions associated with this chunk
     """
     if chunks_file:
         chunks_file.write(f"--- CHUNK #{chunk_counter} ---\n")
         chunks_file.write(f"Header:\n{header}\n\n")
         chunks_file.write(f"Text:\n{chunk_text}\n")
+        
+        # Add image descriptions if available
+        if description_images:
+            chunks_file.write(f"\nImage Descriptions:{description_images}\n")
+        else:
+            chunks_file.write("\nImage Descriptions: No images found for this chunk\n")
+            
         chunks_file.write("\n" + "-"*50 + "\n\n")
 
 
@@ -419,19 +457,20 @@ def _process_single_chunk(chunk: dict, chunk_counter: int, title: str, open_head
     chunk_text = chunk["text"]
     page_number = chunk["page"]
 
-    # For the first chunk, pre-read the lines until the first heading is obtained.
-    if chunk_counter == 1:
-        open_headings_dict = _process_first_chunk_headers(chunk_text, open_headings_dict)
-
     # Build the header using the "open" headings at the beginning of the chunk.
     header = build_header_dict(title, page_number, open_headings_dict)
 
+    # Get image descriptions for this chunk
+    # Convert page_number to int for proper comparison with database
+    page_num_int = int(page_number) - 1
+    description_images = _get_chunk_image_descriptions(title, page_num_int)
+
     # Generate embedding
-    embedding = _generate_chunk_embedding(header, chunk_text, file_path, chunk_counter)
+    embedding = _generate_chunk_embedding(header, chunk_text, file_path, chunk_counter, description_images)
 
     # Write debug info if verbose
     if verbose:
-        _write_debug_chunk(chunks_file, chunk_counter, header, chunk_text)
+        _write_debug_chunk(chunks_file, chunk_counter, header, chunk_text, description_images)
 
     # Save to database
     _save_chunk_to_database(doc_id, chunk_text, header, embedding)
@@ -528,6 +567,66 @@ def process_directory(directory_path, verbose: bool = False):
         raise
 
 
+def _migrate_image_descriptions_table():
+    """
+    Migrate image descriptions from modules_captions database to main database.
+    """
+    try:
+        import sqlite3
+        
+        # Check if modules_captions database exists
+        if not os.path.exists(MODULES_CAPTIONS_DB_PATH):
+            logger.info("No modules_captions database found, skipping migration")
+            return
+            
+        # Connect to modules_captions database
+        source_conn = sqlite3.connect(MODULES_CAPTIONS_DB_PATH)
+        source_cursor = source_conn.cursor()
+        
+        # Check if image_descriptions table exists in source
+        source_cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='image_descriptions'"
+        )
+        if not source_cursor.fetchone():
+            logger.info("No image_descriptions table found in modules_captions database")
+            source_conn.close()
+            return
+            
+        # Get all records from source database
+        source_cursor.execute(
+            "SELECT document_name, page_number, image_filename, description, created_at, updated_at FROM image_descriptions"
+        )
+        records = source_cursor.fetchall()
+        source_conn.close()
+        
+        if not records:
+            logger.info("No image descriptions found to migrate")
+            return
+            
+        # Insert records into main database
+        migrated_count = 0
+        for record in records:
+            try:
+                db.t.image_descriptions.insert({
+                    "document_name": record[0],
+                    "page_number": record[1],
+                    "image_filename": record[2],
+                    "description": record[3],
+                    "created_at": record[4] if record[4] else datetime.now(),
+                    "updated_at": record[5] if record[5] else datetime.now()
+                })
+                migrated_count += 1
+            except Exception as e:
+                # Skip duplicates or other errors
+                logger.debug(f"Skipping record {record[0]}/{record[1]}/{record[2]}: {str(e)}")
+                continue
+                
+        logger.info(f"Successfully migrated {migrated_count} image descriptions")
+        
+    except Exception as e:
+        logger.warning(f"Error during image descriptions migration: {str(e)}")
+
+
 def main(root_dir: str, verbose: bool = False):
     """
     Process all markdown files in a directory and its subdirectories.
@@ -547,6 +646,10 @@ def main(root_dir: str, verbose: bool = False):
     start_time = datetime.now()
     
     try:
+        # Migrate image descriptions before processing
+        logger.info("Migrating image descriptions...")
+        _migrate_image_descriptions_table()
+        
         process_directory(root_dir, verbose=verbose)
         elapsed_time = datetime.now() - start_time
         logger.info(f"Processing completed in {elapsed_time}")
