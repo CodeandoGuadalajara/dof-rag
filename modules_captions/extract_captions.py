@@ -5,8 +5,13 @@ This script provides an improved version of the caption extraction system
 with SQLite database storage, better error handling, and enhanced processing
 capabilities. It supports multiple AI providers through direct command-line flags.
 
+The system automatically handles path resolution for database files:
+- Paths starting with '../' are resolved relative to the project root
+- Simple filenames are placed in modules_captions/db/
+- Absolute paths are used as-is
+
 Usage:
-    python extract_captions.py --root-dir /path/to/images --db-path captions.db
+    python extract_captions.py --root-dir /path/to/images --db-path ../dof_db/db.sqlite
     python extract_captions.py --root-dir /path/to/images --openai
     python extract_captions.py --root-dir /path/to/images --gemini
     python extract_captions.py --root-dir /path/to/images --claude
@@ -18,23 +23,22 @@ import os
 import signal
 import sys
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 
 from dotenv import load_dotenv
 
-# Import colorama for cross-platform colored output
+# Import centralized color management
 try:
-    from colorama import Fore, Style, init
-    # Initialize colorama for Windows compatibility
-    init(autoreset=True)
+    from .utils.colors import ColorManager
     COLORAMA_AVAILABLE = True
 except ImportError:
-    # Fallback if colorama is not available
-    class MockColor:
-        def __getattr__(self, name):
-            return ''
+    # Fallback if ColorManager is not available
+    class MockColorManager:
+        @staticmethod
+        def colorize(text, color):
+            return text
     
-    Fore = Back = Style = MockColor()
+    ColorManager = MockColorManager()
     COLORAMA_AVAILABLE = False
 
 try:
@@ -50,62 +54,65 @@ except ImportError:
     from utils.file_processor import FileProcessor
     from utils.error_handler import ErrorHandler
 
-def print_header(text: str, color: str = Fore.CYAN):
+def print_header(text: str, color: str = 'cyan'):
     """Print a formatted header with colors."""
     separator = "=" * len(text)
-    print(f"\n{color}{separator}")
-    print(f"{text}")
-    print(f"{separator}{Style.RESET_ALL}")
+    header_text = f"\n{separator}\n{text}\n{separator}"
+    print(ColorManager.colorize(header_text, color))
 
-def print_info(label: str, value: str, color: str = Fore.GREEN):
+def print_info(label: str, value: str, color: str = 'green'):
     """Print formatted information with colors."""
-    print(f"{color}📋 {label}:{Style.RESET_ALL} {value}")
+    info_text = f"📋 {label}: {value}"
+    print(ColorManager.colorize(info_text, color))
 
 def print_success(message: str):
     """Print success message with green color."""
-    print(f"{Fore.GREEN}✅ {message}{Style.RESET_ALL}")
+    success_text = f"✅ {message}"
+    print(ColorManager.colorize(success_text, 'green'))
 
 def print_warning(message: str):
     """Print warning message with yellow color."""
-    print(f"{Fore.YELLOW}⚠️  {message}{Style.RESET_ALL}")
+    warning_text = f"⚠️  {message}"
+    print(ColorManager.colorize(warning_text, 'yellow'))
 
 def print_error(message: str):
     """Print error message with red color."""
-    print(f"{Fore.RED}❌ {message}{Style.RESET_ALL}")
+    error_text = f"❌ {message}"
+    print(ColorManager.colorize(error_text, 'red'))
 
 def print_stats(stats: Dict[str, Any]):
     """Print essential processing statistics with colors and formatting."""
-    print_header("📊 Processing Summary", Fore.CYAN)
+    print_header("📊 Processing Summary", 'cyan')
     
     # Essential statistics only
     processed = stats.get('total_processed', 0)
     total = stats.get('total_images', 0)
     errors = stats.get('total_errors', 0)
     
-    print_info("Processed", f"{processed}/{total} images", Fore.GREEN if processed > 0 else Fore.YELLOW)
+    print_info("Processed", f"{processed}/{total} images", 'green' if processed > 0 else 'yellow')
     
     if errors > 0:
-        print_info("Errors", str(errors), Fore.RED)
+        print_info("Errors", str(errors), 'red')
     
     # Success rate with color coding
     success_rate = stats.get('success_rate', 0)
     if success_rate >= 90:
-        color = Fore.GREEN
+        color = 'green'
     elif success_rate >= 70:
-        color = Fore.YELLOW
+        color = 'yellow'
     else:
-        color = Fore.RED
+        color = 'red'
     print_info("Success rate", f"{success_rate:.1f}%", color)
     
     # Time information (simplified)
     total_time = stats.get('total_time_seconds', 0)
     if total_time > 0:
-        print_info("Total time", f"{total_time:.1f}s", Fore.MAGENTA)
+        print_info("Total time", f"{total_time:.1f}s", 'magenta')
     
     # Database summary (simplified)
     db_stats = stats.get('database_stats', {})
     if db_stats and db_stats.get('total_descriptions', 0) > 0:
-        print_info("Total descriptions in DB", str(db_stats.get('total_descriptions', 0)), Fore.CYAN)
+        print_info("Total descriptions in DB", str(db_stats.get('total_descriptions', 0)), 'cyan')
 
 class CaptionExtractor:
     """
@@ -126,6 +133,7 @@ class CaptionExtractor:
         self.config = config
         self.interrupted = False
         self.status_only = status_only
+        self.debug_mode = config.get('debug_mode', False)
         
         # Initialize error handler first
         self.error_handler = ErrorHandler(
@@ -144,23 +152,21 @@ class CaptionExtractor:
         if hasattr(self.ai_client, 'debug_mode'):
             self.ai_client.debug_mode = config.get('debug_mode', False)
         
-        # Initialize file processor only if not status-only mode
-        if not status_only:
-            self.file_processor = FileProcessor(
-                root_directory=config['root_directory'],
-                db_manager=self.db_manager,
-                ai_client=self.ai_client,
-                log_dir=config.get('log_directory', 'logs'),
-                commit_interval=config.get('commit_interval', 10),
-                cooldown_seconds=config.get('cooldown_seconds', 0),
-                debug_mode=config.get('debug_mode', False)
-            )
-            
-            # Set file processor reference in AI client for interrupt handling
-            if hasattr(self.ai_client, 'set_file_processor'):
-                self.ai_client.set_file_processor(self.file_processor)
-        else:
-            self.file_processor = None
+        # Initialize file processor (always needed for status and processing)
+        self.file_processor = FileProcessor(
+            root_directory=config['root_directory'],
+            db_manager=self.db_manager,
+            ai_client=self.ai_client,
+            log_dir=config.get('log_directory', 'logs'),
+            commit_interval=config.get('commit_interval', 10),
+            cooldown_seconds=config.get('cooldown_seconds', 0),
+            debug_mode=config.get('debug_mode', False),
+            checkpoint_dir=config.get('checkpoint_dir')
+        )
+        
+        # Set file processor reference in AI client for interrupt handling (only if not status-only)
+        if not status_only and hasattr(self.ai_client, 'set_file_processor'):
+            self.ai_client.set_file_processor(self.file_processor)
         
         # Setup signal handlers for graceful interruption
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -210,8 +216,9 @@ class CaptionExtractor:
             if requests_per_minute and hasattr(client, 'set_rate_limits'):
                 client.set_rate_limits(requests_per_minute)
             
-            # Print additional client configuration
-            print(client.get_model_info())
+            # Show client configuration only in debug mode
+            if self.debug_mode:
+                print(client.get_model_info())
             return client
             
         except Exception as e:
@@ -262,6 +269,27 @@ class CaptionExtractor:
             self.error_handler.logger.info(f"Starting processing of {len(images)} images")
             results = self.file_processor.process_images(images, force_reprocess)
             
+            # Process error images with priority if any exist
+            self.error_handler.logger.info("🔍 Attempting to process images with errors...")
+            error_images = self.file_processor._extract_error_images_for_processing()
+            
+            if error_images:
+                self.error_handler.logger.info(f"📋 Found {len(error_images)} error images to retry")
+                self.file_processor._process_error_images_with_priority(error_images)
+            else:
+                self.error_handler.logger.info("✅ No error images found to process")
+            
+            # Check for missing images from the provided directory
+            missing_images = self._check_missing_images_from_directory(images)
+            if missing_images:
+                self.error_handler.logger.info(f"⚠️ Found {len(missing_images)} missing images from provided directory")
+                for i, missing_img in enumerate(missing_images[:5], 1):  # Show first 5
+                    self.error_handler.logger.info(f"   {i}. {missing_img}")
+                if len(missing_images) > 5:
+                    self.error_handler.logger.info(f"   ... and {len(missing_images) - 5} more missing images")
+            else:
+                self.error_handler.logger.info("✅ All images from directory are present")
+            
             # Add database statistics
             db_stats = self.db_manager.get_statistics()
             results['database_stats'] = db_stats
@@ -286,6 +314,40 @@ class CaptionExtractor:
                 'error_summary': self.error_handler.get_error_summary()
             }
     
+    def _check_missing_images_from_directory(self, processed_images: List) -> List[str]:
+        """
+        Check for images that exist in the directory but were not processed.
+        
+        Args:
+            processed_images: List of image tuples that were processed
+            
+        Returns:
+            List of missing image filenames
+        """
+        try:
+            # Get all image files from the root directory
+            all_images = set()
+            root_path = Path(self.config.get('root_directory', '.'))
+            
+            if root_path.exists():
+                # Find all image files in the directory
+                for ext in ['*.png', '*.jpg', '*.jpeg', '*.gif', '*.bmp', '*.tiff']:
+                    all_images.update(f.name for f in root_path.rglob(ext))
+            
+            # Get processed image filenames
+            processed_filenames = set()
+            for image_tuple in processed_images:
+                if len(image_tuple) >= 4:
+                    processed_filenames.add(image_tuple[3])  # image_filename is 4th element
+            
+            # Find missing images
+            missing_images = list(all_images - processed_filenames)
+            return sorted(missing_images)
+            
+        except Exception as e:
+            self.error_handler.logger.error(f"Error checking missing images: {e}")
+            return []
+    
     def get_status(self) -> Dict[str, Any]:
         """
         Get current system status and statistics.
@@ -296,6 +358,61 @@ class CaptionExtractor:
         try:
             db_stats = self.db_manager.get_statistics()
             error_summary = self.error_handler.get_error_summary()
+            
+            # Count available images if file_processor is available
+            total_images = 0
+            processed_images = 0
+            completion_percentage = 0
+            directory_status = "unknown"
+            current_directory = ""
+            
+            if self.file_processor:
+                try:
+                    images = self.file_processor.find_images(skip_existing=False)
+                    total_images = len(images)
+                    
+                    # Count how many images actually have descriptions in database
+                    processed_images = self._count_processed_images(images)
+                    
+                    # Calculate completion percentage
+                    if total_images > 0:
+                        completion_percentage = round((processed_images / total_images) * 100, 1)
+                    
+                    # Check if current directory is completed using hierarchical validation
+                    completed_dirs = self.file_processor._load_completed_directories()
+                    
+                    # Get relative path of current directory
+                    try:
+                        current_directory = str(self.file_processor.root_directory.relative_to(Path.cwd()))
+                        if current_directory == ".":
+                            current_directory = ""
+                    except ValueError:
+                        current_directory = str(self.file_processor.root_directory.name)
+                    
+                    # Use hierarchical validation to determine if directory is truly completed
+                    is_hierarchically_complete = self.file_processor._validate_directory_completion_by_hierarchy(current_directory)
+                    
+                    # Determine directory status with hierarchical precision
+                    if total_images == 0:
+                        directory_status = "no_images"
+                    elif completion_percentage == 100 and is_hierarchically_complete:
+                        directory_status = "fully_completed"
+                    elif current_directory in completed_dirs:
+                        # Directory is marked as completed, but verify with hierarchical validation
+                        if is_hierarchically_complete and completion_percentage == 100:
+                            directory_status = "fully_completed"
+                        elif processed_images > 0:
+                            directory_status = "partially_completed"
+                        else:
+                            # Directory marked as completed but validation shows it's not truly complete
+                            directory_status = "marked_completed"
+                    elif processed_images > 0:
+                        directory_status = "partially_completed"
+                    else:
+                        directory_status = "pending"
+                        
+                except Exception as e:
+                    self.error_handler.logger.warning(f"Could not count images: {e}")
             
             # Try to get model information, but don't fail if not possible
             try:
@@ -310,6 +427,12 @@ class CaptionExtractor:
                 safe_config['api_key'] = '***REDACTED***'
             
             return {
+                'status': 'ready',
+                'total_images': total_images,
+                'processed_images': processed_images,
+                'completion_percentage': completion_percentage,
+                'directory_status': directory_status,
+                'current_directory': current_directory,
                 'database_stats': db_stats,
                 'error_summary': error_summary,
                 'model_info': model_info,
@@ -319,7 +442,33 @@ class CaptionExtractor:
         except Exception as e:
             self.error_handler.handle_error(e, {'operation': 'get_status'}, 'unknown')
             return {'error': str(e)}
-
+    
+    def _count_processed_images(self, images: List[tuple]) -> int:
+        """
+        Count how many images in the list have descriptions in the database.
+        
+        Args:
+            images: List of tuples (document_name, image_path, page_number, image_filename, parent_dir)
+            
+        Returns:
+            int: Number of images that have descriptions in the database
+        """
+        processed_count = 0
+        
+        for image_tuple in images:
+            try:
+                # Unpack the tuple (document_name, image_path, page_number, image_filename, parent_dir)
+                document_name, image_path, page_number, image_filename, parent_dir = image_tuple
+                    
+                # Check if description exists in database
+                if self.db_manager.description_exists(document_name, page_number, image_filename):
+                    processed_count += 1
+                        
+            except Exception as e:
+                self.error_handler.logger.warning(f"Error checking processed status for {image_tuple}: {e}")
+                continue
+                
+        return processed_count
 
 
 def load_provider_config(provider: str) -> Dict[str, Any]:
@@ -343,83 +492,90 @@ def load_provider_config(provider: str) -> Dict[str, Any]:
         print_warning("Using default configuration...")
         return create_default_config()
     
-    # Get base configuration (excluding providers section)
-    config = {k: v for k, v in unified_config.items() if k not in ["providers", "_comment", "_instructions", "_configuration_notes", "_environment_variables", "_usage_examples"]}
+    # Get base configuration (excluding metadata sections)
+    excluded_keys = {"providers", "_comment", "_instructions", "_configuration_notes", "_environment_variables", "_usage_examples"}
+    config = {k: v for k, v in unified_config.items() if k not in excluded_keys}
     
     # Check if provider exists
-    if provider not in unified_config.get("providers", {}):
+    providers = unified_config.get("providers", {})
+    if provider not in providers:
         print_error(f"Provider '{provider}' not found in configuration. Available providers:")
-        for available_provider in unified_config.get('providers', {}).keys():
-            print(f"  {Fore.CYAN}- {available_provider}{Style.RESET_ALL}")
+        for available_provider in providers.keys():
+            provider_text = f"  - {available_provider}"
+            print(ColorManager.colorize(provider_text, 'cyan'))
         print_warning("Using default configuration...")
         return config
     
     # Update with provider-specific configuration
-    provider_config = unified_config["providers"][provider]
-    
-    # Set the provider
+    provider_config = providers[provider]
     config["provider"] = provider
     
-    # Update client_config
-    if "client_config" in provider_config:
-        config["client_config"] = provider_config["client_config"]
+    # Update client_config and rate_limits if present
+    for key in ["client_config", "rate_limits"]:
+        if key in provider_config:
+            config[key] = provider_config[key]
     
-    # Update rate_limits
-    if "rate_limits" in provider_config:
-        config["rate_limits"] = provider_config["rate_limits"]
+    # Resolve paths
+    _resolve_config_paths(config, os.path.dirname(os.path.abspath(__file__)))
     
-    # Convert relative paths to absolute paths within modules_captions
-    module_dir = os.path.dirname(os.path.abspath(__file__))
+    # Display rate limits if available
+    _display_rate_limits(provider, provider_config.get("rate_limits"))
     
-    # Handle log_directory
-    if "log_directory" in config:
-        if not os.path.isabs(config["log_directory"]):
-            config["log_directory"] = os.path.join(module_dir, config["log_directory"])
-            config["log_dir"] = config["log_directory"]  # Alias for compatibility
-    
-    # Handle checkpoint_directory
-    if "checkpoint_directory" in config:
-        if not os.path.isabs(config["checkpoint_directory"]):
-            config["checkpoint_directory"] = os.path.join(module_dir, config["checkpoint_directory"])
-            config["checkpoint_dir"] = config["checkpoint_directory"]  # Alias for compatibility
-    
-    # Handle db_path - place it in modules_captions/db/
-    if "db_path" in config:
-        if not os.path.isabs(config["db_path"]):
-            # Extract just the filename from the path
-            db_filename = os.path.basename(config["db_path"])
-            config["db_path"] = os.path.join(module_dir, "db", db_filename)
-    
-    # Create directories if they don't exist
-    if "log_directory" in config:
-        os.makedirs(config["log_directory"], exist_ok=True)
-    if "checkpoint_directory" in config:
-        os.makedirs(config["checkpoint_directory"], exist_ok=True)
-    if "db_path" in config:
-        db_dir = os.path.dirname(config["db_path"])
-        os.makedirs(db_dir, exist_ok=True)
-    
-    # Show rate limit information
-    if "rate_limits" in provider_config:
-        rate_limits = provider_config["rate_limits"]
-        print_header(f"⚡ Rate Limits for {provider}", Fore.YELLOW)
-        print_info("Requests per minute", str(rate_limits.get('requests_per_minute', 'Not specified')), Fore.CYAN)
-        print_info("Tokens per minute", str(rate_limits.get('tokens_per_minute', 'Not specified')), Fore.CYAN)
-        print_info("Requests per day", str(rate_limits.get('requests_per_day', 'Not specified')), Fore.CYAN)
-    
-    # Check environment variable for API key
-    if "env_var" in provider_config and provider_config["env_var"]:
-        env_var = provider_config["env_var"]
-        if os.getenv(env_var):
-            print_success(f"Using API key from environment variable {env_var}")
-            # Import OpenAIClient to use clean_api_key method
-            from clients.openai import OpenAIClient
-            config["api_key"] = OpenAIClient.clean_api_key(os.getenv(env_var))
-        else:
-            print_warning(f"Environment variable {env_var} not found")
-            print_warning(f"Set {env_var} or provide an API key with --api-key")
+    # Handle API key from environment
+    _handle_api_key(config, provider_config)
     
     return config
+
+def _resolve_config_paths(config: Dict[str, Any], module_dir: str) -> None:
+    """Resolve relative paths in configuration to absolute paths."""
+    path_configs = {
+        "log_directory": "log_dir",
+        "checkpoint_directory": "checkpoint_dir"
+    }
+    
+    for path_key, alias_key in path_configs.items():
+        if path_key in config and not os.path.isabs(config[path_key]):
+            config[path_key] = os.path.join(module_dir, config[path_key])
+            config[alias_key] = config[path_key]  # Alias for compatibility
+            os.makedirs(config[path_key], exist_ok=True)
+    
+    # Handle db_path separately due to special logic
+    if "db_path" in config and not os.path.isabs(config["db_path"]):
+        if config["db_path"].startswith("../"):
+            relative_path = config["db_path"][3:]
+            config["db_path"] = os.path.normpath(os.path.join(module_dir, "..", relative_path))
+        else:
+            db_filename = os.path.basename(config["db_path"])
+            config["db_path"] = os.path.join(module_dir, "db", db_filename)
+        
+        db_dir = os.path.dirname(config["db_path"])
+        os.makedirs(db_dir, exist_ok=True)
+
+def _display_rate_limits(provider: str, rate_limits: Optional[Dict[str, Any]]) -> None:
+    """Display rate limit information for the provider."""
+    if not rate_limits:
+        return
+        
+    print_header(f"⚡ Rate Limits for {provider}", 'yellow')
+    for limit_type, limit_value in rate_limits.items():
+        display_name = limit_type.replace('_', ' ').title()
+        display_value = str(limit_value) if limit_value is not None else 'Not specified'
+        print_info(display_name, display_value, 'cyan')
+
+def _handle_api_key(config: Dict[str, Any], provider_config: Dict[str, Any]) -> None:
+    """Handle API key configuration from environment variables."""
+    env_var = provider_config.get("env_var")
+    if not env_var:
+        return
+        
+    api_key = os.getenv(env_var)
+    if api_key:
+        print_success(f"Using API key from environment variable {env_var}")
+        from clients.openai import OpenAIClient
+        config["api_key"] = OpenAIClient.clean_api_key(api_key)
+    else:
+        print_warning(f"Environment variable {env_var} not found")
+        print_warning(f"Set {env_var} or provide an API key with --api-key")
 
 def create_default_config() -> Dict[str, Any]:
     """
@@ -456,6 +612,23 @@ try:
 except Exception as e:
     print(f"Error loading environment variables: {e}")
 
+def get_default_provider() -> str:
+    """
+    Get the default provider from config.json.
+    
+    Returns:
+        Default provider name
+    """
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.join(script_dir, "config.json")
+    
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        return config.get('provider', 'gemini')
+    except Exception:
+        return 'gemini'  # Fallback if config can't be read
+
 def main():
     """
     Main entry point for the caption extraction script.
@@ -465,7 +638,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python extract_captions.py --root-dir ./images --db-path captions.db
+  python extract_captions.py --root-dir ./images --db-path ../../dof_db/db.sqlite
   python extract_captions.py --force-reprocess
   python extract_captions.py --root-dir ./images --openai
   python extract_captions.py --root-dir ./images --gemini
@@ -475,7 +648,7 @@ Examples:
     
     # Configuration options
     parser.add_argument('--root-dir', type=str, help='Root directory containing images')
-    parser.add_argument('--db-path', type=str, default='captions.db', help='Path to SQLite database')
+    parser.add_argument('--db-path', type=str, default='../../dof_db/db.sqlite', help='Path to SQLite database')
     
     # Provider selection (mutually exclusive)
     provider_group = parser.add_mutually_exclusive_group()
@@ -496,8 +669,7 @@ Examples:
     args = parser.parse_args()
     
     try:
-        # Determine provider from command line arguments
-        provider = 'openai'  # default
+        # Determine provider from command line arguments or use config default
         if args.gemini:
             provider = 'gemini'
         elif args.claude:
@@ -508,6 +680,9 @@ Examples:
             provider = 'azure'
         elif args.openai:
             provider = 'openai'
+        else:
+            # Get default provider from config.json
+            provider = get_default_provider()
         
         # Load provider-specific configuration from config.json
         config = load_provider_config(provider)
@@ -523,12 +698,18 @@ Examples:
             # Use dof_markdown as default root directory
             config['root_directory'] = default_root_dir
             
-        if args.db_path and args.db_path != 'captions.db':  # Only override if explicitly set by user
-            # Apply the same path conversion logic as in load_config
+        if args.db_path and args.db_path != '../../dof_db/db.sqlite':  # Only override if explicitly set by user
+            # Apply same path resolution logic as load_provider_config
             if not os.path.isabs(args.db_path):
                 module_dir = os.path.dirname(os.path.abspath(__file__))
-                db_filename = os.path.basename(args.db_path)
-                config['db_path'] = os.path.join(module_dir, "db", db_filename)
+                if args.db_path.startswith("../"):
+                    # Resolve '../' paths relative to module directory
+                    relative_path = args.db_path[3:]
+                    config['db_path'] = os.path.normpath(os.path.join(module_dir, "..", relative_path))
+                else:
+                    # Place simple filenames in modules_captions/db/
+                    db_filename = os.path.basename(args.db_path)
+                    config['db_path'] = os.path.join(module_dir, "db", db_filename)
                 # Create directory if it doesn't exist
                 db_dir = os.path.dirname(config['db_path'])
                 os.makedirs(db_dir, exist_ok=True)
@@ -562,17 +743,48 @@ Examples:
                 status = extractor.get_status()
                 
                 # Display status with colored formatting instead of JSON
-                print_header("📊 System Status", Fore.BLUE)
-                print_info("Status", status.get('status', 'Unknown'), Fore.GREEN)
-                print_info("Images found", str(status.get('total_images', 0)), Fore.CYAN)
+                print_header("📊 System Status", 'blue')
+                print_info("Status", status.get('status', 'Unknown'), 'green')
+                
+                # Directory status information
+                directory_status = status.get('directory_status', 'unknown')
+                current_dir = status.get('current_directory', '')
+                total_images = status.get('total_images', 0)
+                processed_images = status.get('processed_images', 0)
+                completion_percentage = status.get('completion_percentage', 0)
+                
+                dir_display = current_dir if current_dir else 'root'
+                
+                if directory_status == 'fully_completed':
+                    print_info("Directory", f"{dir_display} (✅ FULLY COMPLETED)", 'green')
+                    print_info("Images found", f"{total_images} ({processed_images}/{total_images} processed - 100%)", 'green')
+                elif directory_status == 'partially_completed':
+                    print_info("Directory", f"{dir_display} (⚠️ PARTIALLY COMPLETED)", 'yellow')
+                    print_info("Images found", f"{total_images} ({processed_images}/{total_images} processed - {completion_percentage}%)", 'yellow')
+                elif directory_status == 'marked_completed':
+                    print_info("Directory", f"{dir_display} (🔄 MARKED COMPLETED)", 'magenta')
+                    print_info("Images found", f"{total_images} (marked as completed but {processed_images} actually processed)", 'magenta')
+                elif directory_status == 'no_images':
+                    print_info("Directory", f"{dir_display} (📁 NO IMAGES)", 'cyan')
+                    print_info("Images found", "0 (no images in directory)", 'cyan')
+                elif directory_status == 'pending':
+                    print_info("Directory", f"{dir_display} (🔄 PENDING)", 'white')
+                    if processed_images > 0:
+                        print_info("Images found", f"{total_images} ({processed_images}/{total_images} processed - {completion_percentage}%)", 'white')
+                    else:
+                        print_info("Images found", f"{total_images} (0 processed - ready to start)", 'white')
+                else:
+                    print_info("Directory", f"{dir_display} (❓ UNKNOWN)", 'red')
+                    print_info("Images found", str(total_images), 'red')
                 
                 # Database statistics
                 db_stats = status.get('database_stats', {})
                 if db_stats:
-                    print_header("💾 Database Statistics", Fore.BLUE)
-                    print_info("Total descriptions", str(db_stats.get('total_descriptions', 0)), Fore.CYAN)
-                    print_info("Unique documents", str(db_stats.get('unique_documents', 0)), Fore.CYAN)
-                    print_info("Recent descriptions", str(db_stats.get('recent_descriptions', 0)), Fore.CYAN)
+                    print_header("💾 Database Statistics", 'blue')
+                    print_info("Database path", os.path.abspath(config.get('db_path', '../../dof_db/db.sqlite')), 'yellow')
+                    print_info("Total descriptions", str(db_stats.get('total_descriptions', 0)), 'cyan')
+                    print_info("Unique documents", str(db_stats.get('unique_documents', 0)), 'cyan')
+                    print_info("Recent descriptions", str(db_stats.get('recent_descriptions', 0)), 'cyan')
                 
                 return
             except Exception as e:
@@ -580,20 +792,20 @@ Examples:
                 sys.exit(1)
         
         # Initialize extractor for normal operation
-        print_header("🚀 Starting Caption Extraction", Fore.GREEN)
-        print_info("Provider", provider, Fore.CYAN)
-        print_info("Model", config.get('client_config', {}).get('model', 'Not specified'), Fore.CYAN)
-        print_info("Base URL", config.get('client_config', {}).get('base_url', 'Default'), Fore.CYAN)
+        print_header("🚀 Starting Caption Extraction", 'green')
+        print_info("Provider", provider, 'cyan')
+        print_info("Model", config.get('client_config', {}).get('model', 'Not specified'), 'cyan')
+        print_info("Base URL", config.get('client_config', {}).get('base_url', 'Default'), 'cyan')
         
         if config.get('debug_mode', False):
             print_warning("🔍 Debug mode: ENABLED")
-            print_info("Root directory", config['root_directory'], Fore.YELLOW)
-            print_info("Database path", config.get('db_path', 'captions.db'), Fore.YELLOW)
+            print_info("Root directory", config['root_directory'], 'yellow')
+            print_info("Database path", os.path.abspath(config.get('db_path', '../../dof_db/db.sqlite')), 'yellow')
         
         extractor = CaptionExtractor(config)
         
         # Extract captions
-        print_info("Starting caption extraction", "Processing images...", Fore.GREEN)
+        print_info("Starting caption extraction", "Processing images...", 'green')
         results = extractor.extract_captions(force_reprocess=args.force_reprocess)
         
         # Display results with appropriate formatting based on status
@@ -602,7 +814,7 @@ Examples:
             if 'results' in results:
                 print_stats(results['results'])
             else:
-                print_info("Processing completed", results.get('message', 'No additional information'), Fore.GREEN)
+                print_info("Processing completed", results.get('message', 'No additional information'), 'green')
             if results['status'] == 'interrupted':
                 print_warning("Processing was interrupted")
         else:
@@ -612,7 +824,7 @@ Examples:
                 error_summary = results['error_summary']
                 if error_summary.get('total_errors', 0) > 0:
                     print_error(f"Total errors encountered: {error_summary['total_errors']}")
-                    print_info("Error log", error_summary.get('error_log_file', 'Not available'), Fore.YELLOW)
+                    print_info("Error log", error_summary.get('error_log_file', 'Not available'), 'yellow')
         
     except KeyboardInterrupt:
         print_warning("Operation cancelled by user.")

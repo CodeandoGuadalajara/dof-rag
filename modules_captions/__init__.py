@@ -8,32 +8,29 @@ database-driven solution.
 Main components:
 - DatabaseManager: SQLite database operations
 - OpenAIClient: AI client for image description generation with support for multiple providers
-- FileProcessor: Batch image processing with checkpoints
+- FileProcessor: Batch image processing with checkpoints and error prioritization
 - ErrorHandler: Comprehensive error handling and logging
-- CaptionExtractor: Main orchestrator class
+- ImagePriorityManager: Intelligent error image prioritization system
 
 Usage:
-    from modules_captions import CaptionExtractor
+    from modules_captions import DatabaseManager, FileProcessor, ErrorHandler
     
-    config = {
-        'provider': 'openai',
-        'db_path': 'captions.db',
-        'root_dir': '/path/to/images'
-    }
-    
-    extractor = CaptionExtractor(config)
-    results = extractor.extract_captions()
+    db_manager = DatabaseManager('path/to/db.sqlite')
+    file_processor = FileProcessor(root_directory='path/to/images', db_manager=db_manager)
+    results = file_processor.process_images(images)
 """
 
-__version__ = "2.0.0"
+__version__ = "3.0.0"
 __author__ = "DOF-RAG Project"
-__description__ = "Enhanced Image Caption Extraction System with SQLite Storage"
+__description__ = "Enhanced Image Caption Extraction System with SQLite Storage and Error Prioritization"
 
 # Import main classes for easy access
+from .clients import OpenAIClient, create_client
 from .db.manager import DatabaseManager
-from .clients import create_client, OpenAIClient
-from .utils.file_processor import FileProcessor
 from .utils.error_handler import ErrorHandler
+from .utils.error_log_manager import ErrorLogManager
+from .utils.file_processor import FileProcessor
+from .utils.prioritize_error_images import ImagePriorityManager
 
 __all__ = [
     'DatabaseManager',
@@ -41,4 +38,6 @@ __all__ = [
     'OpenAIClient',
     'FileProcessor',
     'ErrorHandler',
+    'ErrorLogManager',
+    'ImagePriorityManager',
 ]
