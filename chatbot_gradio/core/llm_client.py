@@ -38,8 +38,6 @@ class UniversalLLMClient:
             api_key=api_key,
             base_url=base_url
         )
-        
-        logger.info(f"Initialized LLM client for model: {model}")
     
     def chat(self, prompt: str) -> str:
         """Send a chat completion request to the LLM.
@@ -68,7 +66,6 @@ class UniversalLLMClient:
                 )
                 
                 response_text = self._handle_response(response)
-                logger.info("Successfully received LLM response")
                 return response_text
                 
             except openai.APITimeoutError as e:
@@ -137,27 +134,3 @@ class UniversalLLMClient:
             "timeout": self.timeout,
             "max_retries": self.max_retries
         }
-
-
-def create_llm_client(
-    provider_config: Dict[str, str],
-    timeout: int = 30,
-    max_retries: int = 3
-) -> UniversalLLMClient:
-    """Factory function to create an LLM client from configuration.
-    
-    Args:
-        provider_config: Configuration dictionary with api_key, base_url, model
-        timeout: Request timeout in seconds
-        max_retries: Maximum number of retry attempts
-        
-    Returns:
-        Configured UniversalLLMClient instance
-    """
-    return UniversalLLMClient(
-        api_key=provider_config["api_key"],
-        base_url=provider_config["base_url"],
-        model=provider_config["model"],
-        timeout=timeout,
-        max_retries=max_retries
-    )

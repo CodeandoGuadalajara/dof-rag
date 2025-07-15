@@ -2,13 +2,13 @@
 
 import os
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
-
 
 def find_project_root() -> Path:
     """Find the root directory of the main project by looking for pyproject.toml.
@@ -102,7 +102,7 @@ class AppConfig:
         for provider, config in PROVIDERS_CONFIG.items():
             api_key_env = config.get("api_key_env")
             
-            # Ollama doesn't require API key
+            # Local Ollama instances don't need authentication
             if api_key_env is None:
                 available.append(provider)
             elif os.getenv(api_key_env):
@@ -132,11 +132,11 @@ class AppConfig:
         if not provider_config:
             raise ValueError(f"Invalid active provider: {self.active_provider}")
         
-        # Skip validation for Ollama (doesn't need API key)
+        # Local providers bypass API key validation
         if self.active_provider == "ollama":
             return
         
-        # Get the actual API key and validate required fields
+        # Validate required configuration fields for remote providers
         api_key = os.getenv(provider_config.get("api_key_env", ""))
         missing = []
         if not api_key:
@@ -148,7 +148,6 @@ class AppConfig:
         
         if missing:
             raise ValueError(f"Missing configuration for {self.active_provider}: {', '.join(missing)}")
-
 
 # LLM Providers configuration
 PROVIDERS_CONFIG = {
@@ -230,38 +229,94 @@ def validate_environment() -> Dict[str, Any]:
         "available_providers": available_providers
     }
 
+# Temporal configuration constants
+RECENCY_THRESHOLDS = {
+    "very_recent": 7,      # days
+    "recent": 30,          # days  
+    "moderate": 180,       # days (6 months)
+    "old": float('inf')    # older than 6 months
+}
+
+RECENCY_INDICATORS = {
+    "very_recent": {"emoji": "🟢", "label": "Muy Reciente", "factor": 1.2},
+    "recent": {"emoji": "🟡", "label": "Reciente", "factor": 1.1}, 
+    "moderate": {"emoji": "🟠", "label": "Moderado", "factor": 1.0},
+    "old": {"emoji": "🔴", "label": "Antiguo", "factor": 0.9}
+}
+
+def calculate_document_age(document_date: datetime, reference_date: datetime = None) -> Dict[str, Any]:
+    """Calculate document age and recency metrics.
+    
+    Args:
+        document_date: Date of the document
+        reference_date: Reference date (defaults to current date)
+        
+    Returns:
+        Dictionary with age information
+    """
+    if reference_date is None:
+        reference_date = datetime.now()
+    
+    if document_date.tzinfo is None:
+        document_date = document_date.replace(tzinfo=None)
+    if reference_date.tzinfo is None:
+        reference_date = reference_date.replace(tzinfo=None)
+    
+    age_delta = reference_date - document_date
+    age_days = age_delta.days
+    
+    # Classify document age into predefined categories
+    if age_days <= RECENCY_THRESHOLDS["very_recent"]:
+        category = "very_recent"
+    elif age_days <= RECENCY_THRESHOLDS["recent"]:
+        category = "recent"
+    elif age_days <= RECENCY_THRESHOLDS["moderate"]:
+        category = "moderate"
+    else:
+        category = "old"
+    
+    indicator = RECENCY_INDICATORS[category]
+    
+    # Generate human-readable age description in Spanish (for UI display)
+    if age_days == 0:
+        age_description = "Hoy"
+    elif age_days == 1:
+        age_description = "Ayer"
+    elif age_days < 7:
+        age_description = f"Hace {age_days} días"
+    elif age_days < 30:
+        weeks = age_days // 7
+        age_description = f"Hace {weeks} semana{'s' if weeks > 1 else ''}"
+    elif age_days < 365:
+        months = age_days // 30
+        age_description = f"Hace {months} mes{'es' if months > 1 else ''}"
+    else:
+        years = age_days // 365
+        age_description = f"Hace {years} año{'s' if years > 1 else ''}"
+    
+    return {
+        "age_days": age_days,
+        "category": category,
+        "age_description": age_description,
+        "emoji": indicator["emoji"],
+        "label": indicator["label"],
+        "recency_factor": indicator["factor"],
+        "formatted_date": document_date.strftime("%d/%m/%Y")
+    }
+
+def format_document_date(document_date: datetime) -> str:
+    """Format document date for display.
+    
+    Args:
+        document_date: Document date
+        
+    Returns:
+        Formatted date string
+    """
+    return document_date.strftime("%d de %B de %Y")
 
 # Global configuration instance
 _app_config = AppConfig()
-
-
-def get_app_config() -> AppConfig:
-    """Get the main application configuration instance."""
-    return _app_config
-
-
-def get_active_provider_config() -> Dict[str, str]:
-    """Get the configuration for the active LLM provider."""
-    return _app_config.get_active_provider_config()
-
-
-def get_system_prompt() -> str:
-    """Get the system prompt template."""
-    return _app_config.system_prompt
-
-
-def get_retrieval_config() -> Dict[str, Any]:
-    """Get the retrieval configuration."""
-    return {"top_k": _app_config.top_k}
-
-
-def get_api_config() -> Dict[str, Any]:
-    """Get the API configuration."""
-    return {
-        "timeout": _app_config.timeout,
-        "max_retries": _app_config.max_retries
-    }
-
 
 # Template for constructing the final prompt with context and user question
 PROMPT_TEMPLATE = """CONTEXTO DE DOCUMENTOS:
@@ -272,7 +327,8 @@ PREGUNTA DEL USUARIO: {query}"""
 # Template for formatting individual document context sections
 CONTEXT_FORMAT_TEMPLATE = """
 === DOCUMENTO {doc_num}: {title} ===
-• Relevancia: {similarity:.3f}
+• Fecha: {publication_date} ({age_description}) {age_emoji}
+• Relevancia: {similarity:.3f} | Actualidad: {recency_label}
 • Fuente: {url}
 • Ruta: {file_path}
 • Contenido:

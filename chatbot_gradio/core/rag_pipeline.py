@@ -4,7 +4,7 @@ import logging
 from collections import defaultdict
 from typing import Any, Dict, List, Tuple
 import duckdb
-from config.config import CONTEXT_FORMAT_TEMPLATE, PROMPT_TEMPLATE
+from config.config import CONTEXT_FORMAT_TEMPLATE, PROMPT_TEMPLATE, calculate_document_age
 from .database import query_context
 from .embeddings import EmbeddingManager
 from .llm_client import UniversalLLMClient
@@ -57,36 +57,74 @@ class RAGPipeline:
             if not user_question:
                 raise ValueError("User question cannot be empty")
             
-            effective_top_k = top_k if top_k is not None else self.top_k
-            logger.info(f"Processing question with top_k={effective_top_k}")
+            effective_top_k = top_k or self.top_k
             
-            # Step 1: Generate embedding for the question
+            # Convert user question to vector representation
             question_embedding = self.embedding_manager.encode_text(user_question, is_query=True)
             
-            # Step 2: Retrieve relevant fragments
-            fragments = query_context(self.db_conn, question_embedding, effective_top_k)
+            # Retrieve candidate fragments with extra buffer for reranking
+            retrieval_top_k = min(effective_top_k * 2, 20)
+            fragments = query_context(self.db_conn, question_embedding, retrieval_top_k)
             
-            # Step 3: Group fragments by document
+            # Boost relevance of recent documents while preserving similarity
+            fragments = self._apply_temporal_reranking(fragments)
+            
+            # Select final fragment set after reranking
+            fragments = fragments[:effective_top_k]
+            
+            # Organize fragments by source document for context building
             grouped_fragments = self._group_fragments_by_document(fragments)
             
-            # Step 4: Build document context
+            # Construct formatted context from retrieved fragments
             document_context = self._build_context(grouped_fragments)
             
-            # Step 5: Generate response with formatted prompt
+            # Generate LLM response with system prompt and context
             user_prompt = PROMPT_TEMPLATE.format(context=document_context, query=user_question)
             complete_prompt = f"{self.system_prompt}\n\n{user_prompt}"
             response = self.llm_client.chat(complete_prompt)
             
-            # Step 6: Prepare sources for UI
+            # Format source information for frontend display
             sources = self._prepare_sources(grouped_fragments)
             
-            logger.info("RAG pipeline completed successfully")
             return response, sources
             
         except Exception as e:
             logger.error(f"RAG pipeline failed: {e}")
             raise
     
+    def _apply_temporal_reranking(self, fragments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Apply temporal reranking to prioritize recent content while preserving relevance.
+        
+        Args:
+            fragments: List of retrieved fragments
+            
+        Returns:
+            Reranked list of fragments
+        """
+        try:
+            for fragment in fragments:
+                created_at = fragment.get("created_at")
+                if created_at:
+                    age_info = calculate_document_age(created_at)
+                    recency_factor = age_info["recency_factor"]
+                    
+                    # Apply modest recency boost to preserve similarity-based ranking
+                    original_similarity = fragment["similarity"]
+                    boosted_similarity = original_similarity * (0.8 + 0.2 * recency_factor)
+                    fragment["temporal_score"] = boosted_similarity
+                else:
+                    # Fallback to semantic similarity when date unavailable
+                    fragment["temporal_score"] = fragment["similarity"]
+            
+            # Rank by combined similarity and recency score
+            fragments.sort(key=lambda x: x["temporal_score"], reverse=True)
+            
+            return fragments
+            
+        except Exception as e:
+            logger.error(f"Failed to apply temporal reranking: {e}")
+            return fragments  # Return original order on error
+
     def _group_fragments_by_document(
         self, 
         fragments: List[Dict[str, Any]]
@@ -105,7 +143,6 @@ class RAGPipeline:
             for chunk in fragments:
                 doc_id = chunk["document_id"]
                 
-                # Add chunk to the group
                 grouped[doc_id]["chunks"].append({
                     "id": chunk["id"],
                     "text": chunk["text"],
@@ -113,14 +150,15 @@ class RAGPipeline:
                     "similarity": chunk.get("similarity", 0)
                 })
                 
-                # Store document metadata (overwrite is fine, same for all chunks)
+                # Document metadata is consistent across chunks
                 grouped[doc_id]["metadata"] = {
                     "title": chunk.get("title", "Unknown Document"),
                     "url": chunk.get("url", ""),
-                    "file_path": chunk.get("file_path", "")
+                    "file_path": chunk.get("file_path", ""),
+                    "created_at": chunk.get("created_at")
                 }
             
-            # Sort chunks within each document by similarity
+            # Order chunks by relevance within each document
             for doc_data in grouped.values():
                 doc_data["chunks"].sort(
                     key=lambda x: x["similarity"], 
@@ -152,10 +190,25 @@ class RAGPipeline:
                 title = doc_data["metadata"]["title"]
                 url = doc_data["metadata"].get("url", "N/A")
                 file_path = doc_data["metadata"].get("file_path", "N/A")
+                created_at = doc_data["metadata"].get("created_at")
                 chunks = doc_data["chunks"]
                 
-                # Calculate average similarity for this document
+                # Compute document relevance from chunk similarities
                 avg_similarity = sum(chunk["similarity"] for chunk in chunks) / len(chunks)
+                
+                # Generate temporal metadata for context display
+                age_info = {}
+                if created_at:
+                    age_info = calculate_document_age(created_at)
+                    publication_date = age_info["formatted_date"]
+                    age_description = age_info["age_description"]
+                    age_emoji = age_info["emoji"]
+                    recency_label = age_info["label"]
+                else:
+                    publication_date = "Fecha no disponible"
+                    age_description = "N/A"
+                    age_emoji = "❓"
+                    recency_label = "Desconocida"
                 
                 # Combine all chunk texts for this document
                 content_parts = []
@@ -164,7 +217,7 @@ class RAGPipeline:
                     header = chunk.get("header", "")
                     similarity = chunk["similarity"]
                     
-                    # Add section header if available
+                    # Include document section headers for better context
                     if header:
                         content_parts.append(f"--- {header} ---")
                     
@@ -174,11 +227,15 @@ class RAGPipeline:
                 
                 combined_content = "\n".join(content_parts)
                 
-                # Use the official template
+                # Apply standard context formatting template
                 formatted_section = CONTEXT_FORMAT_TEMPLATE.format(
                     doc_num=doc_num,
                     title=title,
+                    publication_date=publication_date,
+                    age_description=age_description,
+                    age_emoji=age_emoji,
                     similarity=avg_similarity,
+                    recency_label=recency_label,
                     url=url,
                     file_path=file_path,
                     content=combined_content
@@ -214,11 +271,12 @@ class RAGPipeline:
                     "title": doc_data["metadata"]["title"],
                     "url": doc_data["metadata"].get("url", ""),
                     "file_path": doc_data["metadata"].get("file_path", ""),
+                    "created_at": doc_data["metadata"].get("created_at"),
                     "chunks": doc_data["chunks"]
                 }
                 sources.append(source)
             
-            # Sort sources by best chunk similarity
+            # Order sources by highest chunk relevance
             sources.sort(
                 key=lambda x: max(f["similarity"] for f in x["chunks"]),
                 reverse=True

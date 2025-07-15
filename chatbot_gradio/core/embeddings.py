@@ -4,7 +4,7 @@ import logging
 from typing import List, Optional
 
 import numpy as np
-from config.config import get_app_config
+from config.config import _app_config
 from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
@@ -27,11 +27,10 @@ class EmbeddingManager:
             query_prefix: Prefix to add to query texts
             document_prefix: Prefix to add to document texts
         """
-        logger.info(f"Loading embedding model: {model_name}")
         self._embedder = SentenceTransformer(model_name)
         self._query_prefix = query_prefix
         self._document_prefix = document_prefix
-        logger.info("Embedding model loaded successfully")
+        logger.info(f"Loaded embedding model: {model_name}")
     
     def encode_text(self, text: str, is_query: bool = False) -> List[float]:
         """Generate embedding for a text string.
@@ -56,28 +55,13 @@ class EmbeddingManager:
         embedding = self._embedder.encode(text, convert_to_tensor=False)
         return embedding.tolist() if isinstance(embedding, np.ndarray) else list(embedding)
     
-    def get_dimension(self) -> int:
-        """Get the dimension of embeddings produced by the model.
-        
-        Returns:
-            Embedding dimension as integer
-        """
-        if self._embedder is None:
-            raise RuntimeError("Embedding model not initialized. Call initialize() first.")
-        
-        # Get dimension from model's sentence embedding dimension
-        return self._embedder.get_sentence_embedding_dimension()
-
-
 # Global instance
 embedding_manager = EmbeddingManager()
 
-
 def initialize_embeddings() -> None:
     """Initialize embedding manager with configuration."""
-    config = get_app_config()
     embedding_manager.initialize(
-        model_name=config.embeddings_model,
-        query_prefix=config.query_prefix,
-        document_prefix=config.document_prefix
+        model_name=_app_config.embeddings_model,
+        query_prefix=_app_config.query_prefix,
+        document_prefix=_app_config.document_prefix
     )

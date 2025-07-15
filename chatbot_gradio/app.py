@@ -20,23 +20,15 @@ import sys
 from pathlib import Path
 from typing import Optional, Tuple
 
-# Add both the project root and chatbot_gradio to Python path
-sys.path.insert(0, str(Path(__file__).parent.parent.absolute()))
-sys.path.insert(0, str(Path(__file__).parent))
-
 try:
     from config.config import (
-        get_active_provider_config,
-        get_api_config,
-        get_app_config,
-        get_retrieval_config,
-        get_system_prompt,
+        _app_config,
         PROJECT_ROOT,
         validate_environment
     )
     from core.database import connect_duckdb, close_connection
     from core.embeddings import initialize_embeddings, embedding_manager
-    from core.llm_client import create_llm_client
+    from core.llm_client import UniversalLLMClient
     from core.rag_pipeline import RAGPipeline
     from interface.chat_ui import launch_ui
 except ImportError as e:
@@ -49,16 +41,12 @@ def setup_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler('chatbot_gradio.log', mode='a')
-        ]
+        handlers=[logging.StreamHandler(), logging.FileHandler('chatbot_gradio.log', mode='a')]
     )
     
-    # Reduce verbosity of some modules
-    logging.getLogger('sentence_transformers').setLevel(logging.WARNING)
-    logging.getLogger('urllib3').setLevel(logging.WARNING)
-    logging.getLogger('httpx').setLevel(logging.WARNING)
+    # Suppress verbose logging from third-party libraries
+    for module in ['sentence_transformers', 'urllib3', 'httpx']:
+        logging.getLogger(module).setLevel(logging.WARNING)
 
 
 def _initialize_components() -> Tuple[RAGPipeline, Optional[object]]:
@@ -72,47 +60,36 @@ def _initialize_components() -> Tuple[RAGPipeline, Optional[object]]:
     try:
         logger.info("Initializing system components...")
         
-        # Get app configuration
-        app_config = get_app_config()
-        
-        # Initialize embedding model FIRST (required by database initialization)
-        logger.info("Initializing embedding model...")
+        # Initialize embedding model
         initialize_embeddings()
         
         # Initialize database connection
-        logger.info("Connecting to database...")
-        db_path = app_config.duckdb_path
-        db_conn = connect_duckdb(db_path)
-        logger.info(f"Database connected: {db_path}")
+        db_conn = connect_duckdb(_app_config.duckdb_path)
+        logger.info(f"Database connected: {_app_config.duckdb_path}")
         
         # Initialize LLM client
-        logger.info("Initializing LLM client...")
-        provider_config = get_active_provider_config()
-        api_config = get_api_config()
-        
-        llm_client = create_llm_client(
-            provider_config,
-            timeout=api_config["timeout"],
-            max_retries=api_config["max_retries"]
+        provider_config = _app_config.get_active_provider_config()
+        llm_client = UniversalLLMClient(
+            api_key=provider_config["api_key"],
+            base_url=provider_config["base_url"],
+            model=provider_config["model"],
+            timeout=_app_config.timeout,
+            max_retries=_app_config.max_retries
         )
         
-        # Test LLM connection
+        # Test LLM connectivity
         if llm_client.test_connection():
             logger.info("LLM client initialized and tested successfully")
         else:
             logger.warning("LLM client initialized but connection test failed")
         
         # Initialize RAG pipeline
-        logger.info("Initializing RAG pipeline...")
-        system_prompt = get_system_prompt()
-        retrieval_config = get_retrieval_config()
-        
         rag_pipeline = RAGPipeline(
             llm_client=llm_client,
             db_conn=db_conn,
             embedding_manager=embedding_manager,
-            system_prompt=system_prompt,
-            top_k=retrieval_config["top_k"]
+            system_prompt=_app_config.system_prompt,
+            top_k=_app_config.top_k
         )
         
         logger.info("All components initialized successfully")
@@ -129,13 +106,13 @@ def main() -> None:
     db_conn = None
     
     try:
-        # Setup logging
+        # Configure application logging
         setup_logging()
         
         print("🚀 Starting RAG Chat System...")
         logger.info("Starting RAG chat application...")
         
-        # Validate environment and configuration
+        # Ensure environment is properly configured
         try:
             validation_result = validate_environment()
             if not validation_result["valid"]:
@@ -155,21 +132,20 @@ def main() -> None:
             print(f"⚠️  Environment validation failed: {e}")
             return
         
-        # Initialize components
+        # Build RAG system components
         rag_pipeline, db_conn = _initialize_components()
         
-        # Check .env file
+        # Warn if environment file is missing
         env_file = PROJECT_ROOT / ".env"
         if not env_file.exists():
             print("⚠️  No .env file found. Using environment variables and defaults.")
         
-        # Get configuration and start application
-        config = get_app_config()
+        # Launch web interface
+        config = _app_config
         print(f"🌐 Launching web interface at http://{config.app_host}:{config.app_port}")
         print("   Press Ctrl+C to stop the application")
         print()
         
-        # Launch UI
         logger.info("Launching chat interface...")
         launch_ui(
             rag_pipeline=rag_pipeline,
@@ -185,7 +161,7 @@ def main() -> None:
         print(f"❌ Application failed: {e}")
         logger.error(f"Application failed to start: {e}")
     finally:
-        # Cleanup resources
+        # Clean up database connection
         if db_conn:
             close_connection(db_conn)
 
