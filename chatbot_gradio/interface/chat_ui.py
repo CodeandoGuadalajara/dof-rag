@@ -27,6 +27,41 @@ y contextuales basadas en tu base de conocimientos de documentos.
 CHAT_PLACEHOLDER = "Escribe tu pregunta aquí..."
 MAX_INPUT_LENGTH = 2000
 
+# Avatar configuration for better UX - Using web images
+USER_AVATAR = "https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/svg/1f468-200d-1f4bb.svg"  # User with laptop
+BOT_AVATAR = "https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/svg/1f916.svg"  # Robot face
+
+# Example questions for better UX
+EXAMPLE_QUESTIONS = [
+    ["¿Cuáles son los temas principales cubiertos en los documentos?"],
+    ["¿Puedes explicar los conceptos clave mencionados?"],
+    ["¿Qué metodología se discute en las fuentes?"],
+    ["Resume los hallazgos más importantes."]
+]
+
+
+def _create_simplified_theme() -> gr.themes.Soft:
+    """Create a simplified theme with essential overrides only."""
+    return gr.themes.Soft(
+        primary_hue="blue",
+        secondary_hue="gray",
+        neutral_hue="slate"
+    ).set(
+        # Only essential overrides for better contrast
+        background_fill_secondary="#f0f4f8",
+        background_fill_secondary_dark="#2d3748",
+        border_color_primary="#cbd5e0",
+        border_color_primary_dark="#4a5568"
+    )
+
+
+def _handle_error(message: str, error: Exception) -> Tuple:
+    """Handle errors consistently and add to chat history."""
+    error_msg = f"Error al procesar tu pregunta: {str(error)}"
+    embedded_chat_history.add_user_message(message)
+    embedded_chat_history.add_assistant_response(error_msg, [], f"error_{embedded_chat_history.query_counter}")
+    return embedded_chat_history.get_formatted_history(), ""
+
 
 def create_chat_interface(rag_pipeline: RAGPipeline) -> gr.Blocks:
     """Create the main chat interface using Gradio Blocks with horizontal layout.
@@ -37,20 +72,19 @@ def create_chat_interface(rag_pipeline: RAGPipeline) -> gr.Blocks:
     Returns:
         Configured Gradio Blocks interface
     """
+    # Use simplified theme
+    custom_theme = _create_simplified_theme()
+    
     # Custom styles are loaded from external CSS file for better maintainability
     with gr.Blocks(
         title=APP_TITLE,
-        theme=gr.themes.Soft(
-            primary_hue="blue",
-            secondary_hue="gray",
-            neutral_hue="slate"
-        ),
+        theme=custom_theme,
         fill_height=True,
         css="/gradio_api/file=chat_styles.css"
     ) as interface:
         
         # Title section (fixed height)
-        with gr.Row(elem_classes=["header-section"]):
+        with gr.Row():
             with gr.Column():
                 gr.Markdown(f"# {APP_TITLE}")
                 gr.Markdown(APP_DESCRIPTION)
@@ -64,7 +98,7 @@ def create_chat_interface(rag_pipeline: RAGPipeline) -> gr.Blocks:
             show_label=False,
             type="messages",
             show_copy_button=True,
-            avatar_images=("👤", "🤖"),
+            avatar_images=(USER_AVATAR, BOT_AVATAR),
             elem_id="main_chatbot"
         )
         
@@ -96,12 +130,7 @@ def create_chat_interface(rag_pipeline: RAGPipeline) -> gr.Blocks:
             with gr.Column():
                 gr.Markdown("### 💡 Ejemplos de preguntas:")
                 gr.Examples(
-                    examples=[
-                        ["¿Cuáles son los temas principales cubiertos en los documentos?"],
-                        ["¿Puedes explicar los conceptos clave mencionados?"],
-                        ["¿Qué metodología se discute en las fuentes?"],
-                        ["Resume los hallazgos más importantes."]
-                    ],
+                    examples=EXAMPLE_QUESTIONS,
                     inputs=chat_input,
                     label=""
                 )
@@ -133,13 +162,7 @@ def create_chat_interface(rag_pipeline: RAGPipeline) -> gr.Blocks:
                 return updated_history, ""
                 
             except Exception as e:
-                error_msg = f"Error al procesar tu pregunta: {str(e)}"
-                # Add error to history
-                embedded_chat_history.add_user_message(message)
-                embedded_chat_history.add_assistant_response(error_msg, [], f"error_{embedded_chat_history.query_counter}")
-                updated_history = embedded_chat_history.get_formatted_history()
-                
-                return updated_history, ""
+                return _handle_error(message, e)
         
         def clear_chat() -> Tuple:
             """Clear chat history and reset interface."""

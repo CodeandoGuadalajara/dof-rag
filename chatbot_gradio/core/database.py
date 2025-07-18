@@ -100,7 +100,6 @@ def query_context(
                 d.title,
                 d.url,
                 d.file_path,
-                d.created_at,
                 array_distance(c.embedding, ?::FLOAT[{expected_dim}]) as distance
             FROM chunks c
             JOIN documents d ON c.document_id = d.id
@@ -108,13 +107,12 @@ def query_context(
             ORDER BY distance ASC
             LIMIT ?
         """
-        
         result = conn.execute(query, [embedding, top_k]).fetchall()
         
         chunks = []
         for row in result:
             # Convert distance to similarity score for ranking
-            distance = row[8]
+            distance = row[7]
             similarity = 1.0 / (1.0 + distance) if distance >= 0 else 1.0
             
             chunk = {
@@ -125,7 +123,6 @@ def query_context(
                 "title": row[4],
                 "url": row[5],
                 "file_path": row[6],
-                "created_at": row[7],
                 "distance": distance,
                 "similarity": similarity
             }

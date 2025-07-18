@@ -1,166 +1,75 @@
-/* =============================================================================
-   CHAT RAG - CUSTOM STYLES
-   
-   Sections:
-   1. GRADIO CONTAINERS - Overrides for maximum width usage
-   2. HEADER SECTION - Main header styling  
-   3. MAIN CHATBOT - Conversation area styling
-   4. INPUT CONTROLS - Input, buttons and configuration styling
-   5. EXAMPLES SECTION - Example questions area styling
-   6. EMBEDDED SOURCES - Consulted sources styling
-============================================================================= */
+/* Chat RAG - Essential styles only */
 
-/* =============================================================================
-   1. GRADIO CONTAINERS
-============================================================================= */
-
-/* Gradio container overrides for maximum width usage */
-.gradio-container {
-    max-width: 100% !important;
-    margin: 0 !important;
-    padding: 1rem 2rem !important;
-    scroll-behavior: smooth;
-}
-
-.contain {
-    max-width: 100% !important;
-    margin: 0 !important;
-    padding: 0 !important;
-}
-
+/* Container overrides for full width layout */
+.gradio-container,
+.contain,
 .app {
     max-width: 100% !important;
     margin: 0 !important;
+    padding: 1rem 2rem !important;
+}
+
+.contain,
+.app {
     padding: 0 !important;
 }
 
-.main-container {
-    width: 100%;
-    padding: 0;
-    margin: 0;
-}
+/* UI Components */
 
-/* =============================================================================
-   2. HEADER SECTION
-============================================================================= */
-
-.header-section {
-    text-align: center;
-    margin-bottom: 0.125rem;
-    margin-left: 0;
-    margin-right: 0;
-    padding: 0.375rem 0.5rem;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border-radius: 0.25rem;
-}
-
-/* =============================================================================
-   3. MAIN CHATBOT
-============================================================================= */
-
+/* Main chat interface */
 .custom-chatbot {
-    background-color: #232e41;
-    border: 1px solid #dee2e6;
-    border-radius: 0.25rem;
+    background-color: var(--background-fill-primary);
+    border: 2px solid var(--border-color-primary);
+    border-radius: var(--radius-lg);
     min-height: 400px;
     max-height: 70vh;
     margin: 0.0625rem 0;
-    padding: 0.375rem 0.5rem;
+    padding: var(--spacing-md);
     overflow-y: auto;
     scroll-behavior: smooth;
+    box-shadow: var(--shadow-drop-lg);
 }
 
-/* Ensure proper scrolling behavior for chatbot content */
-.custom-chatbot .overflow-y-auto {
-    scroll-behavior: smooth !important;
-}
-
-/* Auto-scroll to bottom when new content is added */
-.custom-chatbot:last-child {
-    scroll-snap-align: end;
-}
-
-/* Ensure smooth scrolling across all browsers */
-* {
-    scroll-behavior: smooth;
-}
-
-/* Improve scroll performance and prevent scroll conflicts */
-.custom-chatbot .prose {
-    overflow: visible !important;
-}
-
-/* Fix for Gradio chatbot scroll issues */
-#main_chatbot {
-    overflow-y: auto !important;
-    scroll-behavior: smooth !important;
-}
-
-/* Prevent embedded content from creating scroll conflicts */
-.embedded-sources-container details {
-    overflow: visible;
-}
-
-/* =============================================================================
-   4. INPUT CONTROLS
-============================================================================= */
-
+/* Input configuration panel */
 .input-config-row {
-    background-color: #232e41;
-    padding: 0.375rem 0.5rem;
-    border-radius: 0.25rem;
+    background-color: var(--background-fill-secondary);
+    padding: var(--spacing-md);
+    border-radius: var(--radius-lg);
     margin: 0.0625rem 0;
+    border: 1px solid var(--border-color-primary);
+    box-shadow: var(--shadow-drop);
 }
 
-
-
-/* =============================================================================
-   5. EXAMPLES SECTION
-============================================================================= */
-
+/* Examples display section */
 .examples-section {
-    background-color: #232e41;
-    padding: 0.375rem 0;
-    border-radius: 0.25rem;
+    background-color: var(--background-fill-secondary);
+    padding: var(--spacing-md) 0;
+    border-radius: var(--radius-lg);
     margin-top: 0.0625rem;
-    margin-left: 0;
-    margin-right: 0;
+    border: 1px solid var(--border-color-primary);
+    box-shadow: var(--shadow-drop);
 }
 
-/* =============================================================================
-   6. EMBEDDED SOURCES
-============================================================================= */
-
-/* Enhanced HTML content styling for dark theme compatibility */
+/* Source references display */
 .embedded-sources-container {
-    margin-top: 8px;
-    margin-bottom: 4px;
+    margin-top: var(--spacing-lg);
+    margin-bottom: var(--spacing-sm);
     background: var(--background-fill-secondary); 
-    border-radius: 6px; 
-    padding: 4px; 
+    border-radius: var(--radius-md); 
+    padding: var(--spacing-sm); 
     border: 1px solid var(--border-color-primary);
     position: relative;
     scroll-behavior: smooth;
+    box-shadow: var(--shadow-drop);
 }
 
-.source-connector {
-    position: absolute;
-    top: -4px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 2px;
-    height: 8px;
-    background: var(--border-color-accent);
-}
-
-/* Accordion styling for embedded sources */
 .embedded-sources {
     margin: 0;
     border: none;
     background: transparent;
 }
 
+/* Collapsible source summary */
 .embedded-sources-summary {
     padding: 3px 5px !important;
     margin: 0 !important;
@@ -168,21 +77,17 @@
     border-radius: 3px;
     color: var(--body-text-color);
     font-weight: 500;
-    font-size: 0.75em;
+    font-size: var(--text-sm);
     border: none !important;
     cursor: pointer;
     transition: background-color 0.2s ease;
 }
 
 .embedded-sources-summary:hover {
-    background: var(--background-fill-secondary-dark);
+    background: var(--background-fill-secondary);
 }
 
-.embedded-sources[open] .embedded-sources-summary {
-    border-bottom: none !important;
-    border-radius: 3px 3px 0 0;
-}
-
+/* Scrollable source content */
 .embedded-sources-content {
     max-height: 200px; 
     overflow-y: auto; 
@@ -193,56 +98,38 @@
     scroll-behavior: smooth;
 }
 
-/* Document styling for embedded source content */
-.embedded-sources-content details {
-    margin-bottom: 0.1em;
-    margin-left: 0 !important;
-    padding: 0 !important;
-    border: 1px solid var(--border-color-accent);
-    border-radius: 3px;
-    background: var(--background-fill-primary);
+/* Gradio component overrides */
+
+/* Bot message styling */
+.bot,
+.bot[class*="svelte-"],
+div.bot,
+div.bot[class*="svelte-"] {
+    background-color: var(--background-fill-secondary) !important;
+    border: 1px solid var(--border-color-primary) !important;
+    border-radius: var(--radius-md) !important;
+    color: var(--body-text-color) !important;
+    box-shadow: var(--shadow-drop) !important;
 }
 
-.embedded-sources-content summary {
-    transition: background-color 0.2s ease;
-    padding: 3px !important;
-    margin: 0 !important;
-    background: var(--background-fill-secondary);
-    border-radius: 3px 3px 0 0;
-    color: var(--body-text-color);
-    font-weight: 500;
-    font-size: 0.75em;
-    border: none !important;
+/* Main chat container */
+#main_chatbot {
+    background-color: var(--background-fill-primary) !important;
+    border: 3px solid var(--border-color-primary) !important;
+    border-radius: var(--radius-xl) !important;
+    box-shadow: var(--shadow-drop-lg) !important;
+    padding: var(--spacing-xxl) !important;
+    min-height: 450px !important;
+    overflow-y: auto !important;
+    scroll-behavior: smooth !important;
 }
 
-.embedded-sources-content summary:hover {
-    background: var(--background-fill-secondary-dark);
+/* Global scroll behavior */
+* {
+    scroll-behavior: smooth;
 }
 
-.embedded-sources-content details[open] summary {
-    border-bottom: none !important;
-    border-radius: 3px 3px 0 0;
+/* Fix embedded content overflow */
+.embedded-sources-container details {
+    overflow: visible;
 }
-
-/* Source content text styling */
-.embedded-sources-content .source-content {
-    background: var(--background-fill-primary);
-    color: var(--body-text-color);
-    padding: 2px;
-    margin-left: 0 !important;
-    padding-left: 2px !important;
-    border-radius: 0 0 2px 2px;
-    font-size: 0.7em;
-    line-height: 1.2;
-}
-
-/* Compact group styling for source fragments */
-.embedded-sources-content .group {
-    padding: 3px !important;
-    margin-bottom: 2px !important;
-    background: var(--background-fill-primary);
-    border-radius: 3px;
-    border: 1px solid var(--border-color-primary);
-}
-
- 

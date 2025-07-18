@@ -1,6 +1,7 @@
 """Configuration management for RAG chat system."""
 
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -11,11 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def find_project_root() -> Path:
-    """Find the root directory of the main project by looking for pyproject.toml.
-    
-    Returns:
-        Path to the project root directory
-    """
+    """Find the root directory of the main project by looking for pyproject.toml."""
     current_path = Path(__file__).parent.absolute()
     
     # Search upwards for pyproject.toml
@@ -26,7 +23,6 @@ def find_project_root() -> Path:
     
     # If not found, default to parent of chatbot_gradio
     return Path(__file__).parent.parent.absolute()
-
 
 # Get project root
 PROJECT_ROOT = find_project_root()
@@ -57,6 +53,56 @@ FORMATO DE RESPUESTA:
 - Invita al usuario a hacer más preguntas si es necesario
 - Evita el uso excesivo de emojis, úsalos solo cuando sean verdaderamente útiles"""
 
+# Helper function to create provider configurations
+def _create_provider_config(model: str, base_url: str, api_key_env: str, rate_limit: int) -> Dict[str, Any]:
+    """Create a standardized provider configuration."""
+    return {
+        "model": model,
+        "base_url": base_url,
+        "max_tokens": 4000,
+        "temperature": 0.4,
+        "rate_limit_rpm": rate_limit,
+        "api_key_env": api_key_env
+    }
+
+# LLM Providers configuration - Simplified using helper function
+PROVIDERS_CONFIG = {
+    "gemini": _create_provider_config(
+        "gemini-2.0-flash",
+        "https://generativelanguage.googleapis.com/v1beta/openai",
+        "GEMINI_API_KEY",
+        15
+    ),
+    "openai": _create_provider_config(
+        "gpt-4o-mini",
+        "https://api.openai.com/v1",
+        "OPENAI_API_KEY",
+        10
+    ),
+    "claude": _create_provider_config(
+        "claude-3-5-sonnet-20241022",
+        "https://api.anthropic.com/v1",
+        "ANTHROPIC_API_KEY",
+        5
+    ),
+    "ollama": {
+        "model": "llama3.1",
+        "base_url": "http://localhost:11434/v1",
+        "max_tokens": 4000,
+        "temperature": 0.4,
+        "rate_limit_rpm": 60,
+        "api_key_env": None  # Ollama typically doesn't require API key
+    }
+}
+
+# Temporal configuration constants - Simplified
+RECENCY_CONFIG = {
+    "very_recent": {"days": 7, "emoji": "🟢", "label": "Muy Reciente", "factor": 1.2},
+    "recent": {"days": 30, "emoji": "🟡", "label": "Reciente", "factor": 1.1},
+    "moderate": {"days": 180, "emoji": "🟠", "label": "Moderado", "factor": 1.0},
+    "old": {"days": float('inf'), "emoji": "🔴", "label": "Antiguo", "factor": 0.9}
+}
+
 @dataclass
 class AppConfig:
     """Main application configuration"""
@@ -66,7 +112,7 @@ class AppConfig:
     app_port: int = 8888
     debug_mode: bool = True
     
-    # Database settings - now points to project root
+    # Database settings
     duckdb_path: str = str(PROJECT_ROOT / "dof_db" / "db.duckdb")
     
     # Embeddings settings
@@ -96,19 +142,11 @@ class AppConfig:
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
     
     def get_available_providers(self) -> List[str]:
-        """Get list of providers with valid API keys"""
-        available = []
-        
-        for provider, config in PROVIDERS_CONFIG.items():
-            api_key_env = config.get("api_key_env")
-            
-            # Local Ollama instances don't need authentication
-            if api_key_env is None:
-                available.append(provider)
-            elif os.getenv(api_key_env):
-                available.append(provider)
-        
-        return available
+        """Get list of providers with valid API keys."""
+        return [
+            provider for provider, config in PROVIDERS_CONFIG.items()
+            if config.get("api_key_env") is None or os.getenv(config["api_key_env"])
+        ]
     
     def get_active_provider_config(self) -> Dict[str, str]:
         """Get the configuration for the active LLM provider."""
@@ -116,14 +154,8 @@ class AppConfig:
             raise ValueError(f"Invalid active provider: {self.active_provider}")
             
         config = PROVIDERS_CONFIG[self.active_provider].copy()
-        
-        # Add the actual API key from environment
         api_key_env = config.get("api_key_env")
-        if api_key_env:
-            config["api_key"] = os.getenv(api_key_env, "")
-        else:
-            config["api_key"] = ""
-            
+        config["api_key"] = os.getenv(api_key_env, "") if api_key_env else ""
         return config
     
     def validate_config(self) -> None:
@@ -137,9 +169,8 @@ class AppConfig:
             return
         
         # Validate required configuration fields for remote providers
-        api_key = os.getenv(provider_config.get("api_key_env", ""))
         missing = []
-        if not api_key:
+        if not os.getenv(provider_config.get("api_key_env", "")):
             missing.append("API key")
         if not provider_config.get("base_url"):
             missing.append("base URL")  
@@ -148,42 +179,6 @@ class AppConfig:
         
         if missing:
             raise ValueError(f"Missing configuration for {self.active_provider}: {', '.join(missing)}")
-
-# LLM Providers configuration
-PROVIDERS_CONFIG = {
-    "gemini": {
-        "model": "gemini-2.0-flash",
-        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
-        "max_tokens": 4000,
-        "temperature": 0.4,
-        "rate_limit_rpm": 15,
-        "api_key_env": "GEMINI_API_KEY"
-    },
-    "openai": {
-        "model": "gpt-4o-mini",
-        "base_url": "https://api.openai.com/v1",
-        "max_tokens": 4000,
-        "temperature": 0.4,
-        "rate_limit_rpm": 10,
-        "api_key_env": "OPENAI_API_KEY"
-    },
-    "claude": {
-        "model": "claude-3-5-sonnet-20241022",
-        "base_url": "https://api.anthropic.com/v1",
-        "max_tokens": 4000,
-        "temperature": 0.4,
-        "rate_limit_rpm": 5,
-        "api_key_env": "ANTHROPIC_API_KEY"
-    },
-    "ollama": {
-        "model": "llama3.1",
-        "base_url": "http://localhost:11434/v1",
-        "max_tokens": 4000,
-        "temperature": 0.4,
-        "rate_limit_rpm": 60,
-        "api_key_env": None  # Ollama typically doesn't require API key
-    }
-}
 
 def validate_environment() -> Dict[str, Any]:
     """Validate environment configuration and setup required directories."""
@@ -205,8 +200,7 @@ def validate_environment() -> Dict[str, Any]:
         errors.append(str(e))
     
     # Check and create database directory
-    db_path = _app_config.duckdb_path
-    db_dir = os.path.dirname(db_path)
+    db_dir = os.path.dirname(_app_config.duckdb_path)
     if db_dir and not os.path.exists(db_dir):
         try:
             os.makedirs(db_dir, exist_ok=True)
@@ -229,55 +223,23 @@ def validate_environment() -> Dict[str, Any]:
         "available_providers": available_providers
     }
 
-# Temporal configuration constants
-RECENCY_THRESHOLDS = {
-    "very_recent": 7,      # days
-    "recent": 30,          # days  
-    "moderate": 180,       # days (6 months)
-    "old": float('inf')    # older than 6 months
-}
-
-RECENCY_INDICATORS = {
-    "very_recent": {"emoji": "🟢", "label": "Muy Reciente", "factor": 1.2},
-    "recent": {"emoji": "🟡", "label": "Reciente", "factor": 1.1}, 
-    "moderate": {"emoji": "🟠", "label": "Moderado", "factor": 1.0},
-    "old": {"emoji": "🔴", "label": "Antiguo", "factor": 0.9}
-}
-
 def calculate_document_age(document_date: datetime, reference_date: datetime = None) -> Dict[str, Any]:
-    """Calculate document age and recency metrics.
-    
-    Args:
-        document_date: Date of the document
-        reference_date: Reference date (defaults to current date)
-        
-    Returns:
-        Dictionary with age information
-    """
+    """Calculate document age and recency metrics."""
     if reference_date is None:
         reference_date = datetime.now()
     
-    if document_date.tzinfo is None:
-        document_date = document_date.replace(tzinfo=None)
-    if reference_date.tzinfo is None:
-        reference_date = reference_date.replace(tzinfo=None)
+    # Normalize timezone info
+    document_date = document_date.replace(tzinfo=None) if document_date.tzinfo else document_date
+    reference_date = reference_date.replace(tzinfo=None) if reference_date.tzinfo else reference_date
     
-    age_delta = reference_date - document_date
-    age_days = age_delta.days
+    age_days = (reference_date - document_date).days
     
-    # Classify document age into predefined categories
-    if age_days <= RECENCY_THRESHOLDS["very_recent"]:
-        category = "very_recent"
-    elif age_days <= RECENCY_THRESHOLDS["recent"]:
-        category = "recent"
-    elif age_days <= RECENCY_THRESHOLDS["moderate"]:
-        category = "moderate"
-    else:
-        category = "old"
+    # Classify document age
+    for category, config in RECENCY_CONFIG.items():
+        if age_days <= config["days"]:
+            break
     
-    indicator = RECENCY_INDICATORS[category]
-    
-    # Generate human-readable age description in Spanish (for UI display)
+    # Generate human-readable age description
     if age_days == 0:
         age_description = "Hoy"
     elif age_days == 1:
@@ -298,22 +260,28 @@ def calculate_document_age(document_date: datetime, reference_date: datetime = N
         "age_days": age_days,
         "category": category,
         "age_description": age_description,
-        "emoji": indicator["emoji"],
-        "label": indicator["label"],
-        "recency_factor": indicator["factor"],
+        "emoji": config["emoji"],
+        "label": config["label"],
+        "recency_factor": config["factor"],
         "formatted_date": document_date.strftime("%d/%m/%Y")
     }
 
 def format_document_date(document_date: datetime) -> str:
-    """Format document date for display.
-    
-    Args:
-        document_date: Document date
-        
-    Returns:
-        Formatted date string
-    """
+    """Format document date for display."""
     return document_date.strftime("%d de %B de %Y")
+
+def extract_date_from_title(title: str) -> datetime:
+    """Extract the document date from a title string in DDMMYYYY-MAT format."""
+    try:
+        # Use regex for more robust date extraction
+        match = re.match(r'(\d{2})(\d{2})(\d{4})', title)
+        if not match:
+            raise ValueError(f"Invalid title format: '{title}'. Expected 'DDMMYYYY-...'")
+        
+        day, month, year = map(int, match.groups())
+        return datetime(year, month, day)
+    except Exception as e:
+        raise ValueError(f"Invalid title format for date extraction: '{title}'. Error: {e}")
 
 # Global configuration instance
 _app_config = AppConfig()
