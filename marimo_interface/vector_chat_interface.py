@@ -29,8 +29,10 @@ def _(SentenceTransformer, duckdb):
         "nomic-ai/modernbert-embed-base", trust_remote_code=True
     )
 
-    # Connect to the existing DuckDB vector database
+    # Connect to the existing DuckDB vector database with VSS extension
     db = duckdb.connect("dof_db/db.duckdb")
+    db.execute("INSTALL vss")
+    db.execute("LOAD vss")
 
     return db, model
 
@@ -63,25 +65,29 @@ def _(genai, types, os):
 def _(db, model, np):
     def search_similar_chunks(query: str, limit: int = 5):
         """
-        Search for similar chunks in the DuckDB vector database using semantic similarity.
+        Search for similar chunks in the DuckDB vector database using pure semantic similarity.
+        Results are ordered by vector distance without temporal reranking or document grouping.
         """
         try:
-            # Generate embedding for the query
-            query_embedding = model.encode(query)
+            # Generate embedding for the query with search prefix (like chatbot_gradio)
+            query_with_prefix = f"search_document: {query}"
+            query_embedding = model.encode(query_with_prefix)
 
             # Convert numpy array to list for DuckDB compatibility
             query_embedding_list = query_embedding.tolist()
 
-            # Vector search using cosine distance
+            # Vector search using optimized array_distance
             search_sql = """
             SELECT 
                 c.id,
                 c.text,
                 c.header,
+                c.document_id,
                 d.title,
                 d.url,
                 d.file_path,
-                array_cosine_distance(c.embedding, CAST(? AS FLOAT[768])) as distance_score
+                d.created_at,
+                array_distance(c.embedding, ?::FLOAT[768]) as distance_score
             FROM chunks c
             JOIN documents d ON c.document_id = d.id
             WHERE c.embedding IS NOT NULL
@@ -94,22 +100,26 @@ def _(db, model, np):
             # Convert results to list of dictionaries
             search_results = []
             for row in results:
-                # Convert cosine distance to intuitive similarity
-                similarity_score = 1 - (row[6] / 2)  # Normalize distance to similarity
+                # Convert distance to similarity score for ranking
+                distance = row[8]
+                similarity_score = 1.0 / (1.0 + distance) if distance >= 0 else 1.0
 
                 search_results.append(
                     {
                         "id": row[0],
                         "text": row[1],
                         "header": row[2],
-                        "document_title": row[3],
-                        "url": row[4],
-                        "file_path": row[5],
-                        "similarity_score": max(0, similarity_score),
-                        "distance_score": row[6],
+                        "document_id": row[3],
+                        "document_title": row[4],
+                        "url": row[5],
+                        "file_path": row[6],
+                        "created_at": row[7],
+                        "similarity_score": similarity_score,
+                        "distance_score": distance,
                     }
                 )
 
+            
             return search_results
 
         except Exception as e:
@@ -307,21 +317,21 @@ def _(search_similar_chunks, client, model_id, mo, types, errors):
 def _(mo, rag_model):
     """
     Chat configuration with custom default values.
-    
+
     This configuration replaces marimo's default values (like 100 tokens)
     with more appropriate values for DOF document queries.
     """
-    
+
     # Default configuration for the chat
     default_config = {
-        "max_tokens": 1200,      
-        "temperature": 0.5,      
-        "top_p": 0.9,           
-        "top_k": 40,            
-        "frequency_penalty": 0.0,  
-        "presence_penalty": 0.0    
+        "max_tokens": 1200,
+        "temperature": 0.5,
+        "top_p": 0.9,
+        "top_k": 40,
+        "frequency_penalty": 0.0,
+        "presence_penalty": 0.0,
     }
-    
+
     # Create and display the chat interface
     mo.ui.chat(
         rag_model,
