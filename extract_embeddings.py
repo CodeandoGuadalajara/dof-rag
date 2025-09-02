@@ -223,6 +223,10 @@ def build_header_dict(doc_title: str, page: str, open_headings: Dict[int, str]) 
     
     return "\n".join(header_lines)
 
+# --- Function to clean <br> tags ---
+def clean_br(text: str) -> str:
+    return text.replace('<br>', '')
+
 def split_text_by_page_break(text: str):
     """
     Splits the text into chunks based on the page pattern:
@@ -533,7 +537,7 @@ def _process_single_chunk(chunk: dict, chunk_counter: int, title: str, open_head
     Returns:
         Tuple[dict, Optional[Tuple]]: Updated open_headings_dict and chunk data for batch insertion
     """
-    chunk_text = chunk["text"]
+    chunk_text = clean_br(chunk["text"])
     page_number = chunk["page"]
 
     # Build the header using the "open" headings at the beginning of the chunk.
