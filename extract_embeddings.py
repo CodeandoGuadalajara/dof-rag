@@ -81,8 +81,8 @@ def get_embedding_dimension() -> int:
     except Exception as e:
         logger.error(f"Error getting embedding dimension from model: {e}")
         # Fallback to a reasonable default, but log the issue
-        logger.warning("Using fallback dimension of 768. Consider checking model configuration.")
-        return 768
+        logger.warning("Using fallback dimension of 1024. Consider checking model configuration.")
+        return 1024
 
 # %%
 # Database paths configuration
