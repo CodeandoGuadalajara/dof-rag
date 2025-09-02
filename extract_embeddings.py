@@ -35,13 +35,14 @@ import os
 import re
 import logging
 from datetime import datetime
-from typing import Union, Tuple, Dict
+from typing import Union, Tuple, Dict, List, Optional
 
 import typer
 import duckdb
 import pandas as pd
 from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
+from collections import defaultdict
 
 
 logging.basicConfig(
@@ -57,7 +58,7 @@ logger = logging.getLogger("dof_embeddings")
 # %%
 
 # Model configuration
-model = SentenceTransformer("nomic-ai/modernbert-embed-base", trust_remote_code=True)
+model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B", trust_remote_code=True)
 
 def get_embedding_dimension() -> int:
     """
@@ -122,6 +123,7 @@ db.execute(f"""
         document_id INTEGER,
         text VARCHAR,
         header VARCHAR,
+        page_number INTEGER,  -- Page number of the chunk in the document
         embedding FLOAT[{embedding_dim}],
         created_at TIMESTAMP,
         FOREIGN KEY (document_id) REFERENCES documents(id)
@@ -453,7 +455,7 @@ def _generate_chunk_embedding(header: str, chunk_text: str, file_path: str, chun
     text_for_embedding = f"{header}\n\n{chunk_text}{description_images}"
     
     try:
-        embedding = model.encode(f"search_document: {text_for_embedding}")
+        embedding = model.encode(f"search_document: {text_for_embedding}", show_progress_bar=False)
         return embedding
     except Exception as e:
         logger.error(f"Error generating embedding for chunk #{chunk_counter} of {file_path}: {str(e)}")
@@ -483,23 +485,20 @@ def _write_debug_chunk(chunks_file, chunk_counter: int, header: str, chunk_text:
             
         chunks_file.write("\n" + "-"*50 + "\n\n")
 
-def _save_chunk_to_database(doc_id: int, chunk_text: str, header: str, embedding):
+def _save_chunks_batch_to_database(chunks_batch: List[Tuple]):
     """
-    Save chunk in database.
+    Save a batch of chunks to the database using executemany for better performance.
     
     Args:
-        doc_id (int): Document ID
-        chunk_text (str): Chunk text
-        header (str): Chunk header
-        embedding: Chunk embedding (numpy array)
+        chunks_batch (List[Tuple]): List of tuples containing (doc_id, chunk_text, header, page_number, embedding_list, timestamp)
     """
-    # Convert numpy array to list for DuckDB FLOAT[] type
-    embedding_list = embedding.tolist()
+    if not chunks_batch:
+        return
     
-    db.execute("""
-        INSERT INTO chunks (document_id, text, header, embedding, created_at)
-        VALUES (?, ?, ?, ?, ?)
-    """, [doc_id, chunk_text, header, embedding_list, datetime.now()])
+    db.executemany("""
+        INSERT INTO chunks (document_id, text, header, page_number, embedding, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, chunks_batch)
 
 def _update_headers_state(chunk_text: str, open_headings_dict: dict) -> dict:
     """
@@ -517,9 +516,9 @@ def _update_headers_state(chunk_text: str, open_headings_dict: dict) -> dict:
         open_headings_dict = update_open_headings_dict(open_headings_dict, line)
     return open_headings_dict
 
-def _process_single_chunk(chunk: dict, chunk_counter: int, title: str, open_headings_dict: dict, doc_id: int, chunks_file, verbose: bool, file_path: str) -> dict:
+def _process_single_chunk(chunk: dict, chunk_counter: int, title: str, open_headings_dict: dict, doc_id: int, chunks_file, verbose: bool, file_path: str, debug_file: str = None) -> Tuple[dict, Optional[Tuple]]:
     """
-    Process a single chunk.
+    Process a single chunk and return data for batch insertion.
     
     Args:
         chunk (dict): Chunk data
@@ -532,7 +531,7 @@ def _process_single_chunk(chunk: dict, chunk_counter: int, title: str, open_head
         file_path (str): Path to the file (for error logging)
         
     Returns:
-        dict: Updated open_headings_dict
+        Tuple[dict, Optional[Tuple]]: Updated open_headings_dict and chunk data for batch insertion
     """
     chunk_text = chunk["text"]
     page_number = chunk["page"]
@@ -548,16 +547,16 @@ def _process_single_chunk(chunk: dict, chunk_counter: int, title: str, open_head
     # Generate embedding
     embedding = _generate_chunk_embedding(header, chunk_text, file_path, chunk_counter, description_images)
 
-
     _write_debug_chunk(chunks_file, chunk_counter, header, chunk_text, description_images)
 
-    # Save to database
-    _save_chunk_to_database(doc_id, chunk_text, header, embedding)
+    # Prepare chunk data for batch insertion
+    embedding_list = embedding.tolist()
+    chunk_data = (doc_id, chunk_text, header, page_number, embedding_list, datetime.now())
 
     # Update headers state
     open_headings_dict = _update_headers_state(chunk_text, open_headings_dict)
     
-    return open_headings_dict
+    return open_headings_dict, chunk_data
 
 def process_file(file_path, verbose: bool = False):
     """
@@ -570,7 +569,7 @@ def process_file(file_path, verbose: bool = False):
     5. Maintains hierarchical context with open headings
     6. Generates contextual headers for each chunk
     7. Generates vector embeddings for each chunk (including header)
-    8. Stores chunks and embeddings in the database
+    8. Stores chunks and embeddings in the database using batch insertion
     9. Creates a debug file for manual inspection (only if verbose=True)
 
     Args:
@@ -590,21 +589,52 @@ def process_file(file_path, verbose: bool = False):
         # 4. Initialize chunk processing
         open_headings_dict, chunks_file, chunks_file_path = _initialize_chunk_processing(file_path, verbose)
         
+        # Group chunks by page for progress tracking
+        chunks_by_page = defaultdict(list)
+        for chunk in page_chunks:
+            chunks_by_page[chunk['page']].append(chunk)
+        
+        total_pages = len(chunks_by_page)
+        
         try:
-            # 5. Process each chunk
-            chunk_counter = 0
-            for chunk in page_chunks:
-                chunk_counter += 1
-                open_headings_dict = _process_single_chunk(
-                    chunk, chunk_counter, title, open_headings_dict, 
-                    doc["id"], chunks_file, verbose, file_path
-                )
+            # Batch for database insertions
+            chunks_batch = []
+            batch_size = 50  # Process in batches of 50 chunks
+            
+            # 5. Process each page with progress bar
+            with tqdm(total=total_pages, desc=f"Procesando {title[:30]}...", unit="página") as pbar:
+                for page_num in sorted(chunks_by_page.keys()):
+                    page_chunks_list = chunks_by_page[page_num]
+                    
+                    # Process all chunks in this page
+                    for chunk_counter, chunk in enumerate(page_chunks_list, 1):
+                        open_headings_dict, chunk_data = _process_single_chunk(
+                             chunk, chunk_counter, title, open_headings_dict, 
+                             doc["id"], chunks_file, verbose, file_path
+                         )
+                        
+                        if chunk_data:
+                            chunks_batch.append(chunk_data)
+                        
+                        # Insert batch when it reaches batch_size
+                        if len(chunks_batch) >= batch_size:
+                            _save_chunks_batch_to_database(chunks_batch)
+                            chunks_batch = []
+                    
+                    # Update progress bar
+                    pbar.set_postfix({"página": f"{page_num}/{max(chunks_by_page.keys())}"})
+                    pbar.update(1)
+            
+            # Insert remaining chunks in batch
+            if chunks_batch:
+                _save_chunks_batch_to_database(chunks_batch)
+                
         finally:
             if chunks_file:
                 chunks_file.close()
         
         # 6. Final logging
-        logger.info(f"Processing completed for: {file_path}")
+        logger.info(f"Processing completed for: {file_path} ({len(page_chunks)} chunks from {total_pages} pages)")
         if verbose and chunks_file_path:
             logger.info(f"Chunks file generated at: {chunks_file_path}")
         
@@ -624,18 +654,20 @@ def process_directory(directory_path, verbose: bool = False):
         # Get the list of files in the directory
         entries = os.listdir(directory_path)
         md_files = [entry for entry in entries if entry.lower().endswith(".md")]
+        
+        # Log count of found markdown files
         logger.info(f"Found {len(md_files)} markdown files in {directory_path}")
         
-        # Loop through all entries in the directory
-        for entry in tqdm(entries, desc=f"Processing {directory_path}"):
+        # Process markdown files
+        for md_file in tqdm(md_files, desc=f"Processing {directory_path}"):
             # Create full path
+            file_path = os.path.join(directory_path, md_file)
+            process_file(file_path, verbose=verbose)
+        
+        # Process subdirectories recursively
+        for entry in entries:
             entry_path = os.path.join(directory_path, entry)
-
-            # If it's a file, process it
-            if os.path.isfile(entry_path) and entry_path.lower().endswith(".md"):
-                process_file(entry_path, verbose=verbose)
-            # If it's a directory, recursively process it
-            elif os.path.isdir(entry_path):
+            if os.path.isdir(entry_path):
                 process_directory(entry_path, verbose=verbose)
                 
         logger.info(f"Processing completed for directory: {directory_path}")
