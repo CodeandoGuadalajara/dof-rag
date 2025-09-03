@@ -428,13 +428,13 @@ def _get_chunk_image_descriptions(document_name: str, page_number: int) -> str:
             "SELECT description FROM image_descriptions WHERE document_name = ? AND page_number = ?",
             [document_name, page_number]
         )
-        # Mejora: Usar DataFrame para acceso por nombre de columna (recomendación @jackbravo)
+        # DataFrame for column name access
         descriptions_df = result.df()
         
         if not descriptions_df.empty:
             logger.info(f"Image found on page {page_number} of document {document_name}")
             formatted_descriptions = []
-            for i, description in enumerate(descriptions_df['description'], 1):  # Acceso por nombre
+            for i, description in enumerate(descriptions_df['description'], 1):  # Access by name
                 formatted_descriptions.append(f"Imagen {i}: {description}")
             return f"\n\nImágenes en esta página: {'. '.join(formatted_descriptions)}."
         return ""
@@ -520,7 +520,7 @@ def _update_headers_state(chunk_text: str, open_headings_dict: dict) -> dict:
         open_headings_dict = update_open_headings_dict(open_headings_dict, line)
     return open_headings_dict
 
-def _process_single_chunk(chunk: dict, chunk_counter: int, title: str, open_headings_dict: dict, doc_id: int, chunks_file, verbose: bool, file_path: str, debug_file: str = None) -> Tuple[dict, Optional[Tuple]]:
+def _process_single_chunk(chunk: dict, chunk_counter: int, title: str, open_headings_dict: dict, doc_id: int, chunks_file, verbose: bool, file_path: str) -> Tuple[dict, Optional[Tuple]]:
     """
     Process a single chunk and return data for batch insertion.
     
@@ -551,7 +551,8 @@ def _process_single_chunk(chunk: dict, chunk_counter: int, title: str, open_head
     # Generate embedding
     embedding = _generate_chunk_embedding(header, chunk_text, file_path, chunk_counter, description_images)
 
-    _write_debug_chunk(chunks_file, chunk_counter, header, chunk_text, description_images)
+    if verbose:
+        _write_debug_chunk(chunks_file, chunk_counter, header, chunk_text, description_images)
 
     # Prepare chunk data for batch insertion
     embedding_list = embedding.tolist()
@@ -604,16 +605,18 @@ def process_file(file_path, verbose: bool = False):
             # Batch for database insertions
             chunks_batch = []
             batch_size = 50  # Process in batches of 50 chunks
+            global_chunk_counter = 0  # Global counter across all pages
             
             # 5. Process each page with progress bar
-            with tqdm(total=total_pages, desc=f"Procesando {title[:30]}...", unit="página") as pbar:
+            with tqdm(total=total_pages, desc=f"Processing {title[:30]}...", unit="page") as pbar:
                 for page_num in sorted(chunks_by_page.keys()):
                     page_chunks_list = chunks_by_page[page_num]
                     
                     # Process all chunks in this page
-                    for chunk_counter, chunk in enumerate(page_chunks_list, 1):
+                    for chunk in page_chunks_list:
+                        global_chunk_counter += 1
                         open_headings_dict, chunk_data = _process_single_chunk(
-                             chunk, chunk_counter, title, open_headings_dict, 
+                             chunk, global_chunk_counter, title, open_headings_dict, 
                              doc["id"], chunks_file, verbose, file_path
                          )
                         
@@ -626,7 +629,7 @@ def process_file(file_path, verbose: bool = False):
                             chunks_batch = []
                     
                     # Update progress bar
-                    pbar.set_postfix({"página": f"{page_num}/{max(chunks_by_page.keys())}"})
+                    pbar.set_postfix({"page": f"{page_num}/{max(chunks_by_page.keys())}"})
                     pbar.update(1)
             
             # Insert remaining chunks in batch
