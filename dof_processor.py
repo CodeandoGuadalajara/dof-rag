@@ -71,6 +71,26 @@ def convert_doc_to_docx(doc_path: Path, docx_path: Optional[Path] = None) -> Opt
     """
     global problematic_files
     
+    def _read_conversion_log(log_file: Path, doc_name: str, log_level: str) -> None:
+        """
+        Helper function to read and log conversion log content
+        
+        Args:
+            log_file: Path to the log file
+            doc_name: Name of the document being converted
+            log_level: Level for logging ('debug', 'error', 'warning')
+        """
+        if log_file.exists():
+            with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                log_content = f.read()
+                if log_content.strip():
+                    if log_level == 'debug':
+                        logging.debug(f"Conversion log for {doc_name}:\n{log_content}")
+                    elif log_level == 'error':
+                        logging.error(f"Detailed error log for {doc_name}:\n{log_content}")
+                    elif log_level == 'warning':
+                        logging.warning(f"Partial log before timeout for {doc_name}:\n{log_content}")
+    
     if not doc_path.exists():
         logging.error(f"DOC file not found: {doc_path}")
         return None
@@ -115,11 +135,7 @@ def convert_doc_to_docx(doc_path: Path, docx_path: Optional[Path] = None) -> Opt
                 if result.returncode == 0 and temp_docx.exists():
                     shutil.copy2(temp_docx, docx_path)
                     
-                    if log_file.exists():
-                        with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
-                            log_content = f.read()
-                            if log_content.strip():
-                                logging.debug(f"Conversion log for {doc_path.name}:\n{log_content}")
+                    _read_conversion_log(log_file, doc_path.name, 'debug')
                     
                     logging.info(f"Successful conversion: {doc_path} -> {docx_path}")
                     return docx_path
@@ -133,11 +149,7 @@ def convert_doc_to_docx(doc_path: Path, docx_path: Optional[Path] = None) -> Opt
                     
                     logging.error(error_msg)
                     
-                    if log_file.exists():
-                        with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
-                            log_content = f.read()
-                            if log_content.strip():
-                                logging.error(f"Detailed error log for {doc_path.name}:\n{log_content}")
+                    _read_conversion_log(log_file, doc_path.name, 'error')
                     
                     return None
                     
@@ -145,11 +157,7 @@ def convert_doc_to_docx(doc_path: Path, docx_path: Optional[Path] = None) -> Opt
                 problematic_files.append(str(doc_path))
                 logging.warning(f"TIMEOUT: File {doc_path} exceeded {CONVERSION_TIMEOUT_SECONDS} seconds limit and will be marked as problematic")
                 
-                if log_file.exists():
-                    with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
-                        log_content = f.read()
-                        if log_content.strip():
-                                logging.warning(f"Partial log before timeout for {doc_path.name}:\n{log_content}")
+                _read_conversion_log(log_file, doc_path.name, 'warning')
                 
                 processes_killed = kill_libreoffice_processes()
                 if processes_killed > 0:
@@ -278,13 +286,12 @@ def merge_docx_files(docx_files: List[Path], output_path: Path) -> bool:
         return False
 
 
-def cleanup_temp_files(directory: Path, keep_unified: bool = True) -> int:
+def cleanup_temp_files(directory: Path) -> int:
     """
     Cleans temporary and residual files from directory
     
     Args:
         directory: Directory to clean
-        keep_unified: Whether to keep unified files (True by default)
         
     Returns:
         Number of files deleted
@@ -295,6 +302,9 @@ def cleanup_temp_files(directory: Path, keep_unified: bool = True) -> int:
     deleted_count = 0
     
     try:
+        # Check if unified files exist (do this once before the loop)
+        unified_files_exist = any(directory.glob('*_MAT.docx')) or any(directory.glob('*_VES.docx'))
+        
         for file_path in directory.rglob('*'):
             if file_path.is_file():
                 # Determine if file should be deleted
@@ -304,13 +314,12 @@ def cleanup_temp_files(directory: Path, keep_unified: bool = True) -> int:
                 if file_path.suffix.lower() == '.doc':
                     # Check if unified file exists in directory
                     # Unified file has format: DDMMYYYY_EDITION.docx
-                    unified_files = list(directory.glob('*_MAT.docx')) + list(directory.glob('*_VES.docx'))
-                    if unified_files:
+                    if unified_files_exist:
                         # If at least one unified file exists, delete all DOC files
                         should_delete = True
                 
                 # Delete individual DOCX files if unified file exists
-                elif file_path.suffix.lower() == '.docx' and keep_unified:
+                elif file_path.suffix.lower() == '.docx':
                     # Check if it's an individual file (not unified)
                     # Unified file has format: DDMMYYYY_EDITION.docx
                     # Individual files have longer names or different patterns
@@ -434,8 +443,7 @@ def process_date_edition(base_dir: Path, date_str: str, edition: str) -> Optiona
         
         # Phase 3: Automatic cleanup of residual files
         logging.info("Starting cleanup of residual files...")
-        deleted_count = cleanup_temp_files(edition_dir, keep_unified=True)
-        logging.info(f"Cleanup completed: {deleted_count} files deleted")
+        deleted_count = cleanup_temp_files(edition_dir)
         
         return True
     else:
@@ -585,8 +593,6 @@ def main(
         
         # Save report in input directory
         report_path = save_problematic_files_report(input_path)
-        if report_path:
-            logging.info(f"Problematic files report saved at: {report_path}")
         
         # Show list in log
         logging.warning("Problematic files:")
