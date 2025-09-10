@@ -12,8 +12,6 @@ Este script automatiza el proceso de conversión de archivos DOC a DOCX usando L
 - Timeout de 90 segundos por archivo para evitar bloqueos
 - Identificación automática de archivos problemáticos
 - Generación de reportes de archivos con timeout
-- Limpieza automática de archivos temporales
-- Logging detallado del proceso
 
 ## Requisitos
 
