@@ -13,24 +13,27 @@ using LibreOffice in headless mode and then merges them into a single document p
 
 """
 
-import re
-import sys
 import logging
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
 from datetime import datetime, timedelta
+from enum import Enum
 from pathlib import Path
 from typing import List, Optional
-from enum import Enum
 
 import typer
-from docxcompose.composer import Composer
 from docx import Document
-import subprocess
-import tempfile
-import shutil
+from docxcompose.composer import Composer
 
 
 CONVERSION_TIMEOUT_SECONDS = 90
 UNIFIED_FILE_PATTERN = r'^\d{8}_(MAT|VES)$'
+
+# Global list for problematic files that reached timeout
+problematic_files = []
 
 
 class ProcessStatus(Enum):
@@ -39,32 +42,6 @@ class ProcessStatus(Enum):
     FAILED = "failed"
     TIMEOUT = "timeout"
     NO_FILES = "no_files"
-
-
-class ProblematicFilesManager:
-    """
-    Manages the state of problematic files that have reached timeout during conversion.
-    Encapsulates global state to improve testability and maintainability.
-    """
-    
-    def __init__(self):
-        self._problematic_files: List[str] = []
-    
-    def add_problematic_file(self, file_path: str) -> None:
-        """Add a file to the problematic files list."""
-        self._problematic_files.append(file_path)
-    
-    def get_problematic_files(self) -> List[str]:
-        """Get a copy of the problematic files list."""
-        return self._problematic_files.copy()
-    
-    def clear_problematic_files(self) -> None:
-        """Clear the problematic files list."""
-        self._problematic_files.clear()
-    
-    def count(self) -> int:
-        """Get the count of problematic files."""
-        return len(self._problematic_files)
 
 
 class ProcessManager:
@@ -127,11 +104,9 @@ class ProcessManager:
 
 
 # Global instances
-_problematic_files_manager = ProblematicFilesManager()
 _process_manager = ProcessManager()
 
 def convert_doc_to_docx(doc_path: Path, docx_path: Optional[Path] = None, 
-                       problematic_files_manager: Optional[ProblematicFilesManager] = None,
                        process_manager: Optional[ProcessManager] = None) -> Optional[Path]:
     """
     Converts a DOC file to DOCX using LibreOffice in headless mode
@@ -139,14 +114,12 @@ def convert_doc_to_docx(doc_path: Path, docx_path: Optional[Path] = None,
     Args:
         doc_path: Path to the original DOC file
         docx_path: Destination path for the DOCX file (optional)
-        problematic_files_manager: Manager for tracking problematic files (optional)
         process_manager: Manager for process operations (optional)
         
     Returns:
         Path to the converted DOCX file or None if conversion failed
     """
-    if problematic_files_manager is None:
-        problematic_files_manager = _problematic_files_manager
+    global problematic_files
     if process_manager is None:
         process_manager = _process_manager
     
@@ -198,7 +171,7 @@ def convert_doc_to_docx(doc_path: Path, docx_path: Optional[Path] = None,
                     return None
                     
             except subprocess.TimeoutExpired:
-                problematic_files_manager.add_problematic_file(str(doc_path))
+                problematic_files.append(str(doc_path))
                 logging.warning(f"TIMEOUT: File {doc_path} exceeded {process_manager.timeout_seconds} seconds limit and will be marked as problematic")
                 
                 processes_killed = process_manager.kill_libreoffice_processes()
@@ -211,47 +184,34 @@ def convert_doc_to_docx(doc_path: Path, docx_path: Optional[Path] = None,
             logging.error(f"Error during conversion of {doc_path}: {e}")
             return None
 
-def get_problematic_files(problematic_files_manager: Optional[ProblematicFilesManager] = None) -> List[str]:
+def get_problematic_files() -> List[str]:
     """
     Returns the list of files that reached timeout during conversion
     
-    Args:
-        problematic_files_manager: Manager for tracking problematic files (optional)
-        
     Returns:
         List of problematic file paths
     """
-    if problematic_files_manager is None:
-        problematic_files_manager = _problematic_files_manager
-    return problematic_files_manager.get_problematic_files()
+    return problematic_files.copy()
 
-def clear_problematic_files(problematic_files_manager: Optional[ProblematicFilesManager] = None) -> None:
+def clear_problematic_files() -> None:
     """
     Clears the list of problematic files
-    
-    Args:
-        problematic_files_manager: Manager for tracking problematic files (optional)
     """
-    if problematic_files_manager is None:
-        problematic_files_manager = _problematic_files_manager
-    problematic_files_manager.clear_problematic_files()
+    global problematic_files
+    problematic_files.clear()
 
-def save_problematic_files_report(output_dir: Path, 
-                                 problematic_files_manager: Optional[ProblematicFilesManager] = None) -> Optional[Path]:
+def save_problematic_files_report(output_dir: Path) -> Optional[Path]:
     """
     Saves a report of problematic files to a file
     
     Args:
         output_dir: Directory where to save the report
-        problematic_files_manager: Manager for tracking problematic files (optional)
         
     Returns:
         Path to the created report file or None if no problematic files
     """
-    if problematic_files_manager is None:
-        problematic_files_manager = _problematic_files_manager
+    global problematic_files
     
-    problematic_files = problematic_files_manager.get_problematic_files()
     if not problematic_files:
         return None
     
@@ -412,8 +372,7 @@ def find_doc_files_in_edition_folders(base_dir: Path, date_str: str, edition: st
     return doc_files
 
 
-def process_date_edition(base_dir: Path, date_str: str, edition: str, 
-                        problematic_files_manager: Optional[ProblematicFilesManager] = None) -> ProcessStatus:
+def process_date_edition(base_dir: Path, date_str: str, edition: str) -> ProcessStatus:
     """
     Processes a specific date and edition: converts DOC to DOCX and merges
     
@@ -421,14 +380,11 @@ def process_date_edition(base_dir: Path, date_str: str, edition: str,
         base_dir: Base directory to search for files
         date_str: Date in DD/MM/YYYY format
         edition: Edition ('MAT' or 'VES')
-        problematic_files_manager: Manager for tracking problematic files (optional)
         
     Returns:
         ProcessStatus: SUCCESS if processing was successful, FAILED if failed, 
         NO_FILES if no files to process, TIMEOUT if any document reached timeout
     """
-    if problematic_files_manager is None:
-        problematic_files_manager = _problematic_files_manager
     logging.info(f"Processing {date_str} - {edition}")
     
     # Search for DOC files
@@ -442,16 +398,16 @@ def process_date_edition(base_dir: Path, date_str: str, edition: str,
     
     # Phase 1: Convert DOC files to DOCX
     docx_files = []
-    initial_problematic_count = len(get_problematic_files(problematic_files_manager))
+    initial_problematic_count = len(get_problematic_files())
     
     for doc_file in doc_files:
-        docx_file = convert_doc_to_docx(doc_file, problematic_files_manager=problematic_files_manager, process_manager=_process_manager)
+        docx_file = convert_doc_to_docx(doc_file, process_manager=_process_manager)
         if docx_file and docx_file.exists():
             docx_files.append(docx_file)
             logging.info(f"Converted: {doc_file.name} -> {docx_file.name}")
         else:
             # Check if failure was due to timeout
-            current_problematic_count = len(get_problematic_files(problematic_files_manager))
+            current_problematic_count = len(get_problematic_files())
             if current_problematic_count > initial_problematic_count:
                 logging.warning(f"TIMEOUT detected in {doc_file.name}. Skipping complete day: {date_str} - {edition}")
                 return ProcessStatus.TIMEOUT
@@ -586,7 +542,7 @@ def main(
             editions_to_process.append('VES')
         
         for edition in editions_to_process:
-            result = process_date_edition(input_path, date_str, edition, _problematic_files_manager)
+            result = process_date_edition(input_path, date_str, edition)
             
             if result == ProcessStatus.TIMEOUT:
                 problematic_days.append(f"{date_str} - {edition}")
@@ -614,11 +570,11 @@ def main(
     else:
         logging.info("No problematic editions found due to timeout")
     
-    problematic_list = get_problematic_files(_problematic_files_manager)
+    problematic_list = get_problematic_files()
     if problematic_list:
         logging.warning(f"Found {len(problematic_list)} problematic files that reached timeout ({CONVERSION_TIMEOUT_SECONDS}s)")
         
-        save_problematic_files_report(input_path, _problematic_files_manager)
+        save_problematic_files_report(input_path)
         
         logging.warning("Problematic files:")
         for i, file_path in enumerate(problematic_list, 1):
@@ -626,7 +582,7 @@ def main(
     else:
         logging.info("No problematic files found during processing")
     
-    clear_problematic_files(_problematic_files_manager)
+    clear_problematic_files()
 
 
 if __name__ == "__main__":
