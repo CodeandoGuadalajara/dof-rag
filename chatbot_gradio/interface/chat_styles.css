@@ -1,0 +1,135 @@
+/* Chat RAG - Essential styles only */
+
+/* Container overrides for full width layout */
+.gradio-container,
+.contain,
+.app {
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 1rem 2rem !important;
+}
+
+.contain,
+.app {
+    padding: 0 !important;
+}
+
+/* UI Components */
+
+/* Main chat interface */
+.custom-chatbot {
+    background-color: var(--background-fill-primary);
+    border: 2px solid var(--border-color-primary);
+    border-radius: var(--radius-lg);
+    min-height: 400px;
+    max-height: 70vh;
+    margin: 0.0625rem 0;
+    padding: var(--spacing-md);
+    overflow-y: auto;
+    scroll-behavior: smooth;
+    box-shadow: var(--shadow-drop-lg);
+}
+
+/* Input configuration panel */
+.input-config-row {
+    background-color: var(--background-fill-secondary);
+    padding: var(--spacing-md);
+    border-radius: var(--radius-lg);
+    margin: 0.0625rem 0;
+    border: 1px solid var(--border-color-primary);
+    box-shadow: var(--shadow-drop);
+}
+
+/* Examples display section */
+.examples-section {
+    background-color: var(--background-fill-secondary);
+    padding: var(--spacing-md) 0;
+    border-radius: var(--radius-lg);
+    margin-top: 0.0625rem;
+    border: 1px solid var(--border-color-primary);
+    box-shadow: var(--shadow-drop);
+}
+
+/* Source references display */
+.embedded-sources-container {
+    margin-top: var(--spacing-lg);
+    margin-bottom: var(--spacing-sm);
+    background: var(--background-fill-secondary); 
+    border-radius: var(--radius-md); 
+    padding: var(--spacing-sm); 
+    border: 1px solid var(--border-color-primary);
+    position: relative;
+    scroll-behavior: smooth;
+    box-shadow: var(--shadow-drop);
+}
+
+.embedded-sources {
+    margin: 0;
+    border: none;
+    background: transparent;
+}
+
+/* Collapsible source summary */
+.embedded-sources-summary {
+    padding: 3px 5px !important;
+    margin: 0 !important;
+    background: var(--background-fill-primary);
+    border-radius: 3px;
+    color: var(--body-text-color);
+    font-weight: 500;
+    font-size: var(--text-sm);
+    border: none !important;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.embedded-sources-summary:hover {
+    background: var(--background-fill-secondary);
+}
+
+/* Scrollable source content */
+.embedded-sources-content {
+    max-height: 200px; 
+    overflow-y: auto; 
+    line-height: 1.3;
+    color: var(--body-text-color);
+    padding: 2px !important;
+    margin: 0 !important;
+    scroll-behavior: smooth;
+}
+
+/* Gradio component overrides */
+
+/* Bot message styling */
+.bot,
+.bot[class*="svelte-"],
+div.bot,
+div.bot[class*="svelte-"] {
+    background-color: var(--background-fill-secondary) !important;
+    border: 1px solid var(--border-color-primary) !important;
+    border-radius: var(--radius-md) !important;
+    color: var(--body-text-color) !important;
+    box-shadow: var(--shadow-drop) !important;
+}
+
+/* Main chat container */
+#main_chatbot {
+    background-color: var(--background-fill-primary) !important;
+    border: 3px solid var(--border-color-primary) !important;
+    border-radius: var(--radius-xl) !important;
+    box-shadow: var(--shadow-drop-lg) !important;
+    padding: var(--spacing-xxl) !important;
+    min-height: 450px !important;
+    overflow-y: auto !important;
+    scroll-behavior: smooth !important;
+}
+
+/* Global scroll behavior */
+* {
+    scroll-behavior: smooth;
+}
+
+/* Fix embedded content overflow */
+.embedded-sources-container details {
+    overflow: visible;
+}
