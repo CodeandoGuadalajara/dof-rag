@@ -196,9 +196,6 @@ def cleanup_temp_files(directory: Path) -> int:
     - Files with .tmp, .temp extensions
     - Intermediate DOCX files that are not the final unified document
     
-    This function preserves:
-    - Original DOC files (treated as read-only library)
-    - Final unified DOCX files (matching pattern YYYYMMDD_MAT/VES.docx)
     """
     if not directory.exists():
         return 0

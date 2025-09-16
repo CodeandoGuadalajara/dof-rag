@@ -9,6 +9,8 @@ Este script automatiza el proceso de conversión de archivos DOC a DOCX usando L
 ## Características
 
 - Conversión DOC a DOCX usando LibreOffice en modo headless
+- **Procesamiento automático de ediciones** - procesa automáticamente todas las ediciones (MAT/VES) disponibles
+- **Arquitectura de directorios separados** - DOC files como biblioteca de solo lectura, DOCX en directorio separado
 - Timeout de 90 segundos por archivo para evitar bloqueos
 - Identificación automática de archivos problemáticos
 - Generación de reportes de archivos con timeout
@@ -48,8 +50,9 @@ soffice --headless --version
 uv add typer docxcompose python-docx
 ```
 
-## Estructura de Directorios Esperada
+## Estructura de Directorios
 
+### Estructura de Entrada (Solo Lectura)
 ```
 dof_word/
 └── YYYY/
@@ -63,21 +66,42 @@ dof_word/
                 └── archivo4.doc
 ```
 
+### Estructura de Salida (DOCX)
+```
+dof_docx/
+└── YYYY/
+    └── MM/
+        └── DDMMYYYY/
+            ├── MAT/
+            │   ├── archivo1.docx
+            │   ├── archivo2.docx
+            │   └── DDMMYYYY_MAT.docx (documento unificado)
+            └── VES/
+                ├── archivo3.docx
+                ├── archivo4.docx
+                └── DDMMYYYY_VES.docx (documento unificado)
+```
+
+### Principios Arquitectónicos
+- **DOC files**: Tratados como biblioteca de solo lectura (nunca se modifican)
+- **DOCX files**: Creados en estructura de directorios separada
+- **Preservación**: Archivos originales siempre se conservan
+
 ## Uso
 
 ### Procesar una fecha específica
 ```bash
-uv run dof_processor.py 02/01/2023 --editions both --log-level INFO
+uv run dof_processor.py 02/01/2023 --log-level INFO
 ```
 
 ### Procesar un rango de fechas
 ```bash
-uv run dof_processor.py 01/01/2023 31/01/2023 --editions both --log-level INFO
+uv run dof_processor.py 01/01/2023 31/01/2023 --log-level INFO
 ```
 
 ### Especificar directorio personalizado
 ```bash
-uv run dof_processor.py 02/01/2023 --input-dir ./mi_carpeta --editions both --log-level INFO
+uv run dof_processor.py 02/01/2023 --input-dir ./mi_carpeta --log-level INFO
 ```
 
 ## Parámetros
@@ -87,22 +111,24 @@ uv run dof_processor.py 02/01/2023 --input-dir ./mi_carpeta --editions both --lo
 | `date` | Fecha inicial (DD/MM/YYYY) | Formato DD/MM/YYYY | Requerido |
 | `end_date` | Fecha final para rango (opcional) | Formato DD/MM/YYYY | None |
 | `--input-dir` | Directorio de entrada | Ruta del directorio | `./dof_word` |
-| `--editions` | Ediciones a procesar | `mat`, `ves`, `both` | `both` |
 | `--log-level` | Nivel de logging | `DEBUG`, `INFO`, `WARNING`, `ERROR` | `INFO` |
 
 ## Proceso de Trabajo
 
-1. **Búsqueda**: Localiza archivos DOC en las carpetas MAT/VES
-2. **Conversión**: Convierte cada archivo DOC a DOCX usando LibreOffice
-3. **Unificación**: Combina todos los archivos DOCX en un documento único
-4. **Limpieza**: Elimina archivos temporales y residuales
-5. **Reporte**: Genera reporte de archivos problemáticos si los hay
+2. **Conversión**: Convierte cada archivo DOC a DOCX usando LibreOffice en modo headless
+3. **Almacenamiento separado**: Crea archivos DOCX en directorio `dof_docx` separado del original
+4. **Unificación**: Combina todos los archivos DOCX de cada edición en un documento único
+5. **Limpieza**: Elimina archivos temporales manteniendo archivos originales y unificados
+6. **Reporte**: Genera reporte de archivos problemáticos si los hay
 
 ## Archivos de Salida
 
+### Directorio de Salida: `dof_docx/`
+- **Archivos DOCX individuales**: Conversiones individuales de cada archivo DOC
 - **Documento unificado**: `DDMMYYYY_EDITION.docx` (ej: `02012023_MAT.docx`)
 - **Reporte de problemas**: `archivos_problematicos_YYYYMMDD_HHMMSS.txt` (si hay archivos con timeout)
-- **Log del proceso**: Salida en consola y archivo de log
+- **Log del proceso**: Salida en consola y archivo `dof_processor.log`
+
 
 ## Manejo de Errores
 
@@ -113,5 +139,6 @@ uv run dof_processor.py 02/01/2023 --input-dir ./mi_carpeta --editions both --lo
 
 ## Notas Importantes
 
+### Requisitos del Sistema
 - El script requiere que LibreOffice esté instalado y disponible en el PATH del sistema
-- La limpieza automática elimina archivos temporales
+- Se recomienda tener suficiente espacio en disco para los archivos DOCX duplicados
