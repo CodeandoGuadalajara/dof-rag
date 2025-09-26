@@ -225,7 +225,7 @@ def find_docx_files(input_dir: Path, date_str: Optional[str] = None,
 def main(
     date: Optional[str] = typer.Argument(None, help="Date (DD/MM/YYYY) or start date for range - optional"),
     end_date: Optional[str] = typer.Argument(None, help="End date (DD/MM/YYYY) - optional for date range"),
-    input_dir: str = typer.Option("./dof_word", help="Input directory with DOCX files"),
+    input_dir: str = typer.Option("./dof_docx", help="Input directory with DOCX files"),
     output_dir: str = typer.Option("./dof_word_md", help="Output directory for Markdown files"),
     log_level: str = typer.Option("INFO", help="Logging level: DEBUG, INFO, WARNING, ERROR")
 ):
@@ -236,13 +236,13 @@ def main(
     
     Usage examples:
     # Process all files:
-    uv run convert_docx_to_md.py
+    uv run dof_docx_to_md.py
     
     # For a specific date:
-    uv run convert_docx_to_md.py 22/01/2025
+    uv run dof_docx_to_md.py 22/01/2025
     
     # For a date range:
-    uv run convert_docx_to_md.py 01/01/2025 31/01/2025
+    uv run dof_docx_to_md.py 01/01/2025 31/01/2025
     """
     
     log_levels = {
