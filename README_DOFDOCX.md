@@ -16,7 +16,7 @@ Estos scripts son necesarios para crear la estructura de directorios apropiada y
 El script espera la siguiente estructura de directorios (creada por los scripts prerrequisito):
 
 ```
-dof_word/
+dof_docx/
 ├── 2023/
 │   ├── 01/
 │   │   ├── 02012023/
