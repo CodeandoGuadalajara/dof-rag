@@ -1,19 +1,17 @@
 # DOF DOCX to Markdown Converter
 
-Convierte archivos DOCX del Diario Oficial de la Federación (DOF) a formato Markdown usando Pandoc y filtros LUA personalizados.
+Convierte archivos DOCX del DOF a Markdown usando Pandoc.
 
 ## Prerrequisitos
 
 Antes de usar este script, **DEBES** haber ejecutado los siguientes scripts en orden:
 
-1. **`get_word_dof.py`** - Descarga archivos DOCX del DOF desde el sitio web oficial
-2. **`dof_processor.py`** - Procesa y organiza los archivos DOCX descargados
+1. `get_word_dof.py` - Descarga archivos DOCX del DOF
+2. `dof_processor.py` - Organiza los archivos descargados
 
-Estos scripts son necesarios para crear la estructura de directorios apropiada y obtener los archivos DOCX que este convertidor procesará.
+### Estructura esperada
 
-### Estructura de Directorios Esperada
-
-El script espera la siguiente estructura de directorios (creada por los scripts prerrequisito):
+Los scripts anteriores crean esta estructura:
 
 ```
 dof_docx/
@@ -45,14 +43,7 @@ dof_docx/
 
 #### Windows
 - Descarga el instalador desde la [página oficial de Pandoc](https://github.com/jgm/pandoc/releases/latest) y ejecútalo.
-- Alternativamente, puedes instalarlo con Chocolatey:
-  ```pwsh
-  choco install pandoc
-  ```
-- O con Winget:
-  ```pwsh
-  winget install --source winget --exact --id JohnMacFarlane.Pandoc
-  ```
+
 
 #### Linux
 - Usando el gestor de paquetes (puede estar desactualizado):
@@ -69,19 +60,11 @@ dof_docx/
   ```
 
 #### macOS
-- Descarga el instalador desde la [página oficial de Pandoc](https://github.com/jgm/pandoc/releases/latest) y ejecútalo.
-- Alternativamente, puedes instalarlo con Homebrew:
-  ```bash
-  brew install pandoc
-  ```
-- O con MacPorts:
-  ```bash
-  port install pandoc
-  ```
+```bash
+brew install pandoc
+```
 
-### 2. Instalar dependencias Python con UV
-
-Ejecuta:
+### 2. Instalar typer
 ```bash
 uv add typer
 ```
@@ -114,19 +97,21 @@ dof_word_md/
 │   │   ├── 02012023/
 │   │   │   ├── MAT/
 │   │   │   │   ├── archivo1.md
-│   │   │   │   └── images/
-│   │   │   │       ├── img_001.png
-│   │   │   │       └── img_002.jpg
+│   │   │   │   └── media_temp/
+│   │   │   │       └── media/
+│   │   │   │           ├── image1.png
+│   │   │   │           └── image2.jpg
 │   │   │   └── VES/
 │   │   │       ├── archivo2.md
-│   │   │       └── images/
+│   │   │       └── media_temp/
+│   │   │           └── media/
 │   │   └── ...
 │   └── 02/
 └── 2024/
 ```
 
 
-Puedes especificar directorios de entrada/salida y nivel de log:
+### Opciones
 ```bash
 uv run dof_docx_to_md.py 02/01/2020 --input-dir dof_word --output-dir dof_word_md --log-level DEBUG
 ```

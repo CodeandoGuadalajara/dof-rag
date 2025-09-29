@@ -13,7 +13,6 @@ using Pandoc with custom LUA filters.
 """
 
 import sys
-import shutil
 import logging
 import subprocess
 from datetime import datetime, timedelta
@@ -31,18 +30,7 @@ class ProcessResult(Enum):
 
 def convert_docx_to_markdown(docx_path: Path, output_path: Path, 
                            images_dir: Path, lua_filter_headers: Path) -> bool:
-    """
-    Converts a DOCX file to Markdown using Pandoc with optimized configuration
-    
-    Args:
-        docx_path: Path to input DOCX file
-        output_path: Path to output Markdown file
-        images_dir: Directory where to extract images
-        lua_filter_headers: Path to custom LUA filter for headers
-        
-    Returns:
-        True if conversion was successful, False otherwise
-    """
+    """Converts DOCX to Markdown using Pandoc."""
     try:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         images_dir.mkdir(parents=True, exist_ok=True)
@@ -86,66 +74,20 @@ def convert_docx_to_markdown(docx_path: Path, output_path: Path,
         return False
 
 
-def organize_images(images_dir: Path, target_images_dir: Path) -> int:
-    """
-    Organizes extracted images in the target directory
-    
-    Args:
-        images_dir: Temporary directory with images extracted by Pandoc
-        target_images_dir: Target directory for images
-        
-    Returns:
-        Number of organized images
-    """
-    organized_count = 0
-    
-    try:
-        if not images_dir.exists():
-            return 0
-        
-        target_images_dir.mkdir(parents=True, exist_ok=True)
-        
-        for image_file in images_dir.rglob('*'):
-            if image_file.is_file() and image_file.suffix.lower() in ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.emf', '.wmf']:
-                target_name = f"img_{organized_count + 1:03d}{image_file.suffix}"
-                target_path = target_images_dir / target_name
-                
-                shutil.copy2(image_file, target_path)
-                organized_count += 1
-                logging.info(f"Image organized: {image_file.name} -> {target_name}")
-        
-        if images_dir.exists():
-            shutil.rmtree(images_dir, ignore_errors=True)
-        
-        return organized_count
-        
-    except Exception as e:
-        logging.error(f"Error organizing images: {e}")
-        return organized_count
-
-
 def process_docx_file(docx_path: Path, output_base_dir: Path, lua_filter_headers: Path) -> ProcessResult:
-    """
-    Processes an individual DOCX file. Always overwrites existing files.
-    
-    Args:
-        docx_path: Path to DOCX file
-        output_base_dir: Base output directory
-        lua_filter_headers: Path to LUA filter for headers
-        
-    """
+    """Process individual DOCX file."""
     try:
         path_parts = docx_path.parts
         logging.debug(f"Path parts: {path_parts}")
         
         if len(path_parts) < 5:
             logging.error(f"Invalid path structure: {docx_path}")
-            return False
+            return ProcessResult.FAILED
         
         year = path_parts[-5]
         month = path_parts[-4]
         date_dir = path_parts[-3]
-        edition = path_parts[-2]  # MAT or VES
+        edition = path_parts[-2]
         
         logging.info(f"Extracted - Year: {year}, Month: {month}, Date: {date_dir}, Edition: {edition}")
         
@@ -155,15 +97,16 @@ def process_docx_file(docx_path: Path, output_base_dir: Path, lua_filter_headers
         md_filename = docx_path.stem + '.md'
         md_path = output_dir / md_filename
         
-        images_dir = output_dir / 'images'
-        temp_media_dir = output_dir / 'media_temp'
+        media_temp_dir = output_dir / 'media_temp'
         
         logging.info(f"Processing: {docx_path} -> {md_path}")
         
-        if convert_docx_to_markdown(docx_path, md_path, temp_media_dir, lua_filter_headers):
-            images_count = organize_images(temp_media_dir, images_dir)
-            if images_count > 0:
-                logging.info(f"Extracted {images_count} images")
+        if convert_docx_to_markdown(docx_path, md_path, media_temp_dir, lua_filter_headers):
+            media_dir = media_temp_dir / 'media'
+            if media_dir.exists():
+                image_count = len([f for f in media_dir.iterdir() if f.is_file()])
+                if image_count > 0:
+                    logging.info(f"Extracted {image_count} images to {media_dir}")
             
             return ProcessResult.SUCCESS
         else:
@@ -176,17 +119,7 @@ def process_docx_file(docx_path: Path, output_base_dir: Path, lua_filter_headers
 
 def find_docx_files(input_dir: Path, date_str: Optional[str] = None, 
                    end_date_str: Optional[str] = None) -> List[Path]:
-    """
-    Finds DOCX files to process. Always processes both MAT and VES editions.
-    
-    Args:
-        input_dir: Input directory
-        date_str: Specific date (DD/MM/YYYY) or None for all
-        end_date_str: End date for range or None
-        
-    Returns:
-        List of paths to DOCX files
-    """
+    """Find DOCX files to process."""
     docx_files = []
     
     try:
@@ -201,7 +134,7 @@ def find_docx_files(input_dir: Path, date_str: Optional[str] = None,
                 day = current_date.strftime("%d")
                 date_folder = f"{day}{month}{year}"
                 
-                editions_to_process = ['MAT', 'VES']  # Always process both editions
+                editions_to_process = ['MAT', 'VES']
                 
                 for edition in editions_to_process:
                     edition_dir = input_dir / year / month / date_folder / edition
@@ -303,7 +236,7 @@ def main(
             
             if result == ProcessResult.SUCCESS:
                 successful_conversions += 1
-            elif result == ProcessResult.FAILED:
+            else:
                 failed_conversions += 1
         
         logging.info("=== Conversion summary ===")
