@@ -43,6 +43,7 @@ def convert_docx_to_markdown(docx_path: Path, output_path: Path,
             '--wrap=preserve',
             '--extract-media', str(images_dir),
             '--lua-filter', str(lua_filter_headers),
+            '--columns=120',
             '-o', str(output_path)
         ]
         
