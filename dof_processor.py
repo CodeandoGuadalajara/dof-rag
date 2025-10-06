@@ -225,7 +225,7 @@ def cleanup_temp_files(directory: Path) -> int:
     return deleted_count
 
 
-def parse_date_to_path_components(date_str: str) -> Tuple[str, str, str, str]:
+def parse_date_to_path_components(date_str: str) -> Tuple[str, str, str]:
     """
     Parses a date string and returns components for path construction
     
@@ -233,17 +233,15 @@ def parse_date_to_path_components(date_str: str) -> Tuple[str, str, str, str]:
         date_str: Date string in DD/MM/YYYY format
         
     Returns:
-        Tuple of (day, month, year, formatted_date) where formatted_date is DDMMYYYY
+        Tuple of (month, year, formatted_date) where formatted_date is DDMMYYYY
     """
-    date_parts = date_str.split('/')
-    day, month, year = date_parts[0], date_parts[1], date_parts[2]
-    formatted_date = f"{day}{month}{year}"
-    return day, month, year, formatted_date
+    day, month, year = date_str.split('/')
+    return month, year, f"{day}{month}{year}"
 
 
 def find_all_edition_folders(base_dir: Path, date_str: str) -> List[str]:
     """Finds all available edition folders (MAT/VES) for a specific date"""
-    _, month, year, formatted_date = parse_date_to_path_components(date_str)
+    month, year, formatted_date = parse_date_to_path_components(date_str)
     
     date_dir = base_dir / year / month / formatted_date
     editions = []
@@ -261,14 +259,14 @@ def find_all_edition_folders(base_dir: Path, date_str: str) -> List[str]:
 
 def find_doc_files_in_edition_folders(base_dir: Path, date_str: str, edition: str) -> List[Path]:
     """Searches for DOC files in MAT/VES folders for a specific date"""
-    _, month, year, formatted_date = parse_date_to_path_components(date_str)
+    month, year, formatted_date = parse_date_to_path_components(date_str)
     
     edition_dir = base_dir / year / month / formatted_date / edition
     
     doc_files = []
     
     if edition_dir.exists():
-        doc_files = list(edition_dir.glob('*.doc'))
+        doc_files = sorted(edition_dir.glob('*.doc'))
         for doc_file in doc_files:
             logging.info(f"DOC file found: {doc_file}")
     else:
@@ -279,7 +277,7 @@ def find_doc_files_in_edition_folders(base_dir: Path, date_str: str, edition: st
 
 def create_docx_output_structure(base_output_dir: Path, date_str: str, edition: str) -> Path:
     """Creates the output directory structure for DOCX files, separate from DOC files"""
-    _, month, year, formatted_date = parse_date_to_path_components(date_str)
+    month, year, formatted_date = parse_date_to_path_components(date_str)
     
     output_dir = base_output_dir / year / month / formatted_date / edition
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -338,7 +336,7 @@ def process_date_edition(base_dir: Path, date_str: str, edition: str) -> Tuple[P
         return ProcessStatus.FAILED, problematic_files
     
     # Phase 2: Merge DOCX documents in output directory
-    _, _, _, formatted_date = parse_date_to_path_components(date_str)
+    formatted_date = date_str.replace('/', '')
     
     unified_filename = f"{formatted_date}_{edition}.docx"
     unified_path = docx_output_dir / unified_filename
