@@ -1,26 +1,31 @@
 # %%
-"""DOF Document Embedding Generator with Structured Headers and Image Integration
+"""DOF Document Embedding Extraction with Structured Headers and Image Integration
 
 This script processes markdown files from the Mexican Official Gazette (DOF),
 extracts their content with advanced header structure recognition, splits them 
 into page-based chunks maintaining hierarchical context, and generates vector
-embeddings for efficient semantic search. The embeddings are stored in a SQLite
-database with vector search capabilities.
+embeddings for storage. The embeddings are stored in a DuckDB database for
+later use by search and retrieval systems.
 
 FEATURES:
 - Structured header detection and hierarchical context maintenance
 - Page-based chunking using {number}----- patterns
 - Contextual headers for improved embedding quality
-- Image descriptions integration for enhanced semantic search
-- Automatic migration of image descriptions from modules_captions database
+- Image descriptions integration for enhanced semantic context
+- Efficient embedding storage using DuckDB with FLOAT[] arrays
 - Debug output files for manual inspection
 
 IMAGE INTEGRATION:
-The script automatically integrates image descriptions into the embedding process:
-- Migrates image descriptions from modules_captions/db/captions.db
+The script integrates image descriptions into the embedding process:
+- Uses existing image descriptions from the main database (dof_db/db.duckdb)
 - Associates image descriptions with document chunks by page number
 - Appends relevant image descriptions to chunk text before embedding generation
 - Maintains backward compatibility when no image descriptions are available
+
+DATABASE:
+The system uses DuckDB for efficient embedding storage:
+- Native support for FLOAT[] arrays for embeddings
+- Unified database (dof_db/db.duckdb) for all data
 
 Usage:
 python extract_embeddings.py /path/to/markdown/files [--verbose]
@@ -28,13 +33,14 @@ python extract_embeddings.py /path/to/markdown/files [--verbose]
 
 import os
 import re
+import torch
 import logging
 from datetime import datetime
 from typing import Union, Tuple, Dict
 
 import typer
-from fastlite import database
-from sqlite_vec import load
+import duckdb
+import polars as pl
 from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
 
@@ -50,52 +56,83 @@ logging.basicConfig(
 logger = logging.getLogger("dof_embeddings")
 
 # %%
-
 # Model configuration
-model = SentenceTransformer("nomic-ai/modernbert-embed-base", trust_remote_code=True)
+# Embedding dimension truncated to 1024 for optimal performance and storage efficiency
+embedding_dim = 1024
 
-# Database paths configuration
-MODULES_CAPTIONS_DB_PATH = "modules_captions/db/captions.db"
+model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B", trust_remote_code=True, truncate_dim=embedding_dim)
+
+# Set model to evaluation mode to save memory
+# Disables training-specific layers such as dropout and batch norm
+# Reference: https://stackoverflow.com/questions/55627780/evaluating-pytorch-models-with-torch-no-grad-vs-model-eval
+model.eval()
+
+# Disable gradient computation to save memory
+# Globally disables gradient computation and significantly reduces memory consumption
+# Reference: https://discuss.pytorch.org/t/does-model-eval-with-torch-set-grad-enabled-is-train-have-the-same-effect-for-grad-history/17183
+torch.set_grad_enabled(False)
 
 # %%
+# Database paths configuration
+DB_FILE = "dof_db/db.duckdb"
+
+# Ensure the database directory exists
+db_dir = os.path.dirname(DB_FILE)
+if db_dir:
+    os.makedirs(db_dir, exist_ok=True)
+    logger.info(f"Ensuring database directory exists at: {db_dir}")
+
 # Database initialization and schema setup
-# Using SQLite with sqlite-vec extension for vector similarity search
-db = database("dof_db/db.sqlite")
-db.conn.enable_load_extension(True)
-load(db.conn)
-db.conn.enable_load_extension(False)
+db = duckdb.connect(DB_FILE)
+
+# Create sequences for auto-incrementing primary keys
+db.execute("CREATE SEQUENCE IF NOT EXISTS documents_id_seq START 1")
+db.execute("CREATE SEQUENCE IF NOT EXISTS chunks_id_seq START 1")
+db.execute("CREATE SEQUENCE IF NOT EXISTS image_descriptions_id_seq START 1")
 
 # Documents table: stores metadata about each document
-db.t.documents.create(
-    id=int, title=str, url=str, file_path=str, created_at=datetime, pk="id", ignore=True
-)
-db.t.documents.create_index(["url"], unique=True, if_not_exists=True)
+db.execute("""
+    CREATE TABLE IF NOT EXISTS documents (
+        id INTEGER PRIMARY KEY DEFAULT nextval('documents_id_seq'),
+        title VARCHAR,
+        url VARCHAR UNIQUE,
+        file_path VARCHAR,
+        created_at TIMESTAMP
+    )
+""")
 
-db.t.chunks.create(
-    id=int,
-    document_id=int,
-    text=str,
-    header=str,
-    embedding=bytes,
-    created_at=datetime,
-    pk="id",
-    foreign_keys=[("document_id", "documents")],
-    ignore=True,
-)
+# Chunks table: stores document chunks with embeddings
+db.execute(f"""
+    CREATE TABLE IF NOT EXISTS chunks (
+        id INTEGER PRIMARY KEY DEFAULT nextval('chunks_id_seq'),
+        document_id INTEGER,
+        text VARCHAR,
+        header VARCHAR,
+        page_number INTEGER,  -- Page number of the chunk in the document
+        embedding FLOAT[{embedding_dim}],
+        created_at TIMESTAMP,
+        FOREIGN KEY (document_id) REFERENCES documents(id)
+    )
+""")
 
 # Image descriptions table: stores image descriptions for integration with embeddings
-db.t.image_descriptions.create(
-    id=int,
-    document_name=str,
-    page_number=int,
-    image_filename=str,
-    description=str,
-    created_at=datetime,
-    updated_at=datetime,
-    pk="id",
-    ignore=True,
-)
-db.t.image_descriptions.create_index(["document_name", "page_number"], if_not_exists=True)
+db.execute("""
+    CREATE TABLE IF NOT EXISTS image_descriptions (
+        id INTEGER PRIMARY KEY DEFAULT nextval('image_descriptions_id_seq'),
+        document_name VARCHAR,
+        page_number INTEGER,
+        image_filename VARCHAR,
+        description VARCHAR,
+        created_at TIMESTAMP,
+        updated_at TIMESTAMP
+    )
+""")
+
+# Create index on image_descriptions for faster lookups
+db.execute("""
+    CREATE INDEX IF NOT EXISTS image_descriptions_lookup_idx 
+    ON image_descriptions (document_name, page_number)
+""")
 
 HEADING_PATTERN = re.compile(r'^(#{1,6})\s+(.*)$')
 
@@ -111,7 +148,6 @@ def get_heading_level(line: str) -> Union[Tuple[int, str], Tuple[None, None]]:
         level = len(hashes)
         return level, heading_text
     return None, None
-
 
 def update_open_headings_dict(open_headings: Dict[int, str], line: str) -> Dict[int, str]:
     """
@@ -145,7 +181,6 @@ def update_open_headings_dict(open_headings: Dict[int, str], line: str) -> Dict[
         logger.debug(f"H{lvl} heading found: '{txt}'. Updating context")
         return new_headings
 
-
 def build_header_dict(doc_title: str, page: str, open_headings: Dict[int, str]) -> str:
     """
     Builds the chunk header with the format:
@@ -173,6 +208,9 @@ def build_header_dict(doc_title: str, page: str, open_headings: Dict[int, str]) 
     
     return "\n".join(header_lines)
 
+# --- Function to clean <br> tags ---
+def clean_br(text: str) -> str:
+    return text.replace('<br>', '')
 
 def split_text_by_page_break(text: str):
     """
@@ -195,14 +233,13 @@ def split_text_by_page_break(text: str):
     # Last fragment after the last page mark
     remaining = text[last_index:].strip()
     if remaining:
-        final_page = last_page if last_page else "1"
+        final_page = str(int(last_page) + 1) if last_page else "1"
         chunks.append({"text": remaining, "page": final_page})
 
     logger.debug(f"Document split into {len(chunks)} chunks based on page markers")
     return chunks
 
 # %%
-
 
 def get_url_from_filename(filename: str):
     """
@@ -238,7 +275,6 @@ def get_url_from_filename(filename: str):
         # Return None or an error message if the filename doesn't match expected format
         raise ValueError(f"Expected filename like 23012025-MAT.md but got {filename}")
 
-
 def _prepare_document_metadata(file_path: str) -> tuple:
     """
     Extract metadata from the file.
@@ -258,29 +294,70 @@ def _prepare_document_metadata(file_path: str) -> tuple:
     
     return content, title, url
 
-
 def _setup_database_document(title: str, url: str, file_path: str) -> dict:
     """
-    Configure document in database.
+    Configure document in database, cleaning up existing chunks to avoid foreign key violations.
     
     Args:
         title (str): Document title
-        url (str): Document URL
+        url (str): Document URL  
         file_path (str): Path to the document file
         
     Returns:
-        dict: Document record
+        dict: Document record with explicit type conversions
+        
+    Raises:
+        ValueError: If any required parameter is None or empty
+        Exception: If database operation fails
     """
-    # Delete any existing document with the same URL to avoid duplicates
-    db.t.documents.delete_where("url = ?", [url])
-    doc = db.t.documents.insert(
-        title=title,
-        url=url,
-        file_path=file_path,
-        created_at=datetime.now()
-    )
-    return doc
-
+    if not all([title, url, file_path]):
+        raise ValueError("All parameters (title, url, file_path) must be non-empty")
+    
+    try:
+        existing_doc_df = db.execute("SELECT id FROM documents WHERE url = ?", [url]).pl()
+        
+        if not existing_doc_df.is_empty():
+            doc_id = int(existing_doc_df.row(0, named=True)['id'])
+            db.execute("DELETE FROM chunks WHERE document_id = ?", [doc_id])
+            logger.info(f"Cleaned up existing chunks for document: {title}")
+            
+            db.execute("""
+                UPDATE documents 
+                SET title = ?, file_path = ?, created_at = ?
+                WHERE url = ?
+            """, [title, file_path, datetime.now(), url])
+            
+            result_df = db.execute(
+                "SELECT id, title, url, file_path, created_at FROM documents WHERE url = ?", 
+                [url]
+            ).pl()
+            action = "updated"
+        else:
+            result_df = db.execute("""
+                INSERT INTO documents (title, url, file_path, created_at) 
+                VALUES (?, ?, ?, ?)
+                RETURNING id, title, url, file_path, created_at
+            """, [title, url, file_path, datetime.now()]).pl()
+            action = "created"
+        
+        if result_df.is_empty():
+            raise Exception("Failed to insert/update document record")
+        
+        doc_row = result_df.row(0, named=True)
+        doc = {
+            "id": int(doc_row['id']),  
+            "title": str(doc_row['title']), 
+            "url": str(doc_row['url']),
+            "file_path": str(doc_row['file_path']),
+            "created_at": doc_row['created_at']
+        }
+        
+        logger.info(f"Document {action} successfully: {title} (ID: {doc['id']})")
+        return doc
+        
+    except Exception as e:
+        logger.error(f"Failed to configure document '{title}': {str(e)}")
+        raise
 
 def _prepare_page_chunks(content: str) -> list:
     """
@@ -299,7 +376,6 @@ def _prepare_page_chunks(content: str) -> list:
         logger.debug("No page markers found. Processing as a single-page document.")
     return page_chunks
 
-
 def _initialize_chunk_processing(file_path: str, verbose: bool) -> tuple:
     """
     Initialize variables for chunk processing.
@@ -311,7 +387,7 @@ def _initialize_chunk_processing(file_path: str, verbose: bool) -> tuple:
     Returns:
         tuple: (open_headings_dict, chunks_file, chunks_file_path)
     """
-    open_headings_dict = {}  # Dictionary of (level -> text) that are "open"
+    open_headings_dict = {}
     chunks_file = None
     chunks_file_path = None
     
@@ -320,7 +396,6 @@ def _initialize_chunk_processing(file_path: str, verbose: bool) -> tuple:
         chunks_file = open(chunks_file_path, "w", encoding="utf-8")
     
     return open_headings_dict, chunks_file, chunks_file_path
-
 
 def _get_chunk_image_descriptions(document_name: str, page_number: int) -> str:
     """
@@ -334,25 +409,25 @@ def _get_chunk_image_descriptions(document_name: str, page_number: int) -> str:
         str: Formatted image descriptions or empty string if none found
     """
     try:
-        descriptions = db.q(
+        result = db.execute(
             "SELECT description FROM image_descriptions WHERE document_name = ? AND page_number = ?",
             [document_name, page_number]
         )
+        # Polars DataFrame for column name access 
+        descriptions_df = result.pl()
         
-        if descriptions:
+        if not descriptions_df.is_empty():
             logger.info(f"Image found on page {page_number} of document {document_name}")
             formatted_descriptions = []
-            for i, desc in enumerate(descriptions, 1):
-                formatted_descriptions.append(f"Imagen {i}: {desc['description']}")
+            for i, description in enumerate(descriptions_df['description'].to_list(), 1):
+                formatted_descriptions.append(f"Imagen {i}: {description}")
             return f"\n\nImágenes en esta página: {'. '.join(formatted_descriptions)}."
-        
         return ""
     except Exception as e:
         logger.warning(f"Error querying image descriptions for {document_name}, page {page_number}: {str(e)}")
         return ""
 
-
-def _generate_chunk_embedding(header: str, chunk_text: str, file_path: str, chunk_counter: int, description_images: str = "") -> bytes:
+def _generate_chunk_embedding(header: str, chunk_text: str, file_path: str, chunk_counter: int, description_images: str = ""):
     """
     Generate embedding for a chunk.
     
@@ -364,17 +439,23 @@ def _generate_chunk_embedding(header: str, chunk_text: str, file_path: str, chun
         description_images (str): Image descriptions for this chunk (optional)
         
     Returns:
-        bytes: Embedding vector
+        numpy.ndarray: Embedding vector
     """
     text_for_embedding = f"{header}\n\n{chunk_text}{description_images}"
     
     try:
-        embedding = model.encode(f"search_document: {text_for_embedding}")
+        # Context manager that disables gradient tracking and prevents creation of intermediate buffers
+        # Improves memory efficiency and faster execution during inference
+        # Reference: https://docs.pytorch.org/tutorials/recipes/recipes/tuning_guide.html
+        with torch.no_grad():
+            embedding = model.encode(f"search_document: {text_for_embedding}", show_progress_bar=False)
+        
+        del text_for_embedding
+
         return embedding
     except Exception as e:
         logger.error(f"Error generating embedding for chunk #{chunk_counter} of {file_path}: {str(e)}")
         raise
-
 
 def _write_debug_chunk(chunks_file, chunk_counter: int, header: str, chunk_text: str, description_images: str = ""):
     """
@@ -400,8 +481,7 @@ def _write_debug_chunk(chunks_file, chunk_counter: int, header: str, chunk_text:
             
         chunks_file.write("\n" + "-"*50 + "\n\n")
 
-
-def _save_chunk_to_database(doc_id: int, chunk_text: str, header: str, embedding: bytes):
+def _save_chunk_to_database(doc_id: int, chunk_text: str, header: str, page_number: int, embedding):
     """
     Save chunk in database.
     
@@ -409,16 +489,16 @@ def _save_chunk_to_database(doc_id: int, chunk_text: str, header: str, embedding
         doc_id (int): Document ID
         chunk_text (str): Chunk text
         header (str): Chunk header
-        embedding (bytes): Chunk embedding
+        page_number (int): Page number
+        embedding: Chunk embedding (numpy array)
     """
-    db.t.chunks.insert(
-        document_id=doc_id,
-        text=chunk_text,
-        header=header,
-        embedding=embedding,
-        created_at=datetime.now(),
-    )
-
+    # Convert numpy array to list for DuckDB FLOAT[] type
+    embedding_list = embedding.tolist()
+    
+    db.execute("""
+        INSERT INTO chunks (document_id, text, header, page_number, embedding, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, [doc_id, chunk_text, header, page_number, embedding_list, datetime.now()])
 
 def _update_headers_state(chunk_text: str, open_headings_dict: dict) -> dict:
     """
@@ -435,7 +515,6 @@ def _update_headers_state(chunk_text: str, open_headings_dict: dict) -> dict:
     for line in lines:
         open_headings_dict = update_open_headings_dict(open_headings_dict, line)
     return open_headings_dict
-
 
 def _process_single_chunk(chunk: dict, chunk_counter: int, title: str, open_headings_dict: dict, doc_id: int, chunks_file, verbose: bool, file_path: str) -> dict:
     """
@@ -454,7 +533,7 @@ def _process_single_chunk(chunk: dict, chunk_counter: int, title: str, open_head
     Returns:
         dict: Updated open_headings_dict
     """
-    chunk_text = chunk["text"]
+    chunk_text = clean_br(chunk["text"])
     page_number = chunk["page"]
 
     # Build the header using the "open" headings at the beginning of the chunk.
@@ -468,18 +547,16 @@ def _process_single_chunk(chunk: dict, chunk_counter: int, title: str, open_head
     # Generate embedding
     embedding = _generate_chunk_embedding(header, chunk_text, file_path, chunk_counter, description_images)
 
-    # Write debug info if verbose
     if verbose:
         _write_debug_chunk(chunks_file, chunk_counter, header, chunk_text, description_images)
 
     # Save to database
-    _save_chunk_to_database(doc_id, chunk_text, header, embedding)
+    _save_chunk_to_database(doc_id, chunk_text, header, page_number, embedding)
 
     # Update headers state
     open_headings_dict = _update_headers_state(chunk_text, open_headings_dict)
     
     return open_headings_dict
-
 
 def process_file(file_path, verbose: bool = False):
     """
@@ -513,14 +590,21 @@ def process_file(file_path, verbose: bool = False):
         open_headings_dict, chunks_file, chunks_file_path = _initialize_chunk_processing(file_path, verbose)
         
         try:
-            # 5. Process each chunk
+            # 5. Process each chunk with progress bar
+            total_pages = len(page_chunks)
             chunk_counter = 0
-            for chunk in page_chunks:
-                chunk_counter += 1
-                open_headings_dict = _process_single_chunk(
-                    chunk, chunk_counter, title, open_headings_dict, 
-                    doc["id"], chunks_file, verbose, file_path
-                )
+            
+            with tqdm(total=total_pages, desc=f"Processing {title[:30]}...", unit="page") as pbar:
+                for chunk in page_chunks:
+                    chunk_counter += 1
+                    open_headings_dict = _process_single_chunk(
+                        chunk, chunk_counter, title, open_headings_dict, 
+                        doc["id"], chunks_file, verbose, file_path
+                    )
+                    
+                    # Update progress bar
+                    pbar.set_postfix({"page": f"{chunk['page']}"})
+                    pbar.update(1)
         finally:
             if chunks_file:
                 chunks_file.close()
@@ -533,7 +617,6 @@ def process_file(file_path, verbose: bool = False):
     except Exception as e:
         logger.error(f"Error processing file {file_path}: {str(e)}")
         raise
-
 
 def process_directory(directory_path, verbose: bool = False):
     """
@@ -550,81 +633,25 @@ def process_directory(directory_path, verbose: bool = False):
         logger.info(f"Found {len(md_files)} markdown files in {directory_path}")
         
         # Loop through all entries in the directory
-        for entry in tqdm(entries, desc=f"Processing {directory_path}"):
+        for entry in tqdm(md_files, desc=f"Processing {directory_path}"):
             # Create full path
             entry_path = os.path.join(directory_path, entry)
 
-            # If it's a file, process it
-            if os.path.isfile(entry_path) and entry_path.lower().endswith(".md"):
-                process_file(entry_path, verbose=verbose)
+            # Process the markdown file
+            process_file(entry_path, verbose=verbose)
+            
+        # Process subdirectories separately without progress bar
+        for entry in entries:
+            entry_path = os.path.join(directory_path, entry)
             # If it's a directory, recursively process it
-            elif os.path.isdir(entry_path):
+            if os.path.isdir(entry_path):
                 process_directory(entry_path, verbose=verbose)
                 
         logger.info(f"Processing completed for directory: {directory_path}")
+        
     except Exception as e:
         logger.error(f"Error processing directory {directory_path}: {str(e)}")
         raise
-
-
-def _migrate_image_descriptions_table():
-    """
-    Migrate image descriptions from modules_captions database to main database.
-    """
-    try:
-        import sqlite3
-        
-        # Check if modules_captions database exists
-        if not os.path.exists(MODULES_CAPTIONS_DB_PATH):
-            logger.info("No modules_captions database found, skipping migration")
-            return
-            
-        # Connect to modules_captions database
-        source_conn = sqlite3.connect(MODULES_CAPTIONS_DB_PATH)
-        source_cursor = source_conn.cursor()
-        
-        # Check if image_descriptions table exists in source
-        source_cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='image_descriptions'"
-        )
-        if not source_cursor.fetchone():
-            logger.info("No image_descriptions table found in modules_captions database")
-            source_conn.close()
-            return
-            
-        # Get all records from source database
-        source_cursor.execute(
-            "SELECT document_name, page_number, image_filename, description, created_at, updated_at FROM image_descriptions"
-        )
-        records = source_cursor.fetchall()
-        source_conn.close()
-        
-        if not records:
-            logger.info("No image descriptions found to migrate")
-            return
-            
-        # Insert records into main database
-        migrated_count = 0
-        for record in records:
-            try:
-                db.t.image_descriptions.insert({
-                    "document_name": record[0],
-                    "page_number": record[1],
-                    "image_filename": record[2],
-                    "description": record[3],
-                    "created_at": record[4] if record[4] else datetime.now(),
-                    "updated_at": record[5] if record[5] else datetime.now()
-                })
-                migrated_count += 1
-            except Exception as e:
-                # Skip duplicates or other errors
-                logger.debug(f"Skipping record {record[0]}/{record[1]}/{record[2]}: {str(e)}")
-                continue
-                
-        logger.info(f"Successfully migrated {migrated_count} image descriptions")
-        
-    except Exception as e:
-        logger.warning(f"Error during image descriptions migration: {str(e)}")
 
 
 def main(root_dir: str, verbose: bool = False):
@@ -646,11 +673,8 @@ def main(root_dir: str, verbose: bool = False):
     start_time = datetime.now()
     
     try:
-        # Migrate image descriptions before processing
-        logger.info("Migrating image descriptions...")
-        _migrate_image_descriptions_table()
-        
         process_directory(root_dir, verbose=verbose)
+        
         elapsed_time = datetime.now() - start_time
         logger.info(f"Processing completed in {elapsed_time}")
     except Exception as e:
