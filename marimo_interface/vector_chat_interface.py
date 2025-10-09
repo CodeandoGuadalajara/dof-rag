@@ -38,25 +38,53 @@ def _(SentenceTransformer, duckdb):
 
 
 @app.cell
-def _(genai, types, os):
-    """Initialize Gemini client and generation configuration."""
+def _(mo):
+    """UI for Gemini API Key input with instructions."""
+    
+    mo.md(
+        """
+        ## 🔑 Configuración de API Key de Gemini
+        
+        Para usar este chat, necesitas una API key de Google Gemini.
+        
+        **¿Cómo obtener tu API key?**
+        1. Visita [Google AI Studio](https://aistudio.google.com/app/apikey)
+        2. Inicia sesión con tu cuenta de Google
+        3. Haz clic en "Get API Key" o "Create API Key"
+        4. Copia la clave y pégala aquí abajo
+        
+        **Nota:** Tu API key se mantiene en tu sesión actual y NO se guarda en ninguna base de datos.
+        """
+    )
 
-    # Verify that the API key is available
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        print("⚠️ GEMINI_API_KEY not found in environment variables")
 
+@app.cell
+def _(mo):
+    """Text input for API key."""
+    api_key_input = mo.ui.text(
+        label="Gemini API Key",
+        placeholder="Pega tu API key aquí...",
+        kind="password",
+        full_width=True
+    )
+    api_key_input
+
+
+@app.cell
+def _(genai, api_key_input):
+    """Initialize Gemini client with user-provided API key."""
+    
+    model_id = "gemini-2.5-flash"
+    
+    if not api_key_input.value or api_key_input.value.strip() == "":
         client = None
-        model_id = "gemini-2.5-flash"
     else:
         try:
-            client = genai.Client(api_key=api_key)
-            model_id = "gemini-2.5-flash"
+            client = genai.Client(api_key=api_key_input.value.strip())
             print("✅ Gemini client initialized successfully")
         except Exception as e:
             print(f"❌ Error initializing Gemini client: {e}")
             client = None
-            model_id = "gemini-2.5-flash"
 
     return client, model_id
 
@@ -98,27 +126,20 @@ def _(db, model, np):
             results = db.execute(search_sql, [query_embedding_list, limit]).fetchall()
 
             # Convert results to list of dictionaries
-            search_results = []
-            for row in results:
-                # Convert distance to similarity score for ranking
-                distance = row[8]
-                similarity_score = 1.0 / (1.0 + distance) if distance >= 0 else 1.0
-
-                search_results.append(
-                    {
-                        "id": row[0],
-                        "text": row[1],
-                        "header": row[2],
-                        "document_id": row[3],
-                        "document_title": row[4],
-                        "url": row[5],
-                        "file_path": row[6],
-                        "created_at": row[7],
-                        "similarity_score": similarity_score,
-                        "distance_score": distance,
-                    }
-                )
-
+            search_results = [
+                {
+                    "id": row[0],
+                    "text": row[1],
+                    "header": row[2],
+                    "document_id": row[3],
+                    "document_title": row[4],
+                    "url": row[5],
+                    "file_path": row[6],
+                    "created_at": row[7],
+                    "distance_score": row[8],
+                }
+                for row in results
+            ]
             
             return search_results
 
@@ -172,19 +193,18 @@ def _(search_similar_chunks, client, model_id, mo, types, errors):
 
         context_chunks, fuentes_md = [], []
         for i, res in enumerate(search_results, 1):
-            sim_pct = res["similarity_score"] * 100
-
             # Validate and sanitize fields that may be None
             doc_title = res.get("document_title") or "Sin título"
             header = res.get("header") or "Sin sección"
             text_content = res.get("text") or "Sin contenido"
             url = res.get("url") or "Sin URL"
+            distance = res.get("distance_score", 0)
 
             context_chunks.append(
                 f"Documento: {doc_title}\nSección: {header}\nContenido: {text_content}"
             )
             fuentes_md.append(
-                f"**Fuente {i}** (Similitud: {sim_pct:.1f}%)  \n"
+                f"**Fuente {i}** (Distancia: {distance:.4f})  \n"
                 f"📄 **Documento:** {doc_title}  \n"
                 f"📋 **Sección:** {header}  \n"
                 f"🔗 **URL:** {url}"
@@ -214,63 +234,14 @@ def _(search_similar_chunks, client, model_id, mo, types, errors):
             )
 
             try:
-                # Extract marimo chat configuration
-                chat_config = {}
-                if config:
-                    # Temperature
-                    temp_value = getattr(config, "temperature", None)
-                    if temp_value is not None:
-                        chat_config["temperature"] = max(
-                            0.0, min(2.0, float(temp_value))
-                        )
-
-                    # Max Tokens - use exact name confirmed by marimo
-                    max_tokens_value = getattr(config, "max_tokens")
-                    chat_config["max_output_tokens"] = max(
-                        1, min(8192, int(max_tokens_value))
-                    )
-
-                    # Top P
-                    top_p_value = getattr(config, "top_p", None) or getattr(
-                        config, "topP", None
-                    )
-                    if top_p_value is not None:
-                        chat_config["top_p"] = max(0.0, min(1.0, float(top_p_value)))
-
-                    # Top K
-                    top_k_value = getattr(config, "top_k", None) or getattr(
-                        config, "topK", None
-                    )
-                    if top_k_value is not None:
-                        chat_config["top_k"] = max(1, min(40, int(top_k_value)))
-
-                    # Frequency Penalty
-                    freq_penalty_value = getattr(
-                        config, "frequency_penalty", None
-                    ) or getattr(config, "frequencyPenalty", None)
-                    if freq_penalty_value is not None:
-                        chat_config["frequency_penalty"] = max(
-                            -2.0, min(2.0, float(freq_penalty_value))
-                        )
-
-                    # Presence Penalty
-                    pres_penalty_value = getattr(
-                        config, "presence_penalty", None
-                    ) or getattr(config, "presencePenalty", None)
-                    if pres_penalty_value is not None:
-                        chat_config["presence_penalty"] = max(
-                            -2.0, min(2.0, float(pres_penalty_value))
-                        )
-
-                    # Debug: show applied configuration (optional)
-                    if chat_config:
-                        print(f"🔧 Configuración aplicada a Gemini: {chat_config}")
-
-                # Create Gemini configuration with chat parameters
+                # Hardcoded configuration values for Gemini
                 gemini_config = types.GenerateContentConfig(
                     thinking_config=types.ThinkingConfig(thinking_budget=-1),
                     response_mime_type="text/plain",
-                    **chat_config,
+                    temperature=0.5,
+                    max_output_tokens=4096,
+                    top_p=0.9,
+                    top_k=40,
                 )
 
                 contents = [
@@ -282,8 +253,23 @@ def _(search_similar_chunks, client, model_id, mo, types, errors):
                     model=model_id, contents=contents, config=gemini_config
                 )
 
-                # Simple validation according to official documentation
-                answer = resp.text or "No se pudo generar una respuesta."
+                # Handle response according to finish_reason
+                if resp.text:
+                    answer = resp.text
+                elif resp.candidates and len(resp.candidates) > 0:
+                    # Access partial response when MAX_TOKENS is reached
+                    candidate = resp.candidates[0]
+                    if candidate.content and candidate.content.parts:
+                        # Get text from first part
+                        answer = "".join(
+                            part.text for part in candidate.content.parts if hasattr(part, 'text') and part.text
+                        )
+                        if not answer:
+                            answer = "No se pudo generar una respuesta."
+                    else:
+                        answer = "No se pudo generar una respuesta."
+                else:
+                    answer = "No se pudo generar una respuesta."
 
             except errors.APIError as e:
                 answer = f"⚠️ Error de API: {e.message}\n\n**Información encontrada (modo fallback):**\n{context_text[:500]}..."
@@ -315,23 +301,8 @@ def _(search_similar_chunks, client, model_id, mo, types, errors):
 
 @app.cell
 def _(mo, rag_model):
-    """
-    Chat configuration with custom default values.
-
-    This configuration replaces marimo's default values (like 100 tokens)
-    with more appropriate values for DOF document queries.
-    """
-
-    # Default configuration for the chat
-    default_config = {
-        "max_tokens": 1200,
-        "temperature": 0.5,
-        "top_p": 0.9,
-        "top_k": 40,
-        "frequency_penalty": 0.0,
-        "presence_penalty": 0.0,
-    }
-
+    """Chat interface with DOF database."""
+    
     # Create and display the chat interface
     mo.ui.chat(
         rag_model,
@@ -344,8 +315,7 @@ def _(mo, rag_model):
             "Normativas de educación",
             "¿Qué dice sobre {{concepto_específico}}?",
         ],
-        show_configuration_controls=True,
-        config=default_config,  # Add default configuration
+        show_configuration_controls=False,
     )
 
 
