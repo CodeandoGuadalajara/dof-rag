@@ -4,33 +4,28 @@ import os
 import traceback
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+
+from .error_log_manager import ErrorLogManager
+from .logging_config import setup_logging
 
 class ErrorHandler:
-    """
-    Centralized error handling and logging for the caption extraction system.
+    """Centralized error handling with tracking and recovery for image processing."""
     
-    This class provides comprehensive error tracking, logging, and recovery
-    mechanisms for the image processing pipeline. It maintains error logs
-    and provides utilities for debugging and system monitoring.
-    """
-    
-    def __init__(self, log_dir: str = "logs", log_level: int = logging.INFO, debug_mode: bool = False):
+    def __init__(self, log_dir: str = "logs", log_level: int = logging.INFO, debug_mode: bool = False) -> None:
         """
-        Initialize the error handler.
+        Initialize error handler.
         
         Args:
-            log_dir: Directory for storing log files.
-            log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
-            debug_mode: Enable debug mode with enhanced logging.
+            log_dir: Directory for log files
+            log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+            debug_mode: Enable debug mode with enhanced logging
         """
         self.log_dir = Path(log_dir)
         self.debug_mode = debug_mode
         
-        # Create log directory and subdirectories if they don't exist
         self.log_dir.mkdir(exist_ok=True, parents=True)
         
-        # Error tracking
         self.error_counts = {
             'api_errors': 0,
             'file_errors': 0,
@@ -40,108 +35,50 @@ class ErrorHandler:
         }
         
         self.error_details = []
+        self.consecutive_api_errors = 0
+        self._last_rate_limit_warning = 0
+        self._rate_limit_warning_interval = 60
         
-        # Setup logging
-        self._setup_logging(log_level)
+        log_level_name = logging.getLevelName(log_level)
+        self.logger = setup_logging(
+            log_level=log_level_name,
+            log_file="error_handler.log",
+            log_dir=str(self.log_dir),
+            enable_colors=True
+        )
+        self.logger.name = 'error_handler'
         
-        # Error log file
-        self.error_log_file = self.log_dir / f"errors_{datetime.now().strftime('%Y%m%d')}.json"
+        self.error_log_file = self.log_dir / "error_images.json"
+        self.error_log_manager = ErrorLogManager(log_dir=str(self.log_dir), debug_mode=self.debug_mode)
         
-        # Debug mode logging
         if self.debug_mode:
             self.logger.debug("🔍 Debug mode activated in ErrorHandler")
             self.logger.debug(f"Log directory: {self.log_dir}")
             self.logger.debug(f"Log level: {log_level}")
             self.logger.debug(f"Error log file: {self.error_log_file}")
     
-    def _setup_logging(self, log_level: int) -> None:
-        """
-        Setup logging configuration.
-        
-        Args:
-            log_level: Logging level to use.
-        """
-        # Create logger
-        self.logger = logging.getLogger('caption_extractor')
-        self.logger.setLevel(log_level)
-        
-        # Clear existing handlers
-        self.logger.handlers.clear()
-        
-        # Console handler
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(log_level)
-        
-        # Enhanced formatter for debug mode
-        if self.debug_mode:
-            console_formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
-            )
-        else:
-            console_formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-            )
-        
-        console_handler.setFormatter(console_formatter)
-        self.logger.addHandler(console_handler)
-        
-        # File handler
-        log_file = self.log_dir / f"caption_extractor_{datetime.now().strftime('%Y%m%d')}.log"
-        file_handler = logging.FileHandler(log_file, encoding='utf-8')
-        file_handler.setLevel(logging.DEBUG)  # Always log everything to file
-        file_formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
-        )
-        file_handler.setFormatter(file_formatter)
-        self.logger.addHandler(file_handler)
-        
-        self.logger.info(f"Logging initialized. Log file: {log_file}")
-    
+   
     def handle_error(self, 
                     error: Exception, 
                     context: Dict[str, Any], 
                     error_type: str = "unknown") -> None:
         """
-        Handle and log an error with context information.
+        Handle and log error with context.
         
         Args:
-            error: The exception that occurred.
-            context: Context information about when/where the error occurred.
-            error_type: Type of error (api, file, database, validation, unknown).
+            error: Exception that occurred
+            context: Context information about error location
+            error_type: Error category (api, file, database, validation, unknown)
         """
-        # Increment error count
         error_key = f"{error_type}_errors"
-        if error_key in self.error_counts:
-            self.error_counts[error_key] += 1
-        else:
-            self.error_counts['unknown_errors'] += 1
+        self.error_counts[error_key] = self.error_counts.get(error_key, 0) + 1
         
-        # Create error record
-        error_record = {
-            'timestamp': datetime.now().isoformat(),
-            'error_type': error_type,
-            'error_class': error.__class__.__name__,
-            'error_message': str(error),
-            'traceback': traceback.format_exc(),
-            'context': context
-        }
+        normalized_context = self._normalize_context(context)
+        error_record = self._create_error_record(error, error_type, normalized_context)
         
-        # Add to error details
         self.error_details.append(error_record)
+        self._log_error(error, error_type, normalized_context)
         
-        # Log the error with enhanced debug information
-        if self.debug_mode:
-            self.logger.error(
-                f"[{error_type.upper()}] {error.__class__.__name__}: {str(error)}"
-            )
-            self.logger.debug(f"Error context: {json.dumps(context, indent=2, default=str)}")
-            self.logger.debug(f"Full traceback:\n{traceback.format_exc()}")
-        else:
-            self.logger.error(
-                f"[{error_type.upper()}] {error.__class__.__name__}: {str(error)} | Context: {context}"
-            )
-        
-        # Save to error log file
         self._save_error_log(error_record)
     
     def handle_api_error(self, error: Exception, context: Dict[str, Any] = None) -> None:
@@ -152,80 +89,15 @@ class ErrorHandler:
             error: The API exception.
             context: Additional context information about the error.
         """
-        if context is None:
-            context = {}
-            
+        context = context or {}
         error_message = str(error)
-        error_category = context.get('error_category', 'api_communication')
-        http_status = context.get('http_status')
         
-        # Enhanced error detection and categorization
-        is_server_error = (
-            context.get('is_server_error', False) or
-            error_category == 'api_server_error' or
-            (http_status and 500 <= http_status < 600) or
-            any(term in error_message.lower() for term in ['503', '500', 'unavailable', 'overloaded'])
-        )
+        error_info = self._categorize_api_error(error_message, context)
+        context.update(error_info)
         
-        is_rate_limit = (
-            context.get('is_rate_limit', False) or
-            error_category == 'api_rate_limit' or
-            'rate limit' in error_message.lower() or
-            (http_status == 429)
-        )
+        self._log_api_error(error_message, error_info)
+        self._update_consecutive_errors(error_info)
         
-        is_auth_error = (
-            context.get('is_auth_error', False) or
-            error_category == 'api_authentication' or
-            'authentication' in error_message.lower() or
-            'unauthorized' in error_message.lower() or
-            (http_status == 401)
-        )
-        
-        is_network_error = (
-            context.get('is_network_error', False) or
-            error_category == 'network_error' or
-            'connection' in error_message.lower() or
-            'network' in error_message.lower()
-        )
-        
-        is_timeout_error = (
-            context.get('is_timeout_error', False) or
-            error_category == 'timeout_error' or
-            'timeout' in error_message.lower()
-        )
-        
-        # Update context with enhanced categorization
-        context.update({
-            'error_category': error_category,
-            'is_server_error': is_server_error,
-            'is_rate_limit': is_rate_limit,
-            'is_auth_error': is_auth_error,
-            'is_network_error': is_network_error,
-            'is_timeout_error': is_timeout_error,
-            'http_status': http_status
-        })
-        
-        # Enhanced logging based on error type
-        if is_server_error:
-            self.logger.critical(f"Server error detected (HTTP {http_status}): {error_message}. This will stop processing.")
-            self.consecutive_api_errors += 3  # Force processing stop
-        elif is_rate_limit:
-            self.logger.warning(f"Rate limit error detected (HTTP {http_status}): {error_message}. Consider reducing request frequency.")
-            self.consecutive_api_errors += 1
-        elif is_auth_error:
-            self.logger.error(f"Authentication error detected (HTTP {http_status}): {error_message}. Check API credentials.")
-            self.consecutive_api_errors += 2
-        elif is_network_error:
-            self.logger.warning(f"Network error detected: {error_message}. Check internet connection.")
-            self.consecutive_api_errors += 1
-        elif is_timeout_error:
-            self.logger.warning(f"Timeout error detected: {error_message}. API response took too long.")
-            self.consecutive_api_errors += 1
-        else:
-            self.logger.error(f"API communication error (HTTP {http_status}): {error_message}")
-            self.consecutive_api_errors += 1
-            
         self.handle_error(error, context, 'api')
     
     def handle_file_error(self, error: Exception, file_path: str, operation: str) -> None:
@@ -272,36 +144,41 @@ class ErrorHandler:
         """
         context = {
             'validation_type': validation_type,
-            'data': str(data)[:500],  # Limit data size in logs
+            'data': str(data)[:500],
             'error_category': 'data_validation'
         }
         self.handle_error(error, context, 'validation')
     
     def _save_error_log(self, error_record: Dict[str, Any]) -> None:
         """
-        Save error record to the error log file.
+        Appends an error record to the error log file (error_images.json).
         
+        Legacy wrapper method that uses ErrorLogManager for centralized handling.
+
         Args:
-            error_record: Error record to save.
+            error_record: The error dictionary to append.
         """
-        try:
-            # Load existing errors if file exists
-            if self.error_log_file.exists():
-                with open(self.error_log_file, 'r', encoding='utf-8') as f:
-                    errors = json.load(f)
-            else:
-                errors = []
-            
-            # Add new error
-            errors.append(error_record)
-            
-            # Save back to file
-            with open(self.error_log_file, 'w', encoding='utf-8') as f:
-                json.dump(errors, f, indent=2, ensure_ascii=False)
-                
-        except Exception as e:
-            # If we can't save the error log, at least log it to console
-            self.logger.critical(f"Failed to save error log: {e}")
+        image_path = error_record.get('context', {}).get('image_path', '')
+        error_message = error_record.get('error_message', str(error_record.get('error', '')))
+        directory = error_record.get('context', {}).get('directory', '')
+        filename = error_record.get('context', {}).get('filename', '')
+        error_type = error_record.get('error_type', 'unknown')
+        
+        # Extract directory from image_path if directory is not available
+        if not directory and image_path:
+            directory = str(Path(image_path).parent)
+        
+        # Extract filename from image_path if filename is not available
+        if not filename and image_path:
+            filename = Path(image_path).name
+        
+        self.error_log_manager.save_error_image(
+            directory=directory,
+            filename=filename,
+            error_msg=error_message,
+            error_type=error_type,
+            context=error_record.get('context', {})
+        )
     
     def get_error_summary(self) -> Dict[str, Any]:
         """
@@ -313,7 +190,7 @@ class ErrorHandler:
         return {
             'error_counts': self.error_counts.copy(),
             'total_errors': sum(self.error_counts.values()),
-            'recent_errors': self.error_details[-10:],  # Last 10 errors
+            'recent_errors': self.error_details[-10:],
             'error_log_file': str(self.error_log_file)
         }
     
@@ -325,42 +202,39 @@ class ErrorHandler:
             Formatted string with error summary.
         """
         summary = self.get_error_summary()
+        error_categories = self._count_error_categories()
         
-        # Count specific error categories
-        rate_limit_errors = sum(1 for e in self.error_details if e.get('context', {}).get('is_rate_limit', False))
-        auth_errors = sum(1 for e in self.error_details if e.get('context', {}).get('is_auth_error', False))
-        server_errors = sum(1 for e in self.error_details if e.get('context', {}).get('is_server_error', False))
-        network_errors = sum(1 for e in self.error_details if e.get('context', {}).get('is_network_error', False))
-        timeout_errors = sum(1 for e in self.error_details if e.get('context', {}).get('is_timeout_error', False))
-        
-        report = f"""
-=== Error Report ===
-Total Errors: {summary['total_errors']}
-API Errors: {self.error_counts['api_errors']}
-  - Rate Limit Errors: {rate_limit_errors}
-  - Authentication Errors: {auth_errors}
-  - Server Errors (5xx): {server_errors}
-  - Network Errors: {network_errors}
-  - Timeout Errors: {timeout_errors}
-File Errors: {self.error_counts['file_errors']}
-Database Errors: {self.error_counts['database_errors']}
-Validation Errors: {self.error_counts['validation_errors']}
-Unknown Errors: {self.error_counts['unknown_errors']}
-
-Recent Errors:"""
+        report_lines = [
+            "=== Error Report ===",
+            f"Total Errors: {summary['total_errors']}",
+            f"API Errors: {self.error_counts['api_errors']}",
+            f"  - Rate Limit Errors: {error_categories['rate_limit']}",
+            f"  - Authentication Errors: {error_categories['auth']}",
+            f"  - Server Errors (5xx): {error_categories['server']}",
+            f"  - Network Errors: {error_categories['network']}",
+            f"  - Timeout Errors: {error_categories['timeout']}",
+            f"File Errors: {self.error_counts['file_errors']}",
+            f"Database Errors: {self.error_counts['database_errors']}",
+            f"Validation Errors: {self.error_counts['validation_errors']}",
+            f"Unknown Errors: {self.error_counts['unknown_errors']}",
+            "",
+            "Recent Errors:"
+        ]
         
         for i, error in enumerate(summary['recent_errors'][-5:], 1):
-            report += f"""
-{i}. [{error['error_type'].upper()}] {error['error_class']}: {error['error_message'][:100]}...
-   Time: {error['timestamp']}
-   Context: {error['context']}"""
+            report_lines.extend([
+                f"{i}. [{error['error_type'].upper()}] {error['error_class']}: {error['error_message'][:100]}...",
+                f"   Time: {error['timestamp']}",
+                f"   Context: {error['context']}"
+            ])
         
-        report += f"""
-
-Detailed error log: {summary['error_log_file']}
-=================="""
+        report_lines.extend([
+            "",
+            f"Detailed error log: {summary['error_log_file']}",
+            "=================="
+        ])
         
-        return report
+        return "\n".join(report_lines)
     
     def clear_errors(self) -> None:
         """
@@ -375,6 +249,9 @@ Detailed error log: {summary['error_log_file']}
         }
         self.error_details.clear()
         self.logger.info("Error tracking cleared - All error counters and details have been reset for new processing session")
+        
+        # Reset consecutive API errors counter
+        self.consecutive_api_errors = 0
     
     def should_continue_processing(self, max_consecutive_errors: int = 5) -> bool:
         """
@@ -386,37 +263,20 @@ Detailed error log: {summary['error_log_file']}
         Returns:
             bool: True if processing should continue, False otherwise.
         """
-        # Check for server errors (500, 503) that indicate the API is unavailable
-        if self.error_details:  # If there are any errors
-            latest_error = self.error_details[-1]  # Get the most recent error
-            error_message = latest_error.get('error_message', '')
-            error_context = latest_error.get('context', {})
+        if not self.error_details:
+            return True
             
-            # Verificar si es un error de servidor en el contexto o en el mensaje
-            is_server_error = error_context.get('is_server_error', False) or \
-                             error_context.get('error_category') == 'api_server_error' or \
-                             '503 UNAVAILABLE' in error_message or \
-                             '500 ' in error_message or \
-                             'unavailable' in error_message.lower() or \
-                             'overloaded' in error_message.lower()
+        # Check for critical server errors
+        if self._has_critical_server_error():
+            return False
             
-            if is_server_error:
-                self.logger.critical(f"Detected server error: {error_message}. Stopping processing immediately.")
-                return False
-        
-        # Check recent errors for consecutive failures
-        if len(self.error_details) >= max_consecutive_errors:
-            recent_errors = self.error_details[-max_consecutive_errors:]
+        # Check for consecutive API errors
+        if self._has_too_many_consecutive_errors(max_consecutive_errors):
+            return False
             
-            # If all recent errors are API errors, might be a temporary issue
-            api_errors = sum(1 for e in recent_errors if e['error_type'] == 'api')
-            if api_errors == max_consecutive_errors:
-                self.logger.warning(f"Detected {max_consecutive_errors} consecutive API errors")
-                return False
-        
-        # Check total error rate
+        # Check total error threshold
         total_errors = sum(self.error_counts.values())
-        if total_errors > 50:  # Arbitrary threshold
+        if total_errors > 50:
             self.logger.warning(f"High error count detected: {total_errors}")
             return False
         
@@ -456,3 +316,189 @@ Detailed error log: {summary['error_log_file']}
             self.logger.removeHandler(handler)
         self.logger.info("Logging handlers closed")
         logging.shutdown()
+    
+    def reset_consecutive_api_errors(self) -> None:
+        """Reset the consecutive API errors counter.
+        
+        This method is called after a successful API operation to reset
+        the consecutive error tracking.
+        """
+        if self.consecutive_api_errors > 0:
+            self.logger.debug(f"Resetting consecutive API errors counter (was {self.consecutive_api_errors})")
+            self.consecutive_api_errors = 0
+    
+    def _normalize_context(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize context data for consistency."""
+        if not context:
+            return {}
+        
+        normalized = context.copy()
+        if 'image_path' in normalized:
+            normalized['image_path'] = normalized['image_path'].replace('\\', '/')
+        return normalized
+    
+    def _create_error_record(self, error: Exception, error_type: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Create standardized error record."""
+        return {
+            'timestamp': datetime.now().isoformat(),
+            'error_type': error_type,
+            'error_class': error.__class__.__name__,
+            'error_message': str(error),
+            'traceback': traceback.format_exc(),
+            'context': context
+        }
+    
+    def _log_error(self, error: Exception, error_type: str, context: Dict[str, Any]) -> None:
+        """Log error with appropriate detail level."""
+        # Check if it's a rate limit error and simplify the message
+        if context.get('is_rate_limit', False) or 'RateLimitError' in error.__class__.__name__:
+            retry_delay = self._extract_retry_delay(str(error))
+            error_msg = f"[{error_type.upper()}] Rate limit exceeded. Retry in {retry_delay}."
+        else:
+            error_msg = f"[{error_type.upper()}] {error.__class__.__name__}: {str(error)}"
+        
+        if self.debug_mode:
+            self.logger.error(error_msg)
+            self.logger.debug(f"Error context: {json.dumps(context, indent=2, default=str)}")
+            self.logger.debug(f"Full traceback:\n{traceback.format_exc()}")
+        else:
+            # For rate limit errors, don't include the verbose context
+            if context.get('is_rate_limit', False) or 'RateLimitError' in error.__class__.__name__:
+                self.logger.error(error_msg)
+            else:
+                self.logger.error(f"{error_msg} | Context: {context}")
+    
+    def _categorize_api_error(self, error_message: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Categorize API error and return classification info."""
+        error_category = context.get('error_category', 'api_communication')
+        http_status = context.get('http_status')
+        error_lower = error_message.lower()
+        
+        return {
+            'error_category': error_category,
+            'is_server_error': (
+                context.get('is_server_error', False) or
+                error_category == 'api_server_error' or
+                (http_status and 500 <= http_status < 600) or
+                any(term in error_lower for term in ['503', '500', 'unavailable', 'overloaded'])
+            ),
+            'is_rate_limit': (
+                context.get('is_rate_limit', False) or
+                error_category == 'api_rate_limit' or
+                'rate limit' in error_lower or
+                (http_status == 429)
+            ),
+            'is_auth_error': (
+                context.get('is_auth_error', False) or
+                error_category == 'api_authentication' or
+                any(term in error_lower for term in ['authentication', 'unauthorized']) or
+                (http_status == 401)
+            ),
+            'is_network_error': (
+                context.get('is_network_error', False) or
+                error_category == 'network_error' or
+                any(term in error_lower for term in ['connection', 'network'])
+            ),
+            'is_timeout_error': (
+                context.get('is_timeout_error', False) or
+                error_category == 'timeout_error' or
+                'timeout' in error_lower
+            ),
+            'http_status': http_status
+        }
+    
+    def _extract_retry_delay(self, error_message: str) -> str:
+        """Extract retry delay from rate limit error message."""
+        import re
+        delay_match = re.search(r"'retryDelay': '(\d+)s'", error_message)
+        if delay_match:
+            return delay_match.group(1) + "s"
+        return "unknown"
+    
+    def _log_api_error(self, error_message: str, error_info: Dict[str, Any]) -> None:
+        """Log API error with appropriate severity."""
+        http_status = error_info.get('http_status')
+        
+        if error_info['is_server_error']:
+            self.logger.critical(f"Server error detected (HTTP {http_status}): {error_message}. This will stop processing.")
+        elif error_info['is_rate_limit']:
+            # Throttle rate limit messages to avoid spam
+            import time
+            current_time = time.time()
+            if (current_time - self._last_rate_limit_warning) >= self._rate_limit_warning_interval:
+                retry_delay = self._extract_retry_delay(error_message)
+                self.logger.warning(f"Rate limit exceeded (HTTP {http_status}). Retry in {retry_delay}.")
+                self._last_rate_limit_warning = current_time
+            # If within throttle interval, log at debug level only
+            else:
+                retry_delay = self._extract_retry_delay(error_message)
+                self.logger.debug(f"Rate limit exceeded (HTTP {http_status}). Retry in {retry_delay}. [Throttled]")
+        elif error_info['is_auth_error']:
+            self.logger.error(f"Authentication error detected (HTTP {http_status}): {error_message}. Check API credentials.")
+        elif error_info['is_network_error']:
+            self.logger.warning(f"Network error detected: {error_message}. Check internet connection.")
+        elif error_info['is_timeout_error']:
+            self.logger.warning(f"Timeout error detected: {error_message}. API response took too long.")
+        else:
+            self.logger.error(f"API communication error (HTTP {http_status}): {error_message}")
+    
+    def _update_consecutive_errors(self, error_info: Dict[str, Any]) -> None:
+        """Update consecutive error counter based on error type."""
+        if error_info['is_server_error']:
+            self.consecutive_api_errors += 3  # Force processing stop
+        elif error_info['is_rate_limit']:
+            pass  # Don't increment for rate limits
+        elif error_info['is_auth_error']:
+            self.consecutive_api_errors += 2
+        else:
+            self.consecutive_api_errors += 1
+    
+    def _count_error_categories(self) -> Dict[str, int]:
+        """Count errors by category for reporting."""
+        categories = {'rate_limit': 0, 'auth': 0, 'server': 0, 'network': 0, 'timeout': 0}
+        
+        for error in self.error_details:
+            context = error.get('context', {})
+            if context.get('is_rate_limit'):
+                categories['rate_limit'] += 1
+            if context.get('is_auth_error'):
+                categories['auth'] += 1
+            if context.get('is_server_error'):
+                categories['server'] += 1
+            if context.get('is_network_error'):
+                categories['network'] += 1
+            if context.get('is_timeout_error'):
+                categories['timeout'] += 1
+        
+        return categories
+    
+    def _has_critical_server_error(self) -> bool:
+        """Check if latest error is a critical server error."""
+        latest_error = self.error_details[-1]
+        error_message = latest_error.get('error_message', '')
+        error_context = latest_error.get('context', {})
+        
+        is_server_error = (
+            error_context.get('is_server_error', False) or
+            error_context.get('error_category') == 'api_server_error' or
+            any(term in error_message for term in ['503 UNAVAILABLE', '500 ']) or
+            any(term in error_message.lower() for term in ['unavailable', 'overloaded'])
+        )
+        
+        if is_server_error:
+            self.logger.critical(f"Detected server error: {error_message}. Stopping processing immediately.")
+            return True
+        return False
+    
+    def _has_too_many_consecutive_errors(self, max_consecutive_errors: int) -> bool:
+        """Check if there are too many consecutive API errors."""
+        if len(self.error_details) < max_consecutive_errors:
+            return False
+            
+        recent_errors = self.error_details[-max_consecutive_errors:]
+        api_errors = sum(1 for e in recent_errors if e['error_type'] == 'api')
+        
+        if api_errors == max_consecutive_errors:
+            self.logger.warning(f"Detected {max_consecutive_errors} consecutive API errors")
+            return True
+        return False

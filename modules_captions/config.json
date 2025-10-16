@@ -3,7 +3,7 @@
   "_instructions": "Este archivo contiene todas las configuraciones necesarias para diferentes proveedores de IA",
   
   "root_directory": "/ruta/a/tus/imagenes",
-  "db_path": "captions.db",
+  "db_path": "../dof_db/db.sqlite",
   "provider": "gemini",
   "api_key": null,
   
@@ -12,13 +12,13 @@
   "commit_interval": 10,
   "log_level": 20,
   
-  "prompt": " Describe detalladamente la imagen en español con un estilo profesional y claro. La descripción se utilizará como contexto en un sistema RAG, por lo que debe ser precisa, relevante y útil para comprender la imagen incluso sin verla. Limita la respuesta a un máximo de 512 tokens. \n Resume la imagen según estas categorías, solo si aplican: \n Texto:  Extrae el título principal y hasta 3 ideas clave del contenido textual visible. Omite detalles superfluos. \n Mapas:  Identifica la región o país principal, y menciona hasta 3 ubicaciones clave, rutas o elementos geográficos destacados. \n Diagramas o esquemas:  Explica brevemente el concepto o proceso representado, incluyendo relaciones importantes entre elementos. \n Logos:  Nombra la entidad representada y describe los rasgos distintivos del logotipo (forma, colores, texto, íconos). \n Gráficas o datos visuales:  Señala los 2-3 datos más relevantes, tendencias o contrastes notables que permitan comprender rápidamente el mensaje. \n Mantén un lenguaje profesional y conciso. Evita redundancias, especulaciones o interpretaciones personales. Prioriza siempre la utilidad de la descripción como contexto adicional en un sistema de recuperación de información.",
+  "prompt": "Describe esta imagen en español de forma concisa y profesional en un solo párrafo de máximo 500 palabras. La descripción será usada como contexto en un sistema RAG, por lo que debe ser precisa y útil para comprender la imagen sin verla. Incluye solo información relevante: si hay texto visible, extrae el título principal y las ideas clave más importantes; si es un mapa, identifica la región principal y ubicaciones destacadas; si es un diagrama, explica brevemente el concepto representado; si hay logos, nombra la entidad y describe características distintivas; si contiene gráficas o datos, menciona los hallazgos más relevantes. Mantén un lenguaje directo, evita redundancias y especulaciones, y prioriza la utilidad informativa para recuperación de información.",
   
   "providers": {
     "openai": {
       "client_config": {
         "model": "gpt-4o",
-        "max_tokens": 256,
+        "max_tokens": 512,
         "temperature": 0.6,
         "top_p": 0.6,
         "base_url": null
@@ -34,7 +34,7 @@
     "gemini": {
       "client_config": {
         "model": "gemini-2.0-flash",
-        "max_tokens": 256,
+        "max_tokens": 512,
         "temperature": 0.6,
         "top_p": 0.6,
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai"
@@ -43,14 +43,14 @@
       "rate_limits": {
         "requests_per_minute": 15,
         "tokens_per_minute": 1000000,
-        "requests_per_day": 1500
+        "requests_per_day": 200
       }
     },
     
     "claude": {
       "client_config": {
         "model": "claude-sonnet-4-20250514",
-        "max_tokens": 256,
+        "max_tokens": 512,
         "temperature": 0.6,
         "top_p": 0.6,
         "base_url": "https://api.anthropic.com/v1/"
@@ -66,7 +66,7 @@
     "ollama": {
       "client_config": {
         "model": "llama3.2-vision",
-        "max_tokens": 256,
+        "max_tokens": 512,
         "temperature": 0.6,
         "top_p": 0.6,
         "base_url": "http://localhost:11434/v1"
@@ -82,7 +82,7 @@
     "azure": {
       "client_config": {
         "model": "gpt-4-vision",
-        "max_tokens": 256,
+        "max_tokens": 512,
         "temperature": 0.6,
         "top_p": 0.6,
         "base_url": "https://your-resource.openai.azure.com/"

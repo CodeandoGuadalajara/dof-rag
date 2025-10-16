@@ -1,13 +1,9 @@
 import base64
-import io
 import logging
 import os
-import threading
-import time
 from threading import Lock
-from typing import Dict, Any, Optional, Tuple
-
-from PIL import Image
+import time
+from typing import Optional
 
 try:
     import openai
@@ -16,7 +12,7 @@ except ImportError:
     raise ImportError("OpenAI library not found. Install with: pip install openai")
 
 # Thread lock for API calls to prevent rate limit issues
-api_lock = threading.Lock()
+api_lock = Lock()
 
 class OpenAIClient:
     """
@@ -114,13 +110,14 @@ class OpenAIClient:
         old_count = len(self.request_timestamps)
         self.request_timestamps = [ts for ts in self.request_timestamps if ts > cutoff_time]
         
-        # Log cleanup if timestamps were removed
+        # Reset warning flag when timestamps are cleaned (new minute period)
         if len(self.request_timestamps) < old_count:
             self.logger.debug(f"Cleaned {old_count - len(self.request_timestamps)} old timestamps")
             # Reset warning flag for new minute period
             if hasattr(self, '_warning_shown_this_minute'):
                 delattr(self, '_warning_shown_this_minute')
-        # Timestamps cleaned for new minute period
+            if hasattr(self, '_last_warning_time'):
+                delattr(self, '_last_warning_time')
     
     def _check_rate_limit(self) -> bool:
         """
@@ -139,12 +136,16 @@ class OpenAIClient:
         warning_threshold = self.requests_per_minute - 1
         
         # Warning one request before rate limit (only show once per minute)
-        if current_requests == warning_threshold and not hasattr(self, '_warning_shown_this_minute'):
-            self._warning_shown_this_minute = True
-            warning_msg = f"\n🟡 Rate limit warning: {current_requests}/{self.requests_per_minute} requests"
-            next_msg = "   └─ Next request will trigger 60s cooling period"
-            self.logger.warning(warning_msg)
-            self.logger.info(next_msg)
+        current_time = time.time()
+        if current_requests >= warning_threshold and not hasattr(self, '_warning_shown_this_minute'):
+            # Only show warning if we haven't shown it in the last 60 seconds
+            if not hasattr(self, '_last_warning_time') or (current_time - self._last_warning_time) >= 60:
+                self._warning_shown_this_minute = True
+                self._last_warning_time = current_time
+                warning_msg = f"\n🟡 Rate limit warning: {current_requests}/{self.requests_per_minute} requests"
+                next_msg = "   └─ Next request will trigger 60s cooling period"
+                self.logger.warning(warning_msg)
+                self.logger.info(next_msg)
         
         # Apply cooling when reaching the actual rate limit
         if current_requests >= self.requests_per_minute:
@@ -159,7 +160,7 @@ class OpenAIClient:
         """
         Apply automatic cooling period when rate limit is reached.
         """
-        cooling_seconds = 60  # Cool for 1 minute
+        cooling_seconds = 62  # Cool for 62 seconds (with 2s buffer for safety)
         self.logger.info(f"❄️ Applying automatic cooling for {cooling_seconds} seconds to avoid rate limiting...")
         
         try:
@@ -208,9 +209,13 @@ class OpenAIClient:
                 
             self.logger.info("✅ Rate limit cooling completed - Ready to continue")
         
-        # Clear old timestamps after cooling
+        # Clear old timestamps after cooling and log the cleanup
+        timestamps_before = len(self.request_timestamps)
         self._clean_old_timestamps()
-        self.logger.info("✅ Cooling period completed, resuming normal processing")
+        timestamps_after = len(self.request_timestamps)
+        
+        self.logger.info(f"✅ Cooling period completed - Cleaned {timestamps_before - timestamps_after} old timestamps")
+        self.logger.info("✅ Ready to resume normal processing")
     
     def _record_request(self) -> None:
         """
@@ -312,13 +317,26 @@ class OpenAIClient:
             self.logger.debug(f"Model configuration: {self.model}, max_tokens: {self.max_tokens}, temp: {self.temperature}")
             if self.base_url:
                 self.logger.debug(f"Using custom base URL: {self.base_url}")
+        else:
+            # Show API requests in normal mode like regular processing
+            self.logger.info(f"🤖 Requesting description for: {os.path.basename(image_path)}")
         
         try:
             # Check rate limit before making request
             if not self._check_rate_limit():
-                # Rate limit was reached and cooling was applied, try again
+                # Rate limit was reached and cooling was applied, try again with explicit cleanup
+                self.logger.debug("Rate limit reached, cooling applied. Performing second verification...")
+                
+                # Ensure timestamps are cleaned before second check
+                self._clean_old_timestamps()
+                
+                # Add small buffer to ensure timing precision
+                time.sleep(1)
+                
                 if not self._check_rate_limit():
-                    raise Exception("Rate limit still exceeded after cooling period")
+                    current_requests = len(self.request_timestamps)
+                    self.logger.error(f"Rate limit still exceeded after cooling: {current_requests}/{self.requests_per_minute} requests")
+                    raise Exception(f"Rate limit still exceeded after cooling period: {current_requests}/{self.requests_per_minute} requests in last minute")
             
             # Record start time for API call timing
             api_start_time = time.time()
@@ -364,12 +382,19 @@ class OpenAIClient:
                 if hasattr(response, 'usage') and response.usage:
                     self.logger.debug(f"Token usage - Prompt: {response.usage.prompt_tokens}, Completion: {response.usage.completion_tokens}, Total: {response.usage.total_tokens}")
                 self.logger.debug(f"Response length: {len(description)} characters")
+            else:
+                # Show API response in normal mode like regular processing
+                self.logger.info(f"✅ Description received ({api_response_time:.1f}s) - {len(description)} chars")
                 
             if not description or description.strip() == "":
                 raise Exception("Empty response from OpenAI API")
             
             # Record successful request for rate limiting
             self._record_request()
+            
+            # Reset consecutive API errors counter after successful request
+            if self.error_handler:
+                self.error_handler.reset_consecutive_api_errors()
                 
             return description.strip()
             
@@ -390,7 +415,7 @@ class OpenAIClient:
             
             # Categorize API errors
             is_server_error = http_status and (500 <= http_status < 600)
-            is_rate_limit = isinstance(e, openai.RateLimitError)
+            is_rate_limit = isinstance(e, openai.RateLimitError) or http_status == 429
             is_auth_error = isinstance(e, openai.AuthenticationError)
             is_permission_error = isinstance(e, openai.PermissionDeniedError)
             
@@ -515,32 +540,6 @@ class OpenAIClient:
             return 'api_client_error'
         else:
             return 'api_communication'
-    
-    def update_config(self, **kwargs: Any) -> 'OpenAIClient':
-        """
-        Update client configuration parameters.
-        
-        Args:
-            **kwargs: Configuration parameters to update.
-            
-        Returns:
-            Self for method chaining.
-        """
-        if 'model' in kwargs:
-            self.model = kwargs['model']
-        if 'max_tokens' in kwargs:
-            self.max_tokens = kwargs['max_tokens']
-        if 'temperature' in kwargs:
-            self.temperature = kwargs['temperature']
-        if 'top_p' in kwargs:
-            self.top_p = kwargs['top_p']
-        if 'base_url' in kwargs:
-            self.base_url = kwargs['base_url']
-            # Reinitialize client if base_url changes and we have an API key
-            if self._client and hasattr(self, 'api_key'):
-                self.set_api_key(self.api_key)
-            
-        return self
     
     def get_model_info(self) -> str:
         """
