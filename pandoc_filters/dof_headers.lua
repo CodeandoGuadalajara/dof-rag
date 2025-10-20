@@ -8,10 +8,14 @@ local style_map = {
   ["ANOTACION"] = 4,
 }
 
-local text_styles = {
-  "texto", "texto1", "text", "normal", "párrafo", "parrafo", "paragraph",
-  "romanos", "Plain Text", "Hyperlink", "footnote text", "INCISO",
-  "Footnote Characters", "Notas al pie", "Estilo", "footnote reference", "Normal (Web)"
+-- Lista de estilos especiales que NO deben tratarse como texto normal
+-- Incluye los del style_map más "Title" que se elimina completamente
+local special_styles = {
+  ["CABEZA"] = true,
+  ["Titulo 1"] = true,
+  ["Titulo 2"] = true,
+  ["ANOTACION"] = true,
+  ["Title"] = true,
 }
 
 local function get_custom_style(attr)
@@ -19,26 +23,33 @@ local function get_custom_style(attr)
     (attr.attributes["custom-style"] or attr.attributes["custom-style-name"] or attr.attributes["style"])
 end
 
+-- Cambio de lógica: ahora verifica si es un estilo ESPECIAL
+-- Si no está en special_styles, se trata como texto normal
 local function is_text_style(style)
-  if not style then return false end
-  local style_lower = style:lower()
-  for _, text_style in ipairs(text_styles) do
-    if style_lower == text_style:lower() then
-      return true
-    end
-  end
-  return false
+  if not style then return true end  -- Sin estilo = texto normal
+  return not special_styles[style]    -- Si no es especial, es texto normal
 end
 
 function Div(el)
   local style = get_custom_style(el.attr)
   
+  -- Eliminar completamente el contenido si el custom-style es "Title"
+  if style == "Title" then
+    return {}
+  end
+  
+  -- Si es un estilo de texto normal (no especial), eliminar el div y dejar solo el contenido
   if is_text_style(style) then
     return el.content
   end
   
-  local level = style and style_map[style]
-  if not level then return nil end
+  -- A partir de aquí, solo procesamos estilos especiales (CABEZA, Titulo 1, Titulo 2, ANOTACION)
+  local level = style_map[style]
+  if not level then
+    -- Si tiene un custom-style pero no está en style_map ni en special_styles,
+    -- lo tratamos como texto normal también
+    return el.content
+  end
 
   local new_blocks = {}
   local header_created = false
