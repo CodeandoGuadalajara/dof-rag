@@ -73,23 +73,19 @@ class ProcessManager:
         )
 
 
-_process_manager = ProcessManager()
-
 def convert_doc_to_docx(doc_path: Path, docx_path: Path, 
-                       process_manager: Optional[ProcessManager] = None) -> Path:
+                       process_manager: ProcessManager) -> Path:
     """
     Converts a DOC file to DOCX using LibreOffice in headless mode
     
     Args:
         doc_path: Path to the input DOC file
         docx_path: Path where the output DOCX file will be saved
-        process_manager: Optional ProcessManager instance for timeout handling
+        process_manager: ProcessManager instance for timeout handling
         
     Returns:
         Path to the created DOCX file
     """
-    if process_manager is None:
-        process_manager = _process_manager
     
     if not doc_path.exists():
         raise FileNotFoundError(f"DOC file not found: {doc_path}")
@@ -286,7 +282,8 @@ def create_docx_output_structure(base_output_dir: Path, date_str: str, edition: 
     return output_dir
 
 
-def process_date_edition(base_dir: Path, date_str: str, edition: str) -> Tuple[ProcessStatus, List[str]]:
+def process_date_edition(base_dir: Path, date_str: str, edition: str, 
+                         process_manager: ProcessManager) -> Tuple[ProcessStatus, List[str]]:
     """
     Processes a specific date and edition: converts DOC to DOCX and merges
     """
@@ -312,15 +309,15 @@ def process_date_edition(base_dir: Path, date_str: str, edition: str) -> Tuple[P
             docx_filename = doc_file.stem + '.docx'
             docx_output_path = docx_output_dir / docx_filename
             
-            docx_file = convert_doc_to_docx(doc_file, docx_output_path, process_manager=_process_manager)
+            docx_file = convert_doc_to_docx(doc_file, docx_output_path, process_manager=process_manager)
             docx_files.append(docx_file)
             logging.info(f"Converted: {doc_file.name} -> {docx_file.name}")
             
         except subprocess.TimeoutExpired:
             problematic_files.append(str(doc_file))
-            logging.warning(f"TIMEOUT: File {doc_file} exceeded {_process_manager.timeout_seconds} seconds limit and will be marked as problematic")
+            logging.warning(f"TIMEOUT: File {doc_file} exceeded {process_manager.timeout_seconds} seconds limit and will be marked as problematic")
             
-            processes_killed = _process_manager.kill_libreoffice_processes()
+            processes_killed = process_manager.kill_libreoffice_processes()
             if processes_killed > 0:
                 logging.warning(f"LibreOffice process cleanup completed after timeout of {doc_file.name}")
             
@@ -448,6 +445,9 @@ def main(
     logging.info(f"Output directory (DOCX): {output_path.absolute()}")
     logging.info("-" * 60)
     
+    # Initialize ProcessManager for conversion operations
+    process_manager = ProcessManager()
+    
     total_processed = 0
     successful_processed = 0
     problematic_days = []
@@ -464,7 +464,7 @@ def main(
             logging.info(f"No edition folders found for {date_str}")
         
         for edition in available_editions:
-            result, problematic_files = process_date_edition(input_path, date_str, edition)
+            result, problematic_files = process_date_edition(input_path, date_str, edition, process_manager)
             
             # Collect problematic files from this edition
             all_problematic_files.extend(problematic_files)
