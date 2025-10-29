@@ -1,28 +1,35 @@
 # %%
-"""DOF Document Embedding Extraction with Structured Headers and Token-Based Processing
+"""DOF Document Embedding Extraction with Structured Headers and Character-Based Chunking
 
 This script processes markdown files from the Mexican Official Gazette (DOF),
 extracts their content with advanced header structure recognition, splits them 
-into intelligent token-based chunks maintaining hierarchical context, and generates 
-vector embeddings for storage. The embeddings are stored in a DuckDB database for
+into intelligent character-based chunks (to respect model token limits) while
+maintaining hierarchical context, and generates vector embeddings for storage.
+The embeddings are stored in a DuckDB database for
 later use by search and retrieval systems.
 
 FEATURES:
 - Structured header detection and hierarchical context maintenance
-- Token-based chunking with ultra-fast token estimation
 - Text cleaning and multi-space normalization
 - Contextual headers for improved embedding quality
 - Efficient embedding storage using DuckDB with FLOAT[] arrays
 - Debug output files for manual inspection
-- Optimized model sequence length (1024 tokens vs default 32k) for better performance
+- Optimized model sequence length (1024 tokens — enforced embedding input limit) for better performance
 
 
-TOKEN MANAGEMENT:
-The script uses intelligent token-based processing:
-- Ultra-fast token estimation using character-based approximation
-- Optimized text splitting respecting sentence boundaries
-- Dynamic chunk sizing based on token limits
-- Maintains context coherence across token boundaries
+CHUNKING MANAGEMENT:
+The script uses semantic-aware Markdown splitting (via `MarkdownSplitter`) rather than raw
+token-counting. MarkdownSplitter preserves semantic structure (headings, code blocks,
+lists and paragraphs) and produces chunks that respect document structure while keeping
+the total characters per chunk within a configured capacity. The character capacity is
+chosen empirically so the resulting chunks map safely below the model embedding input
+limit (1024 tokens).
+
+MarkdownSplitter splitting priority (applies in order):
+1. Headings (#, ##, ###) — preserve section context
+2. Code blocks (``` fenced code) — keep code intact
+3. Lists (ordered/unordered) — keep list items together
+4. Paragraph blocks (double newlines) — default fallback
 
 
 DATABASE:
@@ -46,6 +53,7 @@ import duckdb
 import polars as pl
 from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
+from semantic_text_splitter import MarkdownSplitter 
 
 # =============================================================================
 # DEVICE CONFIGURATION
@@ -65,15 +73,11 @@ MODEL_NAME = "Qwen/Qwen3-Embedding-0.6B"
 EMBEDDING_DIM = 1024
 MODEL_MAX_SEQ_LENGTH = 1024  # Optimized from 32k default for better performance and memory usage
 
-# Token management constants
-MAX_TOKENS = 512
-OVERLAP_TOKENS = 128
-MIN_CHUNK_TOKENS = 300  # Desired minimum for chunks (except final ones)
-OVERESTIMATION_FACTOR = 1.1
+# Character management constants
+CAPACITY = 2000      # capacity in characters per chunk (approx. ~500 tokens)
+OVERLAP_CHARS = 500    # overlap in characters between chunks (25% of CAPACITY)
 
 # PRE-COMPILED REGEX PATTERNS
-WORD_PATTERN = re.compile(r'\b\w+\b')
-PARAGRAPH_PATTERN = re.compile(r'\n\s*\n')
 UNDERSCORES_PATTERN = re.compile(r'(\\_){2,}')
 PATTERN_UNIVERSAL = re.compile(r'^[\s\|\+\-:=]{10,}$', re.MULTILINE)
 MULTIPLE_SPACES_PATTERN = re.compile(r' {3,}')
@@ -89,9 +93,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("dof_embeddings")
 
-# =============================================================================
-# TEXT CLEANING AND TOKEN MANAGEMENT FUNCTIONS
-# =============================================================================
+# =======================
+# TEXT CLEANING
+# =======================
 
 def clean_multiple_spaces(text: str) -> str:
     """
@@ -144,141 +148,6 @@ def clean_multiple_spaces(text: str) -> str:
     
     return cleaned_text
 
-def estimate_tokens_ultra_fast(text: str) -> int:
-    """
-    Fast token estimation using word counting.
-    
-    Optimized method that uses word counting with overestimation factor
-    to avoid expensive real tokenization that is computationally costly.
-    
-    Args:
-        text: Input text
-        
-    Returns:
-        int: Estimated number of tokens
-    """
-    if not text:
-        return 0
-    
-    # Ultra-fast word counting using pre-compiled regex
-    word_count = len(WORD_PATTERN.findall(text))
-    
-    # Conservative overestimation for safety (avoids exceeding limits)
-    estimated_tokens = int(word_count * OVERESTIMATION_FACTOR) + 10
-    
-    return estimated_tokens
-
-def split_text_by_tokens_optimized(text: str, max_tokens: int = MAX_TOKENS, 
-                                 overlap_tokens: int = OVERLAP_TOKENS, min_tokens: int = MIN_CHUNK_TOKENS) -> List[Dict]:
-    """
-    Split text into chunks based on token estimation, respecting paragraph boundaries.
-    
-    Args:
-        text (str): Input text to split
-        max_tokens (int): Maximum tokens per chunk
-        overlap_tokens (int): Overlap tokens between chunks
-        min_tokens (int): Minimum tokens per chunk
-        
-    Returns:
-        List[Dict]: List of chunks with text and token count
-    """
-    if not text or not text.strip():
-        return []
-    
-    # If text is short enough, return as single chunk
-    total_tokens = estimate_tokens_ultra_fast(text)
-    if total_tokens <= max_tokens:
-        return [{"text": text, "token_count": total_tokens}]
-    
-    chunks = []
-    current_chunk = ""
-    current_tokens = 0
-    
-    # Split by paragraphs first (using the compiled pattern)
-    paragraphs = [p.strip() for p in PARAGRAPH_PATTERN.split(text) if p.strip()]
-    
-    for paragraph in paragraphs:
-        paragraph_tokens = estimate_tokens_ultra_fast(paragraph)
-        
-        # If paragraph alone is too big, force split (simplified approach)
-        if paragraph_tokens > max_tokens:
-            # Save current chunk if it has content
-            if current_chunk.strip():
-                chunks.append({"text": current_chunk.strip(), "token_count": current_tokens})
-                current_chunk = ""
-                current_tokens = 0
-            
-            # Split giant paragraph by sentences (simplified)
-            sentences = [s.strip() for s in re.split(r'[.!?]+', paragraph) if s.strip()]
-            for sentence in sentences:
-                sentence_tokens = estimate_tokens_ultra_fast(sentence)
-                if current_tokens + sentence_tokens > max_tokens and current_chunk:
-                    chunks.append({"text": current_chunk.strip(), "token_count": current_tokens})
-                    current_chunk = sentence
-                    current_tokens = sentence_tokens
-                else:
-                    current_chunk = f"{current_chunk} {sentence}" if current_chunk else sentence
-                    current_tokens += sentence_tokens
-            continue
-        
-        # Test if adding this paragraph would exceed token limit
-        if current_tokens + paragraph_tokens > max_tokens and current_chunk:
-            # Save current chunk
-            chunks.append({"text": current_chunk.strip(), "token_count": current_tokens})
-            current_chunk = paragraph
-            current_tokens = paragraph_tokens
-        else:
-            current_chunk = f"{current_chunk}\n\n{paragraph}" if current_chunk else paragraph
-            current_tokens += paragraph_tokens
-    
-    # Add the last chunk if it has content
-    if current_chunk.strip():
-        chunks.append({"text": current_chunk.strip(), "token_count": current_tokens})
-    
-    return chunks
-
-def split_by_sentences(text: str) -> List[str]:
-    """
-    Split text by sentence boundaries, handling Spanish punctuation.
-    
-    Args:
-        text (str): Input text to split
-        
-    Returns:
-        List[str]: List of sentences
-    """
-    sentences = []
-    current_sentence = ""
-    
-    sentence_boundary_chars = '.!?'
-    
-    i = 0
-    while i < len(text):
-        char = text[i]
-        current_sentence += char
-        
-        # Check for sentence boundary
-        if char in sentence_boundary_chars:
-            # Look ahead to see if this is really the end of a sentence
-            if i + 1 < len(text):
-                next_char = text[i + 1]
-                # If next character is whitespace or newline, it's likely end of sentence
-                if next_char.isspace():
-                    sentences.append(current_sentence.strip())
-                    current_sentence = ""
-            else:
-                # End of text
-                sentences.append(current_sentence.strip())
-                current_sentence = ""
-        
-        i += 1
-    
-    # Add remaining text as final sentence
-    if current_sentence.strip():
-        sentences.append(current_sentence.strip())
-    
-    return [s for s in sentences if s.strip()]
-
 # %%
 logger.info(f"Loading model: {MODEL_NAME}")
 
@@ -312,6 +181,24 @@ logger.info(f"Model loaded successfully with max_seq_length: {model.max_seq_leng
 logger.info(f"Device configuration: device_map='{device}' + .to({device})")
 logger.info(f"Performance flags: CUDA={IS_CUDA_AVAILABLE}, MPS={IS_MPS_AVAILABLE}, CPU_ONLY={IS_CPU_ONLY}")
 
+# %%
+# =============================================================================
+# TEXT SPLITTER INITIALIZATION
+# =============================================================================
+
+logger.info(f"Initializing MarkdownSplitter with model's tokenizer. CAPACITY={CAPACITY}, OVERLAP_CHARS={OVERLAP_CHARS}")
+try:
+    text_splitter = MarkdownSplitter(
+        CAPACITY,
+        overlap=OVERLAP_CHARS,
+        trim=True
+    )
+    logger.info("MarkdownSplitter initialized successfully for structured Markdown splitting.")
+except Exception as e:
+    logger.error(f"Failed to initialize MarkdownSplitter: {e}")
+    logger.error("Ensure 'text-splitter' and 'tokenizers' (HuggingFace) are correctly installed.")
+    exit(1)
+    
 # %%
 # Database paths configuration
 DB_FILE = "dof_db/db.duckdb"
@@ -347,7 +234,7 @@ db.execute(f"""
         document_id INTEGER,
         text VARCHAR,
         header VARCHAR,
-        chunk_number INTEGER,  -- Chunk number for token-based processing
+        chunk_number INTEGER,
         embedding FLOAT[{EMBEDDING_DIM}],
         created_at TIMESTAMP,
         FOREIGN KEY (document_id) REFERENCES documents(id)
@@ -424,36 +311,9 @@ def build_header_dict(doc_title: str, open_headings: Dict[int, str]) -> str:
     
     return "\n".join(header_lines)
 
-def split_text_by_page_break(text: str):
-    """
-    Splits the text into chunks based on the page pattern:
-    {number} followed by at least 5 hyphens.
-    """
-    page_pattern = re.compile(r'\{(\d+)\}\s*-{5,}')
-    chunks = []
-    last_index = 0
-    last_page = None
-
-    for match in page_pattern.finditer(text):
-        page_num = match.group(1)
-        chunk_text = text[last_index:match.start()].strip()
-        if chunk_text:
-            chunks.append({"text": chunk_text, "page": page_num})
-        last_index = match.end()
-        last_page = page_num
-
-    # Last fragment after the last page mark
-    remaining = text[last_index:].strip()
-    if remaining:
-        final_page = str(int(last_page) + 1) if last_page else "1"
-        chunks.append({"text": remaining, "page": final_page})
-
-    logger.debug(f"Document split into {len(chunks)} chunks based on page markers")
-    return chunks
-
 # %%
 
-def get_url_from_filename(filename: str):
+def get_url_from_filename(filename: str) -> str:
     """
     Generate the URL based on the filename pattern.
 
@@ -571,29 +431,42 @@ def _setup_database_document(title: str, url: str, file_path: str) -> dict:
         logger.error(f"Failed to configure document '{title}': {str(e)}")
         raise
 
-def _prepare_token_chunks(content: str) -> list:
+def _prepare_document_chunks(content: str) -> List:
     """
-    Divide content into chunks based on token limits using intelligent splitting.
-    
+    Divide content into semantic chunks using MarkdownSplitter and character
+    capacity limits.
+
+    The splitter will prioritize structural boundaries (in order):
+      1) Headings (#, ##, ...)
+      2) Fenced code blocks (```)
+      3) Lists (ordered/unordered)
+      4) Paragraphs (double newlines)
+
     Args:
         content (str): Document content
-        
+
     Returns:
-        list: List of token-based chunks with chunk numbers
+        list: List of document chunks with chunk numbers
     """
     # Clean the content first
     cleaned_content = clean_multiple_spaces(content)
     
-    # Split using token-based approach
-    chunk_dicts = split_text_by_tokens_optimized(cleaned_content, MAX_TOKENS)
-    
+    # Split using MarkdownSplitter for semantic structure retention
+    try:
+        chunk_texts = list(text_splitter.chunks(cleaned_content))
+    except Exception as e:
+        logger.error(f"Error during chunking with MarkdownSplitter: {e}")
+        return [] # Return empty list on failure
+
     # Convert to chunk format with sequential numbering
-    token_chunks = []
-    for i, chunk_dict in enumerate(chunk_dicts, 1):
-        token_chunks.append({"text": chunk_dict["text"], "chunk": str(i)})
+    document_chunks = []
+    for i, chunk_text in enumerate(chunk_texts, 1):
+        # Ensure the chunk is not empty or whitespace-only
+        if chunk_text and chunk_text.strip():
+            document_chunks.append({"text": chunk_text, "chunk": str(i)})
     
-    logger.debug(f"Document split into {len(token_chunks)} token-based chunks")
-    return token_chunks
+    logger.debug(f"Document split into {len(document_chunks)} semantic, character-based chunks using MarkdownSplitter")
+    return document_chunks
 
 def _initialize_chunk_processing(file_path: str, verbose: bool) -> tuple:
     """
@@ -637,10 +510,8 @@ def _generate_chunk_embedding(header: str, chunk_text: str, file_path: str, chun
         # Recommended by PyTorch core devs for inference-only operations
         # Reference: https://discuss.pytorch.org/t/pytorch-torch-no-grad-vs-torch-inference-mode/134099/3
         with torch.inference_mode():
-            embedding = model.encode(f"search_document: {text_for_embedding}", show_progress_bar=False)
+            embedding = model.encode(text_for_embedding, show_progress_bar=False)
         
-        del text_for_embedding
-
         return embedding
         
     except Exception as e:
@@ -658,11 +529,8 @@ def _write_debug_chunk(chunks_file, chunk_counter: int, header: str, chunk_text:
         chunk_text (str): Chunk text
     """
     if chunks_file:
-        # Add token estimation info to debug output
-        estimated_tokens = estimate_tokens_ultra_fast(chunk_text)
-        
+          
         chunks_file.write(f"--- CHUNK #{chunk_counter} ---\n")
-        chunks_file.write(f"Estimated tokens: {estimated_tokens}\n")
         chunks_file.write(f"Header:\n{header}\n\n")
         chunks_file.write(f"Text:\n{chunk_text}\n")
         chunks_file.write("\n" + "-"*50 + "\n\n")
@@ -741,12 +609,12 @@ def _process_single_chunk(chunk: dict, chunk_counter: int, title: str, open_head
 
 def process_file(file_path, verbose: bool = False):
     """
-    Process a markdown file with structured headers and token-based chunking support.
+    Process a markdown file with structured headers and semantic character-based chunking support.
     This function:
     1. Reads file content
     2. Extracts metadata from filename
     3. Deletes any previous version of this document
-    4. Splits content by token limits using intelligent splitting
+    4. Splits content using semantic Markdown splitting (MarkdownSplitter)
     5. Maintains hierarchical context with open headings
     6. Generates contextual headers for each chunk
     7. Generates vector embeddings for each chunk (including header)
@@ -764,19 +632,19 @@ def process_file(file_path, verbose: bool = False):
         # 2. Setup document in database
         doc = _setup_database_document(title, url, file_path)
         
-        # 3. Prepare token-based chunks
-        token_chunks = _prepare_token_chunks(content)
-        
-        # 4. Initialize chunk processing
+        # 3. Initialize state variables BEFORE chunking and entering the loop.
         open_headings_dict, chunks_file, chunks_file_path = _initialize_chunk_processing(file_path, verbose)
-        
+
+        # 4. Prepare the chunks (semantic markdown splitting)
+        document_chunks = _prepare_document_chunks(content)
+
         try:
             # 5. Process each chunk with progress bar
-            total_chunks = len(token_chunks)
+            total_chunks = len(document_chunks)
             chunk_counter = 0
             
             with tqdm(total=total_chunks, desc=f"Processing {title[:30]}...", unit="chunk") as pbar:
-                for chunk in token_chunks:
+                for chunk in document_chunks:
                     chunk_counter += 1
                     open_headings_dict = _process_single_chunk(
                         chunk, chunk_counter, title, open_headings_dict, 
@@ -784,7 +652,6 @@ def process_file(file_path, verbose: bool = False):
                     )
                     
                     # Update progress bar
-                    pbar.set_postfix({"chunk": f"{chunk['chunk']}"})
                     pbar.update(1)
         finally:
             if chunks_file:
