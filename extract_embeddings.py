@@ -1,27 +1,36 @@
 # %%
-"""DOF Document Embedding Extraction with Structured Headers and Image Integration
+"""DOF Document Embedding Extraction with Structured Headers and Character-Based Chunking
 
 This script processes markdown files from the Mexican Official Gazette (DOF),
 extracts their content with advanced header structure recognition, splits them 
-into page-based chunks maintaining hierarchical context, and generates vector
-embeddings for storage. The embeddings are stored in a DuckDB database for
+into intelligent character-based chunks (to respect model token limits) while
+maintaining hierarchical context, and generates vector embeddings for storage.
+The embeddings are stored in a DuckDB database for
 later use by search and retrieval systems.
 
 FEATURES:
 - Structured header detection and hierarchical context maintenance
-- Page-based chunking using {number}----- patterns
+- Text cleaning and multi-space normalization
 - Contextual headers for improved embedding quality
-- Image descriptions integration for enhanced semantic context
 - Efficient embedding storage using DuckDB with FLOAT[] arrays
 - Debug output files for manual inspection
-- Optimized model sequence length (1024 tokens vs default 32k) for better performance
+- Optimized model sequence length (1024 tokens — enforced embedding input limit) for better performance
 
-IMAGE INTEGRATION:
-The script integrates image descriptions into the embedding process:
-- Uses existing image descriptions from the main database (dof_db/db.duckdb)
-- Associates image descriptions with document chunks by page number
-- Appends relevant image descriptions to chunk text before embedding generation
-- Maintains backward compatibility when no image descriptions are available
+
+CHUNKING MANAGEMENT:
+The script uses semantic-aware Markdown splitting (via `MarkdownSplitter`) rather than raw
+token-counting. MarkdownSplitter preserves semantic structure (headings, code blocks,
+lists and paragraphs) and produces chunks that respect document structure while keeping
+the total characters per chunk within a configured capacity. The character capacity is
+chosen empirically so the resulting chunks map safely below the model embedding input
+limit (1024 tokens).
+
+MarkdownSplitter splitting priority (applies in order):
+1. Headings (#, ##, ###) — preserve section context
+2. Code blocks (``` fenced code) — keep code intact
+3. Lists (ordered/unordered) — keep list items together
+4. Paragraph blocks (double newlines) — default fallback
+
 
 DATABASE:
 The system uses DuckDB for efficient embedding storage:
@@ -37,13 +46,14 @@ import re
 import torch
 import logging
 from datetime import datetime
-from typing import Union, Tuple, Dict
+from typing import Union, Tuple, Dict, List
 
 import typer
 import duckdb
 import polars as pl
 from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
+from semantic_text_splitter import MarkdownSplitter 
 
 # =============================================================================
 # DEVICE CONFIGURATION
@@ -63,6 +73,16 @@ MODEL_NAME = "Qwen/Qwen3-Embedding-0.6B"
 EMBEDDING_DIM = 1024
 MODEL_MAX_SEQ_LENGTH = 1024  # Optimized from 32k default for better performance and memory usage
 
+# Character management constants
+CAPACITY = 2000      # capacity in characters per chunk (approx. ~500 tokens)
+OVERLAP_CHARS = 500    # overlap in characters between chunks (25% of CAPACITY)
+
+# PRE-COMPILED REGEX PATTERNS
+UNDERSCORES_PATTERN = re.compile(r'(\\_){2,}')
+PATTERN_UNIVERSAL = re.compile(r'^[\s\|\+\-:=]{10,}$', re.MULTILINE)
+MULTIPLE_SPACES_PATTERN = re.compile(r' {3,}')
+HEADING_PATTERN = re.compile(r'^(#{1,6})\s+(.*)$')
+
 logging.basicConfig(
     level=logging.INFO,  
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -72,6 +92,61 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger("dof_embeddings")
+
+# =======================
+# TEXT CLEANING
+# =======================
+
+def clean_multiple_spaces(text: str) -> str:
+    """
+    Clean text before chunk processing.
+    
+    Operations applied once per file:
+    1. Normalize long underscore patterns (≥2 characters)
+    2. Simplify long table separators 
+    3. Reduce multiple spaces (≥3) to single space
+    4. Normalize excessive line breaks
+    
+    Args:
+        text: Complete file text to clean
+        
+    Returns:
+        Clean text ready for chunking
+    """
+    if not text:
+        return text
+    
+    # 1. Normalize patterns of long underscores
+    text = UNDERSCORES_PATTERN.sub(' __________ ', text)
+    
+    # 2. Simplify long table separators
+    def count_columns_and_simplify_universal(match):
+        """Count columns and create simplified separator for any type of separator"""
+        line = match.group(0).strip()
+
+        # Count column separators based on the type of separator
+        if '+' in line:
+            column_count = max(1, line.count('+') - 1)
+        elif '|' in line:
+            column_count = max(1, line.count('|') - 1)
+        else:
+            column_count = 1
+        
+        # Create simplified separator
+        if column_count <= 1:
+            return '|---|'
+        else:
+            return '|' + '---|' * column_count
+
+    text = PATTERN_UNIVERSAL.sub(count_columns_and_simplify_universal, text)
+    
+    # 3. Reduce multiple spaces
+    cleaned_text = MULTIPLE_SPACES_PATTERN.sub(' ', text)
+    
+    # 4. Normalize excessive line breaks
+    cleaned_text = re.sub(r'\n{3,}', '\n\n', cleaned_text)
+    
+    return cleaned_text
 
 # %%
 logger.info(f"Loading model: {MODEL_NAME}")
@@ -107,6 +182,24 @@ logger.info(f"Device configuration: device_map='{device}' + .to({device})")
 logger.info(f"Performance flags: CUDA={IS_CUDA_AVAILABLE}, MPS={IS_MPS_AVAILABLE}, CPU_ONLY={IS_CPU_ONLY}")
 
 # %%
+# =============================================================================
+# TEXT SPLITTER INITIALIZATION
+# =============================================================================
+
+logger.info(f"Initializing MarkdownSplitter with model's tokenizer. CAPACITY={CAPACITY}, OVERLAP_CHARS={OVERLAP_CHARS}")
+try:
+    text_splitter = MarkdownSplitter(
+        CAPACITY,
+        overlap=OVERLAP_CHARS,
+        trim=True
+    )
+    logger.info("MarkdownSplitter initialized successfully for structured Markdown splitting.")
+except Exception as e:
+    logger.error(f"Failed to initialize MarkdownSplitter: {e}")
+    logger.error("Ensure 'text-splitter' and 'tokenizers' (HuggingFace) are correctly installed.")
+    exit(1)
+    
+# %%
 # Database paths configuration
 DB_FILE = "dof_db/db.duckdb"
 
@@ -122,7 +215,6 @@ db = duckdb.connect(DB_FILE)
 # Create sequences for auto-incrementing primary keys
 db.execute("CREATE SEQUENCE IF NOT EXISTS documents_id_seq START 1")
 db.execute("CREATE SEQUENCE IF NOT EXISTS chunks_id_seq START 1")
-db.execute("CREATE SEQUENCE IF NOT EXISTS image_descriptions_id_seq START 1")
 
 # Documents table: stores metadata about each document
 db.execute("""
@@ -142,33 +234,12 @@ db.execute(f"""
         document_id INTEGER,
         text VARCHAR,
         header VARCHAR,
-        page_number INTEGER,  -- Page number of the chunk in the document
+        chunk_number INTEGER,
         embedding FLOAT[{EMBEDDING_DIM}],
         created_at TIMESTAMP,
         FOREIGN KEY (document_id) REFERENCES documents(id)
     )
 """)
-
-# Image descriptions table: stores image descriptions for integration with embeddings
-db.execute("""
-    CREATE TABLE IF NOT EXISTS image_descriptions (
-        id INTEGER PRIMARY KEY DEFAULT nextval('image_descriptions_id_seq'),
-        document_name VARCHAR,
-        page_number INTEGER,
-        image_filename VARCHAR,
-        description VARCHAR,
-        created_at TIMESTAMP,
-        updated_at TIMESTAMP
-    )
-""")
-
-# Create index on image_descriptions for faster lookups
-db.execute("""
-    CREATE INDEX IF NOT EXISTS image_descriptions_lookup_idx 
-    ON image_descriptions (document_name, page_number)
-""")
-
-HEADING_PATTERN = re.compile(r'^(#{1,6})\s+(.*)$')
 
 def get_heading_level(line: str) -> Union[Tuple[int, str], Tuple[None, None]]:
     """
@@ -215,11 +286,10 @@ def update_open_headings_dict(open_headings: Dict[int, str], line: str) -> Dict[
         logger.debug(f"H{lvl} heading found: '{txt}'. Updating context")
         return new_headings
 
-def build_header_dict(doc_title: str, page: str, open_headings: Dict[int, str]) -> str:
+def build_header_dict(doc_title: str, open_headings: Dict[int, str]) -> str:
     """
     Builds the chunk header with the format:
-    
-    # Document: <Document Name> | page: <Page Number>
+    # Document: <Document Name>
     ## Heading Level 2
     ### Heading Level 3
     ...
@@ -228,13 +298,12 @@ def build_header_dict(doc_title: str, page: str, open_headings: Dict[int, str]) 
     
     Args:
         doc_title: Title of the document
-        page: Page number
         open_headings: Dictionary of open headings (level -> text)
         
     Returns:
         Formatted header as a string
     """
-    header_lines = [f"# Document: {doc_title} | page: {page}"]
+    header_lines = [f"# Document: {doc_title}"]
     
     for level in sorted(open_headings.keys()):
         text = open_headings[level]
@@ -242,40 +311,9 @@ def build_header_dict(doc_title: str, page: str, open_headings: Dict[int, str]) 
     
     return "\n".join(header_lines)
 
-# --- Function to clean <br> tags ---
-def clean_br(text: str) -> str:
-    return text.replace('<br>', '')
-
-def split_text_by_page_break(text: str):
-    """
-    Splits the text into chunks based on the page pattern:
-    {number} followed by at least 5 hyphens.
-    """
-    page_pattern = re.compile(r'\{(\d+)\}\s*-{5,}')
-    chunks = []
-    last_index = 0
-    last_page = None
-
-    for match in page_pattern.finditer(text):
-        page_num = match.group(1)
-        chunk_text = text[last_index:match.start()].strip()
-        if chunk_text:
-            chunks.append({"text": chunk_text, "page": page_num})
-        last_index = match.end()
-        last_page = page_num
-
-    # Last fragment after the last page mark
-    remaining = text[last_index:].strip()
-    if remaining:
-        final_page = str(int(last_page) + 1) if last_page else "1"
-        chunks.append({"text": remaining, "page": final_page})
-
-    logger.debug(f"Document split into {len(chunks)} chunks based on page markers")
-    return chunks
-
 # %%
 
-def get_url_from_filename(filename: str):
+def get_url_from_filename(filename: str) -> str:
     """
     Generate the URL based on the filename pattern.
 
@@ -393,22 +431,42 @@ def _setup_database_document(title: str, url: str, file_path: str) -> dict:
         logger.error(f"Failed to configure document '{title}': {str(e)}")
         raise
 
-def _prepare_page_chunks(content: str) -> list:
+def _prepare_document_chunks(content: str) -> List:
     """
-    Divide content into chunks based on page breaks.
-    
+    Divide content into semantic chunks using MarkdownSplitter and character
+    capacity limits.
+
+    The splitter will prioritize structural boundaries (in order):
+      1) Headings (#, ##, ...)
+      2) Fenced code blocks (```)
+      3) Lists (ordered/unordered)
+      4) Paragraphs (double newlines)
+
     Args:
         content (str): Document content
-        
+
     Returns:
-        list: List of page chunks
+        list: List of document chunks with chunk numbers
     """
-    if re.search(r'\{\d+\}\s*-{5,}', content):
-        page_chunks = split_text_by_page_break(content)
-    else:
-        page_chunks = [{"text": content, "page": "1"}]
-        logger.debug("No page markers found. Processing as a single-page document.")
-    return page_chunks
+    # Clean the content first
+    cleaned_content = clean_multiple_spaces(content)
+    
+    # Split using MarkdownSplitter for semantic structure retention
+    try:
+        chunk_texts = list(text_splitter.chunks(cleaned_content))
+    except Exception as e:
+        logger.error(f"Error during chunking with MarkdownSplitter: {e}")
+        return [] # Return empty list on failure
+
+    # Convert to chunk format with sequential numbering
+    document_chunks = []
+    for i, chunk_text in enumerate(chunk_texts, 1):
+        # Ensure the chunk is not empty or whitespace-only
+        if chunk_text and chunk_text.strip():
+            document_chunks.append({"text": chunk_text, "chunk": str(i)})
+    
+    logger.debug(f"Document split into {len(document_chunks)} semantic, character-based chunks using MarkdownSplitter")
+    return document_chunks
 
 def _initialize_chunk_processing(file_path: str, verbose: bool) -> tuple:
     """
@@ -431,37 +489,8 @@ def _initialize_chunk_processing(file_path: str, verbose: bool) -> tuple:
     
     return open_headings_dict, chunks_file, chunks_file_path
 
-def _get_chunk_image_descriptions(document_name: str, page_number: int) -> str:
-    """
-    Get image descriptions for a specific document and page.
-    
-    Args:
-        document_name (str): Name of the document
-        page_number (int): Page number
-        
-    Returns:
-        str: Formatted image descriptions or empty string if none found
-    """
-    try:
-        result = db.execute(
-            "SELECT description FROM image_descriptions WHERE document_name = ? AND page_number = ?",
-            [document_name, page_number]
-        )
-        # Polars DataFrame for column name access 
-        descriptions_df = result.pl()
-        
-        if not descriptions_df.is_empty():
-            logger.info(f"Image found on page {page_number} of document {document_name}")
-            formatted_descriptions = []
-            for i, description in enumerate(descriptions_df['description'].to_list(), 1):
-                formatted_descriptions.append(f"Imagen {i}: {description}")
-            return f"\n\nImágenes en esta página: {'. '.join(formatted_descriptions)}."
-        return ""
-    except Exception as e:
-        logger.warning(f"Error querying image descriptions for {document_name}, page {page_number}: {str(e)}")
-        return ""
 
-def _generate_chunk_embedding(header: str, chunk_text: str, file_path: str, chunk_counter: int, description_images: str = ""):
+def _generate_chunk_embedding(header: str, chunk_text: str, file_path: str, chunk_counter: int):
     """
     Generate embedding for a chunk.
     
@@ -470,29 +499,26 @@ def _generate_chunk_embedding(header: str, chunk_text: str, file_path: str, chun
         chunk_text (str): Chunk text
         file_path (str): Path to the file (for error logging)
         chunk_counter (int): Chunk counter (for error logging)
-        description_images (str): Image descriptions for this chunk (optional)
-        
+       
     Returns:
         numpy.ndarray: Embedding vector
     """
-    text_for_embedding = f"{header}\n\n{chunk_text}{description_images}"
+    text_for_embedding = f"{header}\n\n{chunk_text}"
     
     try:
         # Using torch.inference_mode() for better performance and lower autograd overhead
         # Recommended by PyTorch core devs for inference-only operations
         # Reference: https://discuss.pytorch.org/t/pytorch-torch-no-grad-vs-torch-inference-mode/134099/3
         with torch.inference_mode():
-            embedding = model.encode(f"search_document: {text_for_embedding}", show_progress_bar=False)
+            embedding = model.encode(text_for_embedding, show_progress_bar=False)
         
-        del text_for_embedding
-
         return embedding
         
     except Exception as e:
         logger.error(f"Error generating embedding for chunk #{chunk_counter} of {file_path}: {str(e)}")
         raise
 
-def _write_debug_chunk(chunks_file, chunk_counter: int, header: str, chunk_text: str, description_images: str = ""):
+def _write_debug_chunk(chunks_file, chunk_counter: int, header: str, chunk_text: str):
     """
     Write chunk details to debug file.
     
@@ -501,22 +527,15 @@ def _write_debug_chunk(chunks_file, chunk_counter: int, header: str, chunk_text:
         chunk_counter (int): Chunk counter
         header (str): Chunk header
         chunk_text (str): Chunk text
-        description_images (str): Image descriptions associated with this chunk
     """
     if chunks_file:
+          
         chunks_file.write(f"--- CHUNK #{chunk_counter} ---\n")
         chunks_file.write(f"Header:\n{header}\n\n")
         chunks_file.write(f"Text:\n{chunk_text}\n")
-        
-        # Add image descriptions if available
-        if description_images:
-            chunks_file.write(f"\nImage Descriptions:{description_images}\n")
-        else:
-            chunks_file.write("\nImage Descriptions: No images found for this chunk\n")
-            
         chunks_file.write("\n" + "-"*50 + "\n\n")
 
-def _save_chunk_to_database(doc_id: int, chunk_text: str, header: str, page_number: int, embedding):
+def _save_chunk_to_database(doc_id: int, chunk_text: str, header: str, chunk_number: int, embedding):
     """
     Save chunk in database.
     
@@ -524,16 +543,16 @@ def _save_chunk_to_database(doc_id: int, chunk_text: str, header: str, page_numb
         doc_id (int): Document ID
         chunk_text (str): Chunk text
         header (str): Chunk header
-        page_number (int): Page number
+        chunk_number (int): Chunk number
         embedding: Chunk embedding (numpy array)
     """
     # Convert numpy array to list for DuckDB FLOAT[] type
     embedding_list = embedding.tolist()
     
     db.execute("""
-        INSERT INTO chunks (document_id, text, header, page_number, embedding, created_at)
+        INSERT INTO chunks (document_id, text, header, chunk_number, embedding, created_at)
         VALUES (?, ?, ?, ?, ?, ?)
-    """, [doc_id, chunk_text, header, page_number, embedding_list, datetime.now()])
+    """, [doc_id, chunk_text, header, chunk_number, embedding_list, datetime.now()])
 
 def _update_headers_state(chunk_text: str, open_headings_dict: dict) -> dict:
     """
@@ -568,25 +587,20 @@ def _process_single_chunk(chunk: dict, chunk_counter: int, title: str, open_head
     Returns:
         dict: Updated open_headings_dict
     """
-    chunk_text = clean_br(chunk["text"])
-    page_number = chunk["page"]
+    chunk_text = chunk["text"]
+    chunk_number = chunk["chunk"]
 
     # Build the header using the "open" headings at the beginning of the chunk.
-    header = build_header_dict(title, page_number, open_headings_dict)
-
-    # Get image descriptions for this chunk
-    # Convert page_number to int for proper comparison with database
-    page_num_int = int(page_number) - 1
-    description_images = _get_chunk_image_descriptions(title, page_num_int)
+    header = build_header_dict(title, open_headings_dict)
 
     # Generate embedding
-    embedding = _generate_chunk_embedding(header, chunk_text, file_path, chunk_counter, description_images)
+    embedding = _generate_chunk_embedding(header, chunk_text, file_path, chunk_counter)
 
     if verbose:
-        _write_debug_chunk(chunks_file, chunk_counter, header, chunk_text, description_images)
+        _write_debug_chunk(chunks_file, chunk_counter, header, chunk_text)
 
     # Save to database
-    _save_chunk_to_database(doc_id, chunk_text, header, page_number, embedding)
+    _save_chunk_to_database(doc_id, chunk_text, header, chunk_number, embedding)
 
     # Update headers state
     open_headings_dict = _update_headers_state(chunk_text, open_headings_dict)
@@ -595,12 +609,12 @@ def _process_single_chunk(chunk: dict, chunk_counter: int, title: str, open_head
 
 def process_file(file_path, verbose: bool = False):
     """
-    Process a markdown file with structured headers support.
+    Process a markdown file with structured headers and semantic character-based chunking support.
     This function:
     1. Reads file content
     2. Extracts metadata from filename
     3. Deletes any previous version of this document
-    4. Splits content by page breaks using the improved algorithm
+    4. Splits content using semantic Markdown splitting (MarkdownSplitter)
     5. Maintains hierarchical context with open headings
     6. Generates contextual headers for each chunk
     7. Generates vector embeddings for each chunk (including header)
@@ -618,19 +632,19 @@ def process_file(file_path, verbose: bool = False):
         # 2. Setup document in database
         doc = _setup_database_document(title, url, file_path)
         
-        # 3. Prepare page chunks
-        page_chunks = _prepare_page_chunks(content)
-        
-        # 4. Initialize chunk processing
+        # 3. Initialize state variables BEFORE chunking and entering the loop.
         open_headings_dict, chunks_file, chunks_file_path = _initialize_chunk_processing(file_path, verbose)
-        
+
+        # 4. Prepare the chunks (semantic markdown splitting)
+        document_chunks = _prepare_document_chunks(content)
+
         try:
             # 5. Process each chunk with progress bar
-            total_pages = len(page_chunks)
+            total_chunks = len(document_chunks)
             chunk_counter = 0
             
-            with tqdm(total=total_pages, desc=f"Processing {title[:30]}...", unit="page") as pbar:
-                for chunk in page_chunks:
+            with tqdm(total=total_chunks, desc=f"Processing {title[:30]}...", unit="chunk") as pbar:
+                for chunk in document_chunks:
                     chunk_counter += 1
                     open_headings_dict = _process_single_chunk(
                         chunk, chunk_counter, title, open_headings_dict, 
@@ -638,7 +652,6 @@ def process_file(file_path, verbose: bool = False):
                     )
                     
                     # Update progress bar
-                    pbar.set_postfix({"page": f"{chunk['page']}"})
                     pbar.update(1)
         finally:
             if chunks_file:
