@@ -47,6 +47,7 @@ import torch
 import logging
 from datetime import datetime
 from typing import Union, Tuple, Dict, List
+from pathlib import Path
 
 import typer
 import duckdb
@@ -316,12 +317,10 @@ def build_header_dict(doc_title: str, open_headings: Dict[int, str]) -> str:
 def get_url_from_filename(filename: str) -> str:
     """
     Generate the URL based on the filename pattern.
-
-    Expected filename format: DDMMYYYY-XXX.md
-    Example: 23012025-MAT.md (representing January 23, 2025, MAT section)
-
-    The generated URL points to the PDF document in the DOF repository.
-
+    
+    Expected filename format: DDMMYYYY_XXX.md (e.g., 23012025_MAT.md, 23012025_VES.md)
+    The function converts the underscore to hyphen for the PDF URL as required by DOF.
+    
     Args:
         filename (str): Filename of the .md file
 
@@ -334,46 +333,53 @@ def get_url_from_filename(filename: str) -> str:
     # Extract just the base filename in case the full path was passed
     base_filename = os.path.basename(filename).replace(".md", "")
     
-    # The year should be extracted from the filename (positions 4-8 in 23012025-MAT.pdf)
-    # This assumes the format is consistent
+    # Convert underscore to hyphen for PDF URL (DDMMYYYY_XXX -> DDMMYYYY-XXX)
+    if '_' in base_filename:
+        base_filename = base_filename.replace('_', '-')
+    
+    # Extract year and construct URL (similar to improved.py logic)
     if len(base_filename) >= 8:
-        year = base_filename[4:8]  # Extract year (2025 from 23012025-MAT.pdf)
-        pdf_filename = f"{base_filename}.pdf"  # Add .pdf extension back
-        
-        # Construct the URL
+        year = base_filename[4:8]  # Extract year (2025 from 23012025)
+        pdf_filename = f"{base_filename}.pdf"
         url = f"https://diariooficial.gob.mx/abrirPDF.php?archivo={pdf_filename}&anio={year}&repo=repositorio/"
         return url
     else:
-        # Return None or an error message if the filename doesn't match expected format
-        raise ValueError(f"Expected filename like 23012025-MAT.md but got {filename}")
+        raise ValueError(f"Expected filename like 23012025_MAT.md but got {filename}")
 
-def _prepare_document_metadata(file_path: str) -> tuple:
+def _prepare_document_metadata(file_path: Union[str, Path]) -> tuple:
     """
     Extract metadata from the file.
     
     Args:
-        file_path (str): Path to the markdown file
+        file_path: Path to the markdown file (str or Path object)
         
     Returns:
         tuple: (content, title, url)
     """
-    with open(file_path, "r", encoding="utf-8") as file:
-        content = file.read()
+    # Convert to Path object for consistent handling
+    path_obj = Path(file_path)
+    
+    try:
+        with path_obj.open("r", encoding="utf-8") as file:
+            content = file.read()
+    except (OSError, UnicodeDecodeError) as e:
+        logger.error(f"Error reading file {path_obj}: {e}")
+        raise
 
-    title = os.path.splitext(os.path.basename(file_path))[0]
-    url = get_url_from_filename(file_path)
-    logger.debug(f"Processing file '{file_path}' with title '{title}'")
+    title = path_obj.stem  # Get filename without extension
+    url = get_url_from_filename(str(path_obj.name))
+    logger.debug(f"Processing file '{path_obj}' with title '{title}'")
     
     return content, title, url
 
-def _setup_database_document(title: str, url: str, file_path: str) -> dict:
+def _setup_database_document(title: str, url: str, file_path: Union[str, Path]) -> dict:
     """
     Configure document in database, cleaning up existing chunks to avoid foreign key violations.
     
     Args:
         title (str): Document title
         url (str): Document URL  
-        file_path (str): Path to the document file
+        file_path: Path to the document file (str or Path object)
         
     Returns:
         dict: Document record with explicit type conversions
@@ -385,19 +391,23 @@ def _setup_database_document(title: str, url: str, file_path: str) -> dict:
     if not all([title, url, file_path]):
         raise ValueError("All parameters (title, url, file_path) must be non-empty")
     
+    # Convert Path to string for database storage
+    file_path_str = str(file_path)
+    
     try:
         existing_doc_df = db.execute("SELECT id FROM documents WHERE url = ?", [url]).pl()
         
         if not existing_doc_df.is_empty():
             doc_id = int(existing_doc_df.row(0, named=True)['id'])
             db.execute("DELETE FROM chunks WHERE document_id = ?", [doc_id])
+            print()  # Ensure clean separation in logs
             logger.info(f"Cleaned up existing chunks for document: {title}")
             
             db.execute("""
                 UPDATE documents 
                 SET title = ?, file_path = ?, created_at = ?
                 WHERE url = ?
-            """, [title, file_path, datetime.now(), url])
+            """, [title, file_path_str, datetime.now(), url])
             
             result_df = db.execute(
                 "SELECT id, title, url, file_path, created_at FROM documents WHERE url = ?", 
@@ -409,7 +419,7 @@ def _setup_database_document(title: str, url: str, file_path: str) -> dict:
                 INSERT INTO documents (title, url, file_path, created_at) 
                 VALUES (?, ?, ?, ?)
                 RETURNING id, title, url, file_path, created_at
-            """, [title, url, file_path, datetime.now()]).pl()
+            """, [title, url, file_path_str, datetime.now()]).pl()
             action = "created"
         
         if result_df.is_empty():
@@ -468,12 +478,12 @@ def _prepare_document_chunks(content: str) -> List:
     logger.debug(f"Document split into {len(document_chunks)} semantic, character-based chunks using MarkdownSplitter")
     return document_chunks
 
-def _initialize_chunk_processing(file_path: str, verbose: bool) -> tuple:
+def _initialize_chunk_processing(file_path: Union[str, Path], verbose: bool) -> tuple: 
     """
     Initialize variables for chunk processing.
     
     Args:
-        file_path (str): Path to the file
+        file_path: Path to the file (str or Path object)
         verbose (bool): If True, creates debug chunks file
         
     Returns:
@@ -484,20 +494,30 @@ def _initialize_chunk_processing(file_path: str, verbose: bool) -> tuple:
     chunks_file_path = None
     
     if verbose:
-        chunks_file_path = os.path.splitext(file_path)[0] + "_chunks.txt"
-        chunks_file = open(chunks_file_path, "w", encoding="utf-8")
+        # Create debug chunks file with robust path handling
+        try:
+            path_obj = Path(file_path)
+            # Use string manipulation instead of with_suffix for better compatibility
+            base_name = path_obj.stem  # filename without extension
+            parent_dir = path_obj.parent
+            chunks_file_path = parent_dir / f"{base_name}_chunks.txt"
+            chunks_file = chunks_file_path.open("w", encoding="utf-8")
+        except (OSError, ValueError) as e:
+            logger.warning(f"Could not create debug file for {file_path}: {e}")
+            chunks_file = None
+            chunks_file_path = None
     
     return open_headings_dict, chunks_file, chunks_file_path
 
 
-def _generate_chunk_embedding(header: str, chunk_text: str, file_path: str, chunk_counter: int):
+def _generate_chunk_embedding(header: str, chunk_text: str, file_path: Union[str, Path], chunk_counter: int):
     """
     Generate embedding for a chunk.
     
     Args:
         header (str): Chunk header
         chunk_text (str): Chunk text
-        file_path (str): Path to the file (for error logging)
+        file_path: Path to the file (for error logging, str or Path object)
         chunk_counter (int): Chunk counter (for error logging)
        
     Returns:
@@ -582,7 +602,7 @@ def _process_single_chunk(chunk: dict, chunk_counter: int, title: str, open_head
         doc_id (int): Document ID
         chunks_file: File object for debug info
         verbose (bool): If True, writes debug info
-        file_path (str): Path to the file (for error logging)
+        file_path: Path to the file (for error logging, str or Path object)
         
     Returns:
         dict: Updated open_headings_dict
@@ -607,7 +627,32 @@ def _process_single_chunk(chunk: dict, chunk_counter: int, title: str, open_head
     
     return open_headings_dict
 
-def process_file(file_path, verbose: bool = False):
+# =============================================================================
+# DIRECTORY PROCESSING AND FILE DISCOVERY FUNCTIONS
+# =============================================================================
+
+def find_markdown_files(directory: Path) -> List[Path]:
+    """
+    Find and sort all .md files in a directory and subdirectories.
+    
+    Args:
+        directory: Path object of the directory to search
+        
+    Returns:
+        List[Path]: List of sorted Path objects for each .md file found
+    """
+    md_files = []
+    for md_file in directory.rglob("*.md"):
+        if md_file.is_file():
+            md_files.append(md_file)
+    
+    # Sort files by their full path for consistent, chronological processing
+    # This ensures dates are processed in order: 01012025, 02012025, etc.
+    md_files.sort()
+    
+    return md_files
+
+def process_file(file_path: Union[str, Path], verbose: bool = False):
     """
     Process a markdown file with structured headers and semantic character-based chunking support.
     This function:
@@ -622,33 +667,41 @@ def process_file(file_path, verbose: bool = False):
     9. Creates a debug file for manual inspection (only if verbose=True)
 
     Args:
-        file_path (str): Path to the markdown file to process
+        file_path: Path to the markdown file to process (str or Path object)
         verbose (bool): If True, creates debug chunks file
     """
+    
+    # Convert to Path object for consistent handling
+    path_obj = Path(file_path)
+    
     try:
         # 1. Prepare metadata
-        content, title, url = _prepare_document_metadata(file_path)
+        content, title, url = _prepare_document_metadata(path_obj)
         
         # 2. Setup document in database
-        doc = _setup_database_document(title, url, file_path)
-        
+        doc = _setup_database_document(title, url, path_obj)
+
         # 3. Initialize state variables BEFORE chunking and entering the loop.
-        open_headings_dict, chunks_file, chunks_file_path = _initialize_chunk_processing(file_path, verbose)
+        open_headings_dict, chunks_file, chunks_file_path = _initialize_chunk_processing(path_obj, verbose)
 
         # 4. Prepare the chunks (semantic markdown splitting)
         document_chunks = _prepare_document_chunks(content)
 
+
+        # Track processing time
+        start_time = datetime.now()
+        
         try:
             # 5. Process each chunk with progress bar
             total_chunks = len(document_chunks)
             chunk_counter = 0
             
-            with tqdm(total=total_chunks, desc=f"Processing {title[:30]}...", unit="chunk") as pbar:
+            with tqdm(total=total_chunks, desc=f"Processing {title[:30]}...", unit="chunk", position=1, leave=False) as pbar:
                 for chunk in document_chunks:
                     chunk_counter += 1
                     open_headings_dict = _process_single_chunk(
                         chunk, chunk_counter, title, open_headings_dict, 
-                        doc["id"], chunks_file, verbose, file_path
+                        doc["id"], chunks_file, verbose, path_obj
                     )
                     
                     # Update progress bar
@@ -657,50 +710,71 @@ def process_file(file_path, verbose: bool = False):
             if chunks_file:
                 chunks_file.close()
         
+        # Calculate processing time for file
+        processing_time = datetime.now() - start_time
+        
         # 6. Final logging
-        logger.info(f"Processing completed for: {file_path}")
+        logger.info(f"File '{title}': Completed {len(document_chunks)} chunks in {processing_time.total_seconds():.2f}s")
         if verbose and chunks_file_path:
             logger.info(f"Chunks file generated at: {chunks_file_path}")
         
     except Exception as e:
-        logger.error(f"Error processing file {file_path}: {str(e)}")
+        logger.error(f"Error processing file {path_obj}: {str(e)}")
         raise
 
-def process_directory(directory_path, verbose: bool = False):
+def process_directory(directory_path: Union[str, Path], verbose: bool = False):
     """
-    Recursively process all files in a directory and its subdirectories.
+    Process all markdown files in a directory and its subdirectories using optimized file discovery.
 
     Args:
-        directory_path (str): Path to the directory to process
+        directory_path: Path to the directory to process (str or Path object)
         verbose (bool): If True, creates debug chunks files
     """
+    # Convert to Path object for consistent handling
+    dir_path = Path(directory_path)
+    
+    if not dir_path.exists():
+        logger.error(f"Directory does not exist: {dir_path}")
+        raise FileNotFoundError(f"Directory does not exist: {dir_path}")
+    
+    if not dir_path.is_dir():
+        logger.error(f"Path is not a directory: {dir_path}")
+        raise NotADirectoryError(f"Path is not a directory: {dir_path}")
+    
+    # Find and collect all .md files with error handling and sorting
     try:
-        # Get the list of files in the directory
-        entries = os.listdir(directory_path)
-        md_files = [entry for entry in entries if entry.lower().endswith(".md")]
-        logger.info(f"Found {len(md_files)} markdown files in {directory_path}")
-        
-        # Loop through all entries in the directory
-        for entry in tqdm(md_files, desc=f"Processing {directory_path}"):
-            # Create full path
-            entry_path = os.path.join(directory_path, entry)
-
-            # Process the markdown file
-            process_file(entry_path, verbose=verbose)
-            
-        # Process subdirectories separately without progress bar
-        for entry in entries:
-            entry_path = os.path.join(directory_path, entry)
-            # If it's a directory, recursively process it
-            if os.path.isdir(entry_path):
-                process_directory(entry_path, verbose=verbose)
-                
-        logger.info(f"Processing completed for directory: {directory_path}")
-        
+        md_files = find_markdown_files(dir_path)
+    except (OSError, PermissionError) as e:
+        logger.warning(f"Could not access directory {dir_path}: {e}")
+        return
     except Exception as e:
-        logger.error(f"Error processing directory {directory_path}: {str(e)}")
-        raise
-
+        logger.error(f"Unexpected error scanning directory {dir_path}: {e}")
+        return
+    
+    logger.info(f"Found {len(md_files)} markdown files in {dir_path}")
+    
+    if not md_files:
+        logger.warning(f"No markdown files found in {dir_path}")
+        return
+    
+    # Show sample of files to be processed for verification
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("Sample files to process:")
+        for i, md_file in enumerate(md_files[:5], 1):
+            relative_path = md_file.relative_to(dir_path)
+            logger.debug(f"  {i}. {relative_path}")
+        if len(md_files) > 5:
+            logger.debug(f"  ... and {len(md_files) - 5} more files")
+    
+    for md_file in tqdm(md_files, desc=f"Processing {dir_path.name}", position=0, leave=True):
+        try:
+            process_file(md_file, verbose=verbose)
+        except Exception as e:
+            logger.error(f"Failed to process file {md_file}: {e}")
+            continue  # Continue with next file instead of stopping entirely
+            
+    # Final summary
+    logger.info(f"Processing completed for directory: {dir_path}")
 
 def main(root_dir: str, verbose: bool = False):
     """
