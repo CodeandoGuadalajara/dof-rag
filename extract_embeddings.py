@@ -645,8 +645,8 @@ def find_markdown_files(directory: Path) -> List[Path]:
         if md_file.is_file():
             md_files.append(md_file)
     
-    # Sort files by their full path for consistent, chronological processing
-    # This ensures dates are processed in order: 01012025, 02012025, etc.
+    # Sort files by full path for chronological processing using structured directory layout
+    # Directory pattern (dof_word_md\2025\01\02012025\MAT\02012025_MAT.md) ensures alphabetical order matches chronological order
     md_files.sort()
     
     return md_files
