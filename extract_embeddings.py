@@ -334,8 +334,7 @@ def get_url_from_filename(filename: str) -> str:
     base_filename = os.path.basename(filename).replace(".md", "")
     
     # Convert underscore to hyphen for PDF URL (DDMMYYYY_XXX -> DDMMYYYY-XXX)
-    if '_' in base_filename:
-        base_filename = base_filename.replace('_', '-')
+    base_filename = base_filename.replace('_', '-')
     
     # Extract year and construct URL (similar to improved.py logic)
     if len(base_filename) >= 8:
