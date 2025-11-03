@@ -400,7 +400,7 @@ def _setup_database_document(title: str, url: str, file_path: Union[str, Path]) 
         if not existing_doc_df.is_empty():
             doc_id = int(existing_doc_df.row(0, named=True)['id'])
             db.execute("DELETE FROM chunks WHERE document_id = ?", [doc_id])
-            print()  # Ensure clean separation in logs
+            logger.info('') # Ensure clean separation in logs
             logger.info(f"Cleaned up existing chunks for document: {title}")
             
             db.execute("""
@@ -497,7 +497,7 @@ def _initialize_chunk_processing(file_path: Union[str, Path], verbose: bool) -> 
         # Create debug chunks file with robust path handling
         try:
             path_obj = Path(file_path)
-            # Use string manipulation instead of with_suffix for better compatibility
+            # Use string manipulation for consistency with Path object usage throughout the codebase
             base_name = path_obj.stem  # filename without extension
             parent_dir = path_obj.parent
             chunks_file_path = parent_dir / f"{base_name}_chunks.txt"
@@ -696,7 +696,7 @@ def process_file(file_path: Union[str, Path], verbose: bool = False):
             total_chunks = len(document_chunks)
             chunk_counter = 0
             
-            with tqdm(total=total_chunks, desc=f"Processing {title[:30]}...", unit="chunk", position=1, leave=False) as pbar:
+            with tqdm(total=total_chunks, desc=f"Processing {title}...", unit="chunk", position=1, leave=False) as pbar:
                 for chunk in document_chunks:
                     chunk_counter += 1
                     open_headings_dict = _process_single_chunk(
