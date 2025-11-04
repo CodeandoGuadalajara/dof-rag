@@ -1,4 +1,18 @@
 # %%
+#!/usr/bin/env python3
+# /// script
+# dependencies = [
+#     "torch",
+#     "duckdb",
+#     "polars",
+#     "pyarrow",
+#     "sentence-transformers",
+#     "tqdm",
+#     "typer",
+#     "accelerate",
+#     "semantic-text-splitter"
+# ]
+# ///
 """DOF Document Embedding Extraction with Structured Headers and Character-Based Chunking
 
 This script processes markdown files from the Mexican Official Gazette (DOF),
@@ -39,8 +53,13 @@ The system uses DuckDB for efficient embedding storage:
 
 Usage:
 python extract_embeddings.py /path/to/markdown/files [--verbose]
-"""
+python extract_embeddings.py /path/to/markdown/files --memory-cleanup-interval 50
 
+# Disable automatic memory cleanup (recommended for CPU environments)
+python extract_embeddings.py /path/to/markdown/files --memory-cleanup-interval -1
+
+"""
+import gc
 import os
 import re
 import torch
@@ -68,21 +87,38 @@ device = torch.device(
     "cuda" if IS_CUDA_AVAILABLE else
     ("mps" if IS_MPS_AVAILABLE else "cpu")
 )
-
-# Model configuration constants
+# =============================================================================
+# MODEL CONFIGURATION
+# =============================================================================
 MODEL_NAME = "Qwen/Qwen3-Embedding-0.6B"
 EMBEDDING_DIM = 1024
-MODEL_MAX_SEQ_LENGTH = 1024  # Optimized from 32k default for better performance and memory usage
 
-# Character management constants
-CAPACITY = 2000      # capacity in characters per chunk (approx. ~500 tokens)
+# =============================================================================
+# DATABASE CONFIGURATION
+# =============================================================================
+DATABASE_PATH = "dof_db/db.duckdb"
+
+# =============================================================================
+# CHUNKING CONFIGURATION
+# =============================================================================
+CAPACITY = 2000      # capacity in characters per chunk (~ 500 tokens)
 OVERLAP_CHARS = 500    # overlap in characters between chunks (25% of CAPACITY)
 
+# =============================================================================
+# OPTIMIZATION CONFIGURATION
+# =============================================================================
+MODEL_MAX_SEQ_LENGTH = 1024  # Optimized from 32k default for better performance and memory usage
+
+# =============================================================================
 # PRE-COMPILED REGEX PATTERNS
+# =============================================================================
+# Header detection pattern
+HEADING_PATTERN = re.compile(r'^(#{1,6})\s+(.*)$')
+
+# Patterns for text cleaning
 UNDERSCORES_PATTERN = re.compile(r'(\\_){2,}')
 PATTERN_UNIVERSAL = re.compile(r'^[\s\|\+\-:=]{10,}$', re.MULTILINE)
 MULTIPLE_SPACES_PATTERN = re.compile(r' {3,}')
-HEADING_PATTERN = re.compile(r'^(#{1,6})\s+(.*)$')
 
 logging.basicConfig(
     level=logging.INFO,  
@@ -150,6 +186,9 @@ def clean_multiple_spaces(text: str) -> str:
     return cleaned_text
 
 # %%
+# =============================================================================
+# MODEL INITIALIZATION
+# =============================================================================
 logger.info(f"Loading model: {MODEL_NAME}")
 
 model = SentenceTransformer(
@@ -201,17 +240,18 @@ except Exception as e:
     exit(1)
     
 # %%
-# Database paths configuration
-DB_FILE = "dof_db/db.duckdb"
+# =============================================================================
+# DATABASE INITIALIZATION
+# =============================================================================
 
 # Ensure the database directory exists
-db_dir = os.path.dirname(DB_FILE)
+db_dir = os.path.dirname(DATABASE_PATH)
 if db_dir:
     os.makedirs(db_dir, exist_ok=True)
     logger.info(f"Ensuring database directory exists at: {db_dir}")
 
 # Database initialization and schema setup
-db = duckdb.connect(DB_FILE)
+db = duckdb.connect(DATABASE_PATH)
 
 # Create sequences for auto-incrementing primary keys
 db.execute("CREATE SEQUENCE IF NOT EXISTS documents_id_seq START 1")
@@ -241,6 +281,12 @@ db.execute(f"""
         FOREIGN KEY (document_id) REFERENCES documents(id)
     )
 """)
+
+logger.info("Database initialized successfully")
+
+# =============================================================================
+# HEADER PROCESSING FUNCTIONS
+# =============================================================================
 
 def get_heading_level(line: str) -> Union[Tuple[int, str], Tuple[None, None]]:
     """
@@ -312,7 +358,9 @@ def build_header_dict(doc_title: str, open_headings: Dict[int, str]) -> str:
     
     return "\n".join(header_lines)
 
-# %%
+# =============================================================================
+# UTILITY FUNCTIONS
+# =============================================================================
 
 def get_url_from_filename(filename: str) -> str:
     """
@@ -370,6 +418,10 @@ def _prepare_document_metadata(file_path: Union[str, Path]) -> tuple:
     logger.debug(f"Processing file '{path_obj}' with title '{title}'")
     
     return content, title, url
+
+# =============================================================================
+# DATABASE OPERATIONS
+# =============================================================================
 
 def _setup_database_document(title: str, url: str, file_path: Union[str, Path]) -> dict:
     """
@@ -651,7 +703,45 @@ def find_markdown_files(directory: Path) -> List[Path]:
     
     return md_files
 
-def process_file(file_path: Union[str, Path], verbose: bool = False):
+# =============================================================================
+# MEMORY MANAGEMENT FUNCTIONS
+# =============================================================================
+
+def _simple_cleanup_every_n_chunks():
+    """Simple memory cleanup every N chunks"""
+    gc.collect()
+    
+    if IS_CUDA_AVAILABLE:
+        torch.cuda.empty_cache()
+    
+    if IS_MPS_AVAILABLE:
+        torch.mps.empty_cache()
+
+def _cleanup_memory_after_file():
+    """
+    Deep memory cleanup after processing each file.
+    
+    Includes clearing LRU caches, model caches and double
+    garbage collection for complete memory release.
+    """
+    gc.collect()
+    
+    if IS_CUDA_AVAILABLE:
+        torch.cuda.empty_cache()
+    
+    if IS_MPS_AVAILABLE:
+        torch.mps.synchronize()
+        torch.mps.empty_cache()
+        
+    # Double garbage collection for deep cleanup
+    gc.collect()
+    gc.collect()
+
+# =============================================================================
+# MAIN PROCESSING FUNCTIONS
+# =============================================================================
+
+def process_file(file_path: Union[str, Path], verbose: bool = False, memory_cleanup_interval: int = 100):
     """
     Process a markdown file with structured headers and semantic character-based chunking support.
     This function:
@@ -668,6 +758,8 @@ def process_file(file_path: Union[str, Path], verbose: bool = False):
     Args:
         file_path: Path to the markdown file to process (str or Path object)
         verbose (bool): If True, creates debug chunks file
+        memory_cleanup_interval (int): Interval for memory cleanup during chunk processing.
+                                     Default is 100. Set to -1 to disable intermediate cleanup.
     """
     
     # Convert to Path object for consistent handling
@@ -703,6 +795,10 @@ def process_file(file_path: Union[str, Path], verbose: bool = False):
                         doc["id"], chunks_file, verbose, path_obj
                     )
                     
+                    # Memory cleanup every n chunks (if enabled)
+                    if memory_cleanup_interval > 0 and chunk_counter % memory_cleanup_interval == 0:
+                        _simple_cleanup_every_n_chunks()
+                    
                     # Update progress bar
                     pbar.update(1)
         finally:
@@ -716,18 +812,23 @@ def process_file(file_path: Union[str, Path], verbose: bool = False):
         logger.info(f"File '{title}': Completed {len(document_chunks)} chunks in {processing_time.total_seconds():.2f}s")
         if verbose and chunks_file_path:
             logger.info(f"Chunks file generated at: {chunks_file_path}")
+            
+        # Deep memory cleanup after processing file
+        _cleanup_memory_after_file()
         
     except Exception as e:
         logger.error(f"Error processing file {path_obj}: {str(e)}")
         raise
 
-def process_directory(directory_path: Union[str, Path], verbose: bool = False):
+def process_directory(directory_path: Union[str, Path], verbose: bool = False, memory_cleanup_interval: int = 100):
     """
     Process all markdown files in a directory and its subdirectories using optimized file discovery.
 
     Args:
         directory_path: Path to the directory to process (str or Path object)
         verbose (bool): If True, creates debug chunks files
+        memory_cleanup_interval (int): Interval for memory cleanup during chunk processing
+                                               Default is 100. Set to -1 to disable intermediate cleanup.
     """
     # Convert to Path object for consistent handling
     dir_path = Path(directory_path)
@@ -767,7 +868,7 @@ def process_directory(directory_path: Union[str, Path], verbose: bool = False):
     
     for md_file in tqdm(md_files, desc=f"Processing {dir_path.name}", position=0, leave=True):
         try:
-            process_file(md_file, verbose=verbose)
+            process_file(md_file, verbose=verbose, memory_cleanup_interval=memory_cleanup_interval)
         except Exception as e:
             logger.error(f"Failed to process file {md_file}: {e}")
             continue  # Continue with next file instead of stopping entirely
@@ -775,13 +876,15 @@ def process_directory(directory_path: Union[str, Path], verbose: bool = False):
     # Final summary
     logger.info(f"Processing completed for directory: {dir_path}")
 
-def main(root_dir: str, verbose: bool = False):
+def main(root_dir: str, verbose: bool = False, memory_cleanup_interval: int = 100):
     """
     Process all markdown files in a directory and its subdirectories.
     
     Args:
         root_dir (str): Root directory to search for markdown files
         verbose (bool, optional): If True, shows detailed debug messages. Default is False.
+        memory_cleanup_interval (int, optional): Interval for memory cleanup during chunk processing.
+                                          Default is 100. Set to -1 to disable intermediate cleanup.
     """
     # Configure logging level based on verbose parameter
     if verbose:
@@ -791,11 +894,15 @@ def main(root_dir: str, verbose: bool = False):
         logger.setLevel(logging.INFO)
         
     logger.info(f"Starting document processing in: {root_dir}")
+    if memory_cleanup_interval > 0:
+        logger.info(f"Memory cleanup enabled: every {memory_cleanup_interval} chunks")
+    else:
+        logger.info("Memory cleanup disabled (interval set to -1)")
     start_time = datetime.now()
     
     try:
-        process_directory(root_dir, verbose=verbose)
-        
+        process_directory(root_dir, verbose=verbose, memory_cleanup_interval=memory_cleanup_interval)
+
         elapsed_time = datetime.now() - start_time
         logger.info(f"Processing completed in {elapsed_time}")
     except Exception as e:
