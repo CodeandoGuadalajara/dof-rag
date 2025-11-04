@@ -55,7 +55,7 @@ Usage:
 python extract_embeddings.py /path/to/markdown/files [--verbose]
 python extract_embeddings.py /path/to/markdown/files --memory-cleanup-interval 50
 
-# Disable automatic memory cleanup (only cpu)
+# Disable automatic memory cleanup (recommended for CPU environments)
 python extract_embeddings.py /path/to/markdown/files --memory-cleanup-interval -1
 
 """
@@ -758,6 +758,8 @@ def process_file(file_path: Union[str, Path], verbose: bool = False, memory_clea
     Args:
         file_path: Path to the markdown file to process (str or Path object)
         verbose (bool): If True, creates debug chunks file
+        memory_cleanup_interval (int): Interval for memory cleanup during chunk processing.
+                                     Default is 100. Set to -1 to disable intermediate cleanup.
     """
     
     # Convert to Path object for consistent handling
@@ -881,8 +883,8 @@ def main(root_dir: str, verbose: bool = False, memory_cleanup_interval: int = 10
     Args:
         root_dir (str): Root directory to search for markdown files
         verbose (bool, optional): If True, shows detailed debug messages. Default is False.
-        memory_cleanup_interval (int, optional): Interval for memory cleanup during chunk processing. 
-                                        Default is 100. Set to -1 to disable intermediate cleanup.
+        memory_cleanup_interval (int, optional): Interval for memory cleanup during chunk processing.
+                                          Default is 100. Set to -1 to disable intermediate cleanup.
     """
     # Configure logging level based on verbose parameter
     if verbose:
