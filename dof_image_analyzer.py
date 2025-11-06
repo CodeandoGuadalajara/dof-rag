@@ -47,7 +47,7 @@ class RateLimiter:
     def __init__(self, requests_per_minute: int = 15):
         self.requests_per_minute = requests_per_minute
         self.request_times = []
-        self.min_interval = 60.0 / requests_per_minute  # 4 seconds between requests
+        self.min_interval = 60.0 / requests_per_minute
 
     def wait_if_needed(self):
         """
@@ -59,18 +59,15 @@ class RateLimiter:
         """
         current_time = time.time()
 
-        # Remove requests older than 1 minute
         self.request_times = [t for t in self.request_times if current_time - t < 60]
 
-        # If we're at the limit, wait
         if len(self.request_times) >= self.requests_per_minute:
             oldest_request = min(self.request_times)
-            wait_time = 60 - (current_time - oldest_request) + 1  # Add 1 second buffer
+            wait_time = 60 - (current_time - oldest_request) + 1
             if wait_time > 0:
                 logging.info(f"Rate limit reached. Waiting {wait_time:.1f} seconds...")
                 time.sleep(wait_time)
 
-        # Also ensure minimum interval between requests
         if self.request_times:
             time_since_last = current_time - max(self.request_times)
             if time_since_last < self.min_interval:
@@ -78,7 +75,6 @@ class RateLimiter:
                 logging.debug(f"Waiting {wait_time:.1f}s for minimum interval...")
                 time.sleep(wait_time)
 
-        # Record this request
         self.request_times.append(time.time())
 
 def find_markdown_file(image_path: Path) -> Optional[Path]:
@@ -90,11 +86,8 @@ def find_markdown_file(image_path: Path) -> Optional[Path]:
     - Markdown: /year/month/date/edition/DDMMYYYY_EDITION.md
 
     """
-    # Image is in: /year/month/date/edition/media_temp/media/img_001.png
-    # Markdown is in: /year/month/date/edition/DDMMYYYY_EDITION.md
-    edition_dir = image_path.parent.parent.parent  # Go up 3 levels from media
+    edition_dir = image_path.parent.parent.parent
 
-    # Look for .md files in the edition directory
     for md_file in edition_dir.glob('*.md'):
         return md_file
 
@@ -120,12 +113,11 @@ def needs_description(md_file: Path, image_name: str) -> bool:
             logging.debug(f"Image reference for {image_name} not found in {md_file}")
             return False
 
-        for m in matches:
-            current_alt = m.group(1)
-            if not current_alt.strip():
-                return True
-
-        return False
+        # Check only first occurrence to avoid redundancy in embeddings
+        first_match = matches[0]
+        first_alt = first_match.group(1)
+        
+        return not first_alt.strip()
 
     except Exception as e:
         logging.error(f"Error checking alt text in {md_file}: {e}")
@@ -144,36 +136,30 @@ def insert_description_in_markdown(md_file: Path, image_name: str, description: 
         description: AI-generated description to insert        
     """
     try:
-        # Read the markdown file
         with open(md_file, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        # Find image reference pattern
-        import re
         pattern = rf'!\[([^\]]*)\]\([^)]*{re.escape(image_name)}[^)]*\)'
 
-        # Find the image reference
         match = re.search(pattern, content)
         if not match:
             logging.debug(f"Image reference for {image_name} not found in {md_file}")
             return False
 
-        # Replace empty alt text with description
         full_match = match.group(0)
-        current_alt = match.group(1)  # Current alt text (might be empty)
+        current_alt = match.group(1)
 
-        # Only insert if alt text is empty (following the principle of not overwriting existing descriptions)
         if not current_alt.strip():
             new_image_ref = full_match.replace(f'![{current_alt}]', f'![{description}]')
-            new_content = content.replace(full_match, new_image_ref)
+            new_content = content.replace(full_match, new_image_ref, 1)
 
-            # Write back to file
             with open(md_file, 'w', encoding='utf-8') as f:
                 f.write(new_content)
 
             return True
         else:
-            return True
+            logging.debug(f"First occurrence of {image_name} already has alt text in {md_file}")
+            return False
 
     except Exception as e:
         logging.error(f"Error inserting description in {md_file}: {e}")
@@ -214,10 +200,8 @@ class ImageAnalyzer:
                 logging.info(f"Skipping analysis for {image_path.name} in {md_file.name}: alt text already present or reference missing")
                 return {"status": ProcessResult.SUCCESS.value, "image_name": image_path.name}
 
-            # Wait for rate limiting
             self.rate_limiter.wait_if_needed()
 
-            # Load image using PIL and generate description
             with Image.open(image_path) as image:
                 prompt = """Eres un experto en documentos del Diario Oficial de la Federación (DOF). Analiza la imagen y sigue estas instrucciones:
 
@@ -271,7 +255,6 @@ class ImageAnalyzer:
 
             description = response.text
 
-            # Insert description in Markdown
             success = insert_description_in_markdown(md_file, image_path.name, description)
 
             if success:
@@ -310,7 +293,6 @@ def find_image_files(input_dir: Path, date_str: Optional[str] = None,
                 day = current_date.strftime("%d")
                 date_folder = f"{day}{month}{year}"
 
-                # Process both MAT and VES editions
                 for edition in ['MAT', 'VES']:
                     images_dir = input_dir / year / month / date_folder / edition / 'media_temp' / 'media'
                     if images_dir.exists():
@@ -320,11 +302,10 @@ def find_image_files(input_dir: Path, date_str: Optional[str] = None,
 
                 current_date += timedelta(days=1)
         else:
-            # Process all images in the directory
             for image_file in input_dir.rglob('media_temp/media/*'):
                 if image_file.is_file() and image_file.suffix.lower() in supported_extensions:
                     image_files.append(image_file)
-        return sorted(image_files)  # Sort for consistent processing order
+        return sorted(image_files)
 
     except Exception as e:
         logging.error(f"Error searching for image files: {e}")
@@ -404,14 +385,12 @@ def main(
 
     logging.info("=== Starting DOF Image Analysis ===")
 
-    # Validate inputs
     input_path = Path(input_dir)
 
     if not input_path.exists():
         logging.error(f"Input directory does not exist: {input_path}")
         sys.exit(1)
 
-    # Validate dates if provided
     if date:
         try:
             datetime.strptime(date, "%d/%m/%Y")
@@ -422,17 +401,14 @@ def main(
             sys.exit(1)
 
     try:
-        # Load API key
         load_dotenv()
         api_key = os.getenv('GEMINI_API_KEY')
         if not api_key:
             logging.error("GEMINI_API_KEY not found in .env file")
             sys.exit(1)
 
-        # Initialize analyzer
         analyzer = ImageAnalyzer(api_key, no_limits=no_limits)
 
-        # Find images to process
         image_files = find_image_files(input_path, date, end_date)
 
         if not image_files:
@@ -445,7 +421,6 @@ def main(
         else:
             logging.info(f"Estimated processing time: {len(image_files) * 4 / 60:.1f} minutes (with rate limiting)")
 
-        # Process images
         successful_count = 0
         failed_count = 0
 
@@ -459,7 +434,6 @@ def main(
             else:
                 failed_count += 1
 
-        # Print summary
         logging.info("=== Analysis Summary ===")
         logging.info(f"Total images processed: {len(image_files)}")
         logging.info(f"Successful analyses: {successful_count}")
