@@ -401,6 +401,9 @@ def main(
             sys.exit(1)
 
     try:
+        env_path = Path('.env')
+        if not env_path.exists():
+            logging.warning(".env file not found. Environment variables may be missing.")
         load_dotenv()
         api_key = os.getenv('GEMINI_API_KEY')
         if not api_key:
