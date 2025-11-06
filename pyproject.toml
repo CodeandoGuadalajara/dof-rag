@@ -31,3 +31,6 @@ dependencies = [
 [tool.ruff.lint]
 # sort imports
 extend-select = ["I"]
+
+[tool.uv.workspace]
+members = [".", "markdown_models/docling", "markdown_models/gemini_handler", "markdown_models/pymupdf_handler", "markdown_models/pymupdf4llm_handler", "markdown_models/marker_w_gemini_handler", ]

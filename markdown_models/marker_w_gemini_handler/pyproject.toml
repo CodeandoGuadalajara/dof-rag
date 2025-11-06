@@ -1,0 +1,9 @@
+[project]
+name = "marker-w-gemini-handler"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "marker>=2.1.3",
+]
