@@ -115,7 +115,7 @@ Los archivos del DOF anteriores a 1999 solo están disponibles como PDFs escanea
 uv run extract_markdown.py --help
 ```
 
-El directorio `extracted/` contiene ejemplos de extracciones con este método.
+Los archivos Word (.doc) solo están disponibles desde 1999, por lo que los documentos anteriores requieren este método alternativo.
 
 ### Desde PDFs digitales — alternativa
 
@@ -151,7 +151,6 @@ Puedes especificar la carpeta de un solo archivo, o la carpeta de un mes, o incl
 ├── create_embeddings.py    # Crea embeddings con FAISS (usado con extract_markdown)
 ├── extract_embeddings.py   # Extrae embeddings para RAG
 ├── ai_agent.ipynb          # Notebook del agente de consulta
-├── extracted/              # Ejemplos de extracción con Gemini
 ├── pandoc_filters/         # Filtros Lua para pandoc
 ├── modules_captions/       # Módulo de descripción de imágenes
 ├── Improve_embeddings_1_page_chunk/  # Mejoras de embeddings
