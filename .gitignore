@@ -4,6 +4,10 @@ dof/*/
 dof/*/*/*-MAT.pdf
 dof_markdown/
 
+# Converted markdown output
+dof_md/
+dof_failed/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
