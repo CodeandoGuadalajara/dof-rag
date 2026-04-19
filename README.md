@@ -35,22 +35,7 @@ dof/
 ...
 ```
 
-### Extraer markdown desde PDFs
-
-UV instala la dependencia [marker](https://github.com/VikParuchuri/marker) que contiene un ejecutable para convertir PDFs a formato markdown.
-
-Para convertir un folder completo:
-
-```bash
-marker --output_dir dof_markdown/2024/04/ \
-  --paginate_output \
-  --languages="es" \
-  --skip_existing \
-  --workers=1 \
-  dof/2024/04/
-```
-
-### Archivos Word (.doc)
+### Archivos Word (.doc) — disponible desde 1999
 
 Los archivos del DOF también están disponibles en formato Word (.doc), lo cual facilita la extracción de texto.
 
@@ -77,7 +62,11 @@ dof_word/
 
 > **NOTA**: El script descarga un archivo .doc por cada documento legal individual (no por edición completa).
 
-## Extraer markdown desde archivos Word (.doc)
+## Extraer markdown
+
+Hay dos métodos de extracción dependiendo del tipo de archivo:
+
+### Desde archivos Word (.doc) — 1999 en adelante
 
 El script `convert_doc_to_md.py` convierte archivos `.doc` directamente a Markdown, manteniendo cada documento legal como un archivo individual — ideal para chunking y recuperación en RAG.
 
@@ -118,6 +107,29 @@ dof_md/
 ...
 ```
 
+### Desde PDFs escaneados — antes de 1999
+
+Los archivos del DOF anteriores a 1999 solo están disponibles como PDFs escaneados (imagen), por lo que requieren OCR. El script `extract_markdown.py` usa Gemini 2.0 Flash para extraer texto:
+
+```bash
+uv run extract_markdown.py --help
+```
+
+El directorio `extracted/` contiene ejemplos de extracciones con este método.
+
+### Desde PDFs digitales — alternativa
+
+Para PDFs digitales (no escaneados), se puede usar [marker](https://github.com/VikParuchuri/marker):
+
+```bash
+marker --output_dir dof_markdown/2024/04/ \
+  --paginate_output \
+  --languages="es" \
+  --skip_existing \
+  --workers=1 \
+  dof/2024/04/
+```
+
 ## Extraer embeddings
 
 Para extraer embeddings de un archivo específico:
@@ -133,10 +145,13 @@ Puedes especificar la carpeta de un solo archivo, o la carpeta de un mes, o incl
 ```
 .
 ├── get_dof.py              # Descarga archivos PDF del DOF
-├── get_word_dof.py         # Descarga archivos Word (.doc) del DOF
+├── get_word_dof.py         # Descarga archivos Word (.doc) del DOF (1999+)
 ├── convert_doc_to_md.py    # Convierte .doc → .md (pipeline individual)
+├── extract_markdown.py     # Extrae texto de PDFs escaneados con Gemini (pre-1999)
+├── create_embeddings.py    # Crea embeddings con FAISS (usado con extract_markdown)
 ├── extract_embeddings.py   # Extrae embeddings para RAG
 ├── ai_agent.ipynb          # Notebook del agente de consulta
+├── extracted/              # Ejemplos de extracción con Gemini
 ├── pandoc_filters/         # Filtros Lua para pandoc
 ├── modules_captions/       # Módulo de descripción de imágenes
 ├── Improve_embeddings_1_page_chunk/  # Mejoras de embeddings
