@@ -1,12 +1,9 @@
-# DOF PDFs
-# Ignore all PDFs in the DOF folder
-dof/*/
-dof/*/*/*-MAT.pdf
+# DOF downloaded files
+dof_word/
 dof_markdown/
-
-# Converted markdown output
 dof_md/
 dof_failed/
+dof/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
