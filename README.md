@@ -1,5 +1,6 @@
 # dof-rag
-dog-raf es un chat y un sistema de consulta por generación aumentada para explorar las ediciones del Diario Oficial de la Federación de México.
+
+dof-rag es un chat y un sistema de consulta por generación aumentada para explorar las ediciones del Diario Oficial de la Federación de México.
 
 # Requerimientos
 
@@ -14,7 +15,9 @@ uv sync # Sincronizar dependencias
 
 ## Bajar archivos del DOF
 
-Para bajar archivos del DOF se usa el script get_dof.py de la siguiente manera:
+### Archivos PDF
+
+Para bajar archivos PDF del DOF se usa el script `get_dof.py`:
 
 ```bash
 uv run get_dof.py --help
@@ -24,24 +27,19 @@ uv run get_dof.py --start-year=2025 --end-year=2023
 Esto crea directorios como:
 
 ```
-$ tree --sort=mtime dof | head -n 10
-dof
-├── 2025
-│   ├── 01
-│   │   ├── 02012025-MAT.pdf
-│   │   ├── 03012025-MAT.pdf
-│   │   ├── 06012025-MAT.pdf
-│   │   ├── 07012025-MAT.pdf
+dof/
+├── 2025/
+│   ├── 01/
+│   │   ├── 02012025-MAT.pdf
+│   │   ├── 03012025-MAT.pdf
 ...
 ```
 
-## Extraer markdown:
-
-### Por folders
+### Extraer markdown desde PDFs
 
 UV instala la dependencia [marker](https://github.com/VikParuchuri/marker) que contiene un ejecutable para convertir PDFs a formato markdown.
 
-Para convertir un folder completo ejecuta este comando:
+Para convertir un folder completo:
 
 ```bash
 marker --output_dir dof_markdown/2024/04/ \
@@ -50,29 +48,9 @@ marker --output_dir dof_markdown/2024/04/ \
   --skip_existing \
   --workers=1 \
   dof/2024/04/
-# este comando tardó 2h 31m 23s en una macbook pro M3 de 36GB RAM
 ```
 
-**NOTA**: Si el comando queda a la mitad, conviene borrar las carpetas incompletas.
-Para ver cuáles archivos están incompletos puedes revisar el archivo markdown que tiene separaciones por hojas gracias a la opcíon `--paginate_output`
-con el formato `{pagina}------------------------------------------------`. Revisa que contenga todas las páginas del archivo PDF.
-
-Una vez borradas las carpetas incompletas, puedes volver a ejecutar el comando anterior para que el `--skip_existing` se salte las carpetas que ya existen.
-
-### Por archivos
-
-Para extraer el markdown de un archivo específico:
-
-```bash
-marker_single --output_dir dof_markdown/2024/04/ \
-  --paginate_output \
-  --languages="es" \
-  dof/2024/04/01042024-MAT.pdf
-# este comando tardó 2m 7s en una macbook pro M3 de 36GB RAM
-# Sorprendentemente, porque otros pueden tardar más de 10 minutos.
-```
-
-## Bajar archivos Word del DOF
+### Archivos Word (.doc)
 
 Los archivos del DOF también están disponibles en formato Word (.doc), lo cual facilita la extracción de texto.
 
@@ -94,25 +72,12 @@ dof_word/
 │   │   │   │   └── 001_DOF_20250102_MAT_5746544.doc
 │   │   │   └── VES/
 │   │   │       └── 001_DOF_20250102_VES_5746544.doc
-│   │   ├── 03012025/
 ...
 ```
 
 > **NOTA**: El script descarga un archivo .doc por cada documento legal individual (no por edición completa).
 
-### Procesar los archivos Word
-
-Antes de convertir a Markdown, los archivos Word pueden procesarse con `dof_processor.py`, que organiza y prepara los archivos:
-
-```bash
-uv run dof_processor.py --help
-```
-
-Ver `README_DOFDOCX.md` para más detalles sobre este flujo.
-
 ## Extraer markdown desde archivos Word (.doc)
-
-### Conversión individual (recomendado para RAG)
 
 El script `convert_doc_to_md.py` convierte archivos `.doc` directamente a Markdown, manteniendo cada documento legal como un archivo individual — ideal para chunking y recuperación en RAG.
 
@@ -153,12 +118,6 @@ dof_md/
 ...
 ```
 
-### Conversión por edición (alternativa)
-
-El flujo alternativo usa `dof_docx_to_md.py` para convertir archivos ya procesados con `dof_processor.py`. Este método une todos los documentos de un día en un solo archivo Markdown.
-
-Ver `README_DOFDOCX.md` para instrucciones completas.
-
 ## Extraer embeddings
 
 Para extraer embeddings de un archivo específico:
@@ -168,4 +127,19 @@ python extract_embeddings.py dof_markdown/2024/04/
 ```
 
 Puedes especificar la carpeta de un solo archivo, o la carpeta de un mes, o incluso la carpeta de un año.
-En una macbook pro M3 de 36GB RAM, este comando tardó 190 minutos en extraer los embeddings de enero del 2025.
+
+## Estructura del proyecto
+
+```
+.
+├── get_dof.py              # Descarga archivos PDF del DOF
+├── get_word_dof.py         # Descarga archivos Word (.doc) del DOF
+├── convert_doc_to_md.py    # Convierte .doc → .md (pipeline individual)
+├── extract_embeddings.py   # Extrae embeddings para RAG
+├── ai_agent.ipynb          # Notebook del agente de consulta
+├── pandoc_filters/         # Filtros Lua para pandoc
+├── modules_captions/       # Módulo de descripción de imágenes
+├── Improve_embeddings_1_page_chunk/  # Mejoras de embeddings
+├── pyproject.toml          # Dependencias del proyecto
+└── README.md
+```
