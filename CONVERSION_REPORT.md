@@ -132,9 +132,51 @@ dof_md/2025/01/02012025/MAT/001_DOF_20250102_MAT_5746544.md
 
 La estructura espeja exactamente la del directorio fuente `dof_word/`, facilitando la trazabilidad entre archivos originales y convertidos.
 
-## Siguiente Paso
+## Lo que falta: los PDFs escaneados
 
-Los 647,017 archivos Markdown están listos para la fase de generación de embeddings.
+La conversión de .doc a Markdown cubre los documentos individuales publicados desde 1999. Pero el DOF tiene un acervo mucho más amplio en formato PDF escaneado que todavía no podemos procesar con este pipeline.
+
+### El paisaje de los PDFs del DOF
+
+El sitio del DOF (diariooficial.gob.mx) ofrece PDFs de las ediciones completas. Nuestro análisis reveló:
+
+| Periodo | Tipo de PDF | Tamaño promedio | Texto extraíble |
+|---------|------------|-----------------|-----------------|
+| 1920-1922 | Ediciones aisladas | Desconocido | No (escaneados) |
+| 1990-2004 | Escaneado (imágenes) | 65-72 MB/edición | **No** |
+| 2005-2008 | Escaneado | 2-5 MB/edición | **No** |
+| 2009-2011 | Transición (mixto) | 4-5 MB/edición | Parcial |
+| 2012-2025 | Mayormente digital | 5-9 MB/edición | Sí |
+
+### Estado actual de la descarga
+
+| Componente | Estado |
+|------------|--------|
+| PDFs 2002-2025 | Descargados (6,079 ediciones, 102 GB) |
+| PDFs 1990-2001 | **No descargados** (~3,000 ediciones estimadas) |
+| PDFs 1920-1922 | **No descargados** (ediciones aisladas) |
+
+### Escala del reto
+
+| Métrica | Valor |
+|---------|-------|
+| Ediciones descargadas | 6,079 |
+| Ediciones pendientes de descargar | ~3,000+ (1990-2001) + ediciones aisladas 1920s |
+| Páginas escaneadas estimadas (total) | **~650,000-850,000** |
+| Período con documentos solo en formato escaneado | 1990-2004 (~15 años) |
+
+### Próximo paso: OCR con modelos VLM
+
+Los PDFs escaneados contienen décadas de documentos legales de México que actualmente son inaccesibles para búsqueda de texto. El plan es:
+
+1. **Descargar** los PDFs faltantes (1990-2001)
+2. **Ejecutar OCR** con modelos de visión-lenguaje (VLM) como LightOnOCR-2, GLM-OCR o DeepSeek-OCR
+3. **Generar Markdown** limpio a partir de las imágenes escaneadas
+4. **Integrar** con los 647,017 archivos .md ya existentes
+
+Costo estimado del OCR: ~$0.002/página con GPU en la nube, totalizando ~$800-1,500 USD para toda la colección.
+
+Este paso no solo beneficiará al sistema RAG, sino que representará una digitalización del patrimonio documental de México: décadas de leyes, decretos y resoluciones que actualmente solo existen como imágenes escaneadas inaccesibles.
 
 ---
 
