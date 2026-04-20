@@ -117,6 +117,8 @@ uv run extract_markdown.py --help
 
 Los archivos Word (.doc) solo están disponibles desde 1999, por lo que los documentos anteriores requieren este método alternativo.
 
+**Requisito:** Configurar la variable de entorno `GOOGLE_API_KEY` con una clave de Google AI.
+
 ### Desde PDFs digitales — alternativa
 
 Para PDFs digitales (no escaneados), se puede usar [marker](https://github.com/VikParuchuri/marker):
@@ -148,7 +150,6 @@ Puedes especificar la carpeta de un solo archivo, o la carpeta de un mes, o incl
 ├── get_word_dof.py         # Descarga archivos Word (.doc) del DOF (1999+)
 ├── convert_doc_to_md.py    # Convierte .doc → .md (pipeline individual)
 ├── extract_markdown.py     # Extrae texto de PDFs escaneados con Gemini (pre-1999)
-├── create_embeddings.py    # Crea embeddings con FAISS (usado con extract_markdown)
 ├── extract_embeddings.py   # Extrae embeddings para RAG
 ├── ai_agent.ipynb          # Notebook del agente de consulta
 ├── pandoc_filters/         # Filtros Lua para pandoc
