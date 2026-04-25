@@ -24,6 +24,7 @@ Usage:
 
 import argparse
 import logging
+import re
 import shutil
 import subprocess
 import sys
@@ -135,12 +136,14 @@ def convert_single_doc(doc_path: Path, output_md_path: Path, worker_id: int = 0)
 
             # Step 2: .docx -> .md via pandoc
             tmp_md = tmp_path / "output.md"
+            tmp_media = tmp_path / "media_extract"
             pandoc_cmd = [
                 "pandoc",
                 str(tmp_docx),
                 "-f", "docx+styles",
                 "-t", "markdown",
                 "--wrap=none",
+                "--extract-media", str(tmp_media),
                 "--lua-filter", str(PANDOC_FILTER),
                 "--columns=120",
                 "-o", str(tmp_md),
@@ -155,6 +158,33 @@ def convert_single_doc(doc_path: Path, output_md_path: Path, worker_id: int = 0)
                 )
 
                 if p_result.returncode == 0 and tmp_md.exists() and tmp_md.stat().st_size > 0:
+                    # Copy media files if pandoc extracted any
+                    media_src = tmp_media / "media"
+                    if media_src.exists():
+                        media_dst = output_md_path.parent / "media"
+                        media_dst.mkdir(parents=True, exist_ok=True)
+                        # Copy individual files (don't replace entire media dir —
+                        # other .md files in the same dir may share it)
+                        for img in media_src.iterdir():
+                            shutil.copy2(img, media_dst / img.name)
+
+                        # Rewrite image paths: pandoc writes absolute tmp paths
+                        # like /tmp/xxx/media_extract/media/image1.png
+                        # We want: media/image1.png
+                        md_text = tmp_md.read_text(encoding="utf-8")
+                        md_text = re.sub(
+                            r"!\[([^\]]*)\]\([^)]*media_extract/media/([^)]+)\)",
+                            r"![\1](media/\2)",
+                            md_text,
+                        )
+                        # Also strip width/height attributes from images
+                        md_text = re.sub(
+                            r"(!\[[^\]]*\]\([^)]+\))\{[^}]*\}",
+                            r"\1",
+                            md_text,
+                        )
+                        tmp_md.write_text(md_text, encoding="utf-8")
+
                     shutil.copy2(tmp_md, output_md_path)
                     result["status"] = "success"
                     result["size_bytes"] = output_md_path.stat().st_size
