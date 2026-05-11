@@ -23,11 +23,14 @@ Requirements
 
 import argparse
 import logging
+import os
 import subprocess
 import sys
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from threading import get_ident
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,19 +51,26 @@ def find_metafiles(docs_dir: Path) -> list[Path]:
     return sorted(files)
 
 
-def rasterize(src: Path, timeout: int = 30) -> tuple[Path, bool, str]:
+def rasterize(src: Path, timeout: int = 30, worker_id: int = 0) -> tuple[Path, bool, str]:
     """
     Convert a single WMF/EMF to PNG via LibreOffice headless.
+    Uses a per-worker user profile to avoid lock contention.
     Returns (source_path, success, message).
     """
     out_png = src.with_suffix(".png")
     if out_png.exists():
         return src, True, "already exists"
 
+    # Each worker gets its own LibreOffice profile to avoid lock conflicts
+    profile_dir = Path(tempfile.gettempdir()) / f"lo_rasterize_worker_{worker_id}"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+
     try:
         result = subprocess.run(
             [
-                "soffice", "--headless", "--convert-to", "png",
+                "soffice",
+                f"-env:UserInstallation=file://{profile_dir}",
+                "--headless", "--convert-to", "png",
                 "--outdir", str(src.parent), str(src),
             ],
             capture_output=True,
@@ -128,7 +138,7 @@ def main() -> None:
 
     log.info(f"WMF/EMF files: {len(metafiles):,}")
     log.info(f"Already converted: {already_done:,}")
-    log.info(f"Need conversion: {to_convert:,}")
+    log.info(f"Need conversion: {len(to_convert):,}")
 
     if not to_convert:
         log.info("Nothing to do — all files already have PNGs.")
@@ -151,7 +161,11 @@ def main() -> None:
     t_start = time.time()
 
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        futures = {pool.submit(rasterize, mf, args.timeout): mf for mf in to_convert}
+        # Assign worker IDs based on thread identity for profile isolation
+        futures = {}
+        for i, mf in enumerate(to_convert):
+            worker_id = i % args.workers
+            futures[pool.submit(rasterize, mf, args.timeout, worker_id)] = mf
         for future in as_completed(futures):
             src, success, msg = future.result()
             if success:
