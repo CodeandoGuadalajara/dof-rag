@@ -10,23 +10,13 @@ The caption is optimized for RETRIEVAL (legal terms, article numbers,
 exact values). The original image is stored alongside for use at
 GENERATION time by the answer LLM.
 
-Backends
-────────
-  gemini  Google Gemini 2.5 Flash Lite  (~$1.56 per 98k images, standard)
-                                         (~$0.78 with Batch API, 24h latency)
-  mlx     Qwen3.5-9B via MLX-VLM        (free, local, ~80-135h for 98k images)
-
 Usage
 ─────
-  # Recommended: Gemini with concurrency (fast + cheap)
   export GEMINI_API_KEY="your-key"
-  python enrich_markdown_images.py --docs ./docs --backend gemini --workers 15
+  python enrich_markdown_images.py --docs ./docs --workers 15
 
   # Dry-run first to verify image discovery and context extraction:
-  python enrich_markdown_images.py --docs ./docs --backend gemini --dry-run
-
-  # Local MLX (private, no API cost, slower):
-  python enrich_markdown_images.py --docs ./docs --backend mlx
+  python enrich_markdown_images.py --docs ./docs --dry-run
 
 Output format per image
 ───────────────────────
@@ -41,7 +31,6 @@ Output format per image
 Install
 ───────
   pip install google-genai pillow
-  pip install mlx-vlm   # only if using --backend mlx
 
 Prerequisites
 ─────────────
@@ -87,7 +76,6 @@ log = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
-DEFAULT_MLX_MODEL = "mlx-community/Qwen3.5-9B-MLX-4bit"
 
 # Change to "gemini-2.5-flash" for higher quality (~$11 total vs ~$1.56)
 GEMINI_MODEL = "gemini-2.5-flash-lite"
@@ -268,46 +256,6 @@ def caption_gemini(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Backend: Qwen3.5-9B via MLX-VLM  (local, Apple Silicon)
-# ─────────────────────────────────────────────────────────────────────────────
-_mlx_model = None
-_mlx_processor = None
-_mlx_config = None
-
-
-def _load_mlx_model(model_name: str) -> None:
-    global _mlx_model, _mlx_processor, _mlx_config
-    if _mlx_model is not None:
-        return
-    log.info(f"Loading MLX model {model_name} (first run downloads weights)...")
-    from mlx_vlm import load
-    from mlx_vlm.utils import load_config
-    _mlx_config = load_config(model_name)
-    _mlx_model, _mlx_processor = load(model_name, processor_config={"trust_remote_code": True})
-    log.info("MLX model loaded.")
-
-
-def caption_mlx(img_path: Path, surrounding_text: str, model_name: str) -> str:
-    from mlx_vlm import generate
-    from mlx_vlm.prompt_utils import apply_chat_template
-
-    _load_mlx_model(model_name)
-
-    full_prompt = f"{SYSTEM_PROMPT}\n\n{build_user_prompt(surrounding_text)}"
-    formatted = apply_chat_template(
-        _mlx_processor, _mlx_config, full_prompt, num_images=1,
-    )
-    return generate(
-        _mlx_model, _mlx_processor,
-        image=str(img_path),
-        prompt=formatted,
-        max_tokens=512,
-        temperature=0.1,
-        verbose=False,
-    ).strip()
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Work item
 # ─────────────────────────────────────────────────────────────────────────────
 class ImageTask:
@@ -370,9 +318,7 @@ def collect_tasks(md_files: list[Path], docs_dir: Path) -> list[ImageTask]:
 def process_task(
     task: ImageTask,
     cache: DescriptionCache,
-    backend: str,
-    gemini_key: Optional[str],
-    mlx_model: str,
+    gemini_key: str,
 ) -> tuple[ImageTask, Optional[str]]:
 
     cached = cache.get(task.img_path)
@@ -381,10 +327,7 @@ def process_task(
 
     try:
         t0 = time.time()
-        if backend == "gemini":
-            desc = caption_gemini(task.img_path, task.surrounding_text, gemini_key)
-        else:
-            desc = caption_mlx(task.img_path, task.surrounding_text, mlx_model)
+        desc = caption_gemini(task.img_path, task.surrounding_text, gemini_key)
         log.debug(f"{task.img_path.name}: {time.time()-t0:.1f}s")
         cache.set(task.img_path, desc)
         return task, desc
@@ -442,15 +385,10 @@ def main() -> None:
     )
     parser.add_argument("--docs", required=True,
                         help="Folder containing .md files and images.")
-    parser.add_argument("--backend", choices=["gemini", "mlx"], default="gemini",
-                        help="VLM backend (default: gemini).")
     parser.add_argument("--workers", type=int, default=15,
-                        help="Concurrent workers for Gemini API calls (default: 15). "
-                             "Ignored for MLX (always single-threaded).")
+                        help="Concurrent API calls (default: 15).")
     parser.add_argument("--gemini-key", default=os.environ.get("GEMINI_API_KEY"),
                         help="Gemini API key. Alternatively set GEMINI_API_KEY env var.")
-    parser.add_argument("--mlx-model", default=DEFAULT_MLX_MODEL,
-                        help=f"MLX model HuggingFace repo (default: {DEFAULT_MLX_MODEL}).")
     parser.add_argument("--glob", default="**/*.md",
                         help="Glob pattern for markdown files (default: **/*.md).")
     parser.add_argument("--dry-run", action="store_true",
@@ -469,22 +407,12 @@ def main() -> None:
         sys.exit(f"ERROR: not a directory: {docs_dir}")
 
     # ── Validation ───────────────────────────────────────────────────────────
-    if args.backend == "gemini":
-        if not args.gemini_key:
-            sys.exit("ERROR: set GEMINI_API_KEY or pass --gemini-key.")
-        try:
-            from google import genai  # noqa: F401
-        except ImportError:
-            sys.exit("ERROR: pip install google-genai")
-
-    if args.backend == "mlx":
-        try:
-            import mlx_vlm  # noqa: F401
-        except ImportError:
-            sys.exit("ERROR: pip install mlx-vlm")
-        if args.workers > 1:
-            log.warning("MLX backend is single-threaded — ignoring --workers.")
-        args.workers = 1
+    if not args.gemini_key:
+        sys.exit("ERROR: set GEMINI_API_KEY or pass --gemini-key.")
+    try:
+        from google import genai  # noqa: F401
+    except ImportError:
+        sys.exit("ERROR: pip install google-genai")
 
     # ── Discover files ───────────────────────────────────────────────────────
     md_files = sorted(docs_dir.glob(args.glob))
@@ -528,9 +456,7 @@ def main() -> None:
     t_start = time.time()
 
     def _run(task: ImageTask) -> tuple[ImageTask, Optional[str]]:
-        return process_task(
-            task, cache, args.backend, args.gemini_key, args.mlx_model
-        )
+        return process_task(task, cache, args.gemini_key)
 
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {pool.submit(_run, t): t for t in tasks}
