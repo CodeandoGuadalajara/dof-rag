@@ -12,8 +12,11 @@ GENERATION time by the answer LLM.
 
 Usage
 ─────
-  export GEMINI_API_KEY="your-key"
+  export OPENROUTER_API_KEY="***"
   python enrich_markdown_images.py --docs ./docs --workers 15
+
+  # Try a different model:
+  python enrich_markdown_images.py --docs ./docs --model openai/gpt-4o-mini
 
   # Dry-run first to verify image discovery and context extraction:
   python enrich_markdown_images.py --docs ./docs --dry-run
@@ -30,26 +33,24 @@ Output format per image
 
 Install
 ───────
-  pip install google-genai pillow
+  pip install openai pillow
 
 Prerequisites
 ─────────────
   WMF/EMF metafiles should be pre-converted to PNG using rasterize_metafiles.py:
     python rasterize_metafiles.py --docs ./docs --workers 8
 
-Rate limits (Gemini paid tier, as of May 2026)
-───────────────────────────────────────────────
-  2.5 Flash Lite: 4000 RPM (paid tier)
-  Safe concurrency: --workers 15 (leaves headroom for retries)
-
-Cost estimate (98k images, ~800 input tokens + image, ~200 output tokens)
-──────────────────────────────────────────────────────────────────────────
-  Flash Lite standard: ~$1.56  (input $0.78 + output $0.78)
-  Flash Lite batch:    ~$0.78  (50% discount, async, 24h turnaround)
-  Both essentially free for a one-time indexing run.
+Recommended models (cost for ~98k images)
+──────────────────────────────────────────
+  google/gemini-2.5-flash-lite    ~$1.87   (fast, cheap, good enough)
+  google/gemini-2.5-flash         ~$2.80   (better OCR on dense tables)
+  openai/gpt-4o-mini              ~$2.34   (solid vision, good Spanish)
+  qwen/qwen2.5-vl-72b-instruct   ~$2.00   (strong multilingual)
+  anthropic/claude-haiku-3.5      ~$9.44   (best instruction following)
 """
 
 import argparse
+import base64
 import hashlib
 import json
 import logging
@@ -77,8 +78,8 @@ log = logging.getLogger(__name__)
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Change to "gemini-2.5-flash" for higher quality (~$11 total vs ~$1.56)
-GEMINI_MODEL = "gemini-2.5-flash-lite"
+DEFAULT_MODEL = "google/gemini-2.5-flash-lite"
+OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
 IMAGE_EXTENSIONS = {
     ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff", ".tif"
@@ -179,30 +180,33 @@ class DescriptionCache:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Backend: Gemini 2.5 Flash Lite  (official google-genai SDK)
+# Backend: OpenRouter (OpenAI-compatible API)
 # ─────────────────────────────────────────────────────────────────────────────
-_gemini_client = None
-_gemini_lock = Lock()
+_client = None
+_client_lock = Lock()
 
 
-def _get_gemini_client(api_key: str):
-    global _gemini_client
-    with _gemini_lock:
-        if _gemini_client is None:
-            from google import genai
-            _gemini_client = genai.Client(api_key=api_key)
-    return _gemini_client
+def _get_client(api_key: str):
+    global _client
+    with _client_lock:
+        if _client is None:
+            from openai import OpenAI
+            _client = OpenAI(base_url=OPENROUTER_BASE, api_key=api_key)
+    return _client
 
 
-def caption_gemini(
+def caption_image(
     img_path: Path,
     surrounding_text: str,
     api_key: str,
+    model: str,
     max_retries: int = 5,
 ) -> str:
-    from google.genai import types
+    client = _get_client(api_key)
+    user_text = build_user_prompt(surrounding_text)
 
-    client = _get_gemini_client(api_key)
+    with open(img_path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode()
 
     mime_map = {
         ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
@@ -210,41 +214,28 @@ def caption_gemini(
         ".tiff": "image/tiff", ".tif": "image/tiff",
     }
     mime_type = mime_map.get(img_path.suffix.lower(), "image/png")
-    user_text = build_user_prompt(surrounding_text)
-
-    with open(img_path, "rb") as f:
-        image_bytes = f.read()
+    data_url = f"data:{mime_type};base64,{b64}"
 
     for attempt in range(max_retries):
         try:
-            response = client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=[
-                    types.Content(
-                        role="user",
-                        parts=[
-                            types.Part(
-                                inline_data=types.Blob(
-                                    mime_type=mime_type,
-                                    data=image_bytes,
-                                )
-                            ),
-                            types.Part(text=user_text),
-                        ],
-                    )
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": [
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                        {"type": "text", "text": user_text},
+                    ]},
                 ],
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_PROMPT,
-                    max_output_tokens=512,
-                    temperature=0.1,
-                ),
+                max_tokens=512,
+                temperature=0.1,
             )
-            return response.text.strip()
+            return response.choices[0].message.content.strip()
 
         except Exception as e:
             err = str(e)
-            if "429" in err or "RESOURCE_EXHAUSTED" in err:
-                wait = (2 ** attempt) * 5  # 5, 10, 20, 40, 80 seconds
+            if "429" in err or "rate" in err.lower():
+                wait = (2 ** attempt) * 5
                 log.warning(f"Rate limited — waiting {wait}s (attempt {attempt+1}/{max_retries})")
                 time.sleep(wait)
             elif "500" in err or "503" in err:
@@ -252,7 +243,7 @@ def caption_gemini(
             else:
                 raise
 
-    raise RuntimeError(f"Gemini failed after {max_retries} retries for {img_path.name}")
+    raise RuntimeError(f"API failed after {max_retries} retries for {img_path.name}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -318,7 +309,8 @@ def collect_tasks(md_files: list[Path], docs_dir: Path) -> list[ImageTask]:
 def process_task(
     task: ImageTask,
     cache: DescriptionCache,
-    gemini_key: str,
+    api_key: str,
+    model: str,
 ) -> tuple[ImageTask, Optional[str]]:
 
     cached = cache.get(task.img_path)
@@ -327,7 +319,7 @@ def process_task(
 
     try:
         t0 = time.time()
-        desc = caption_gemini(task.img_path, task.surrounding_text, gemini_key)
+        desc = caption_image(task.img_path, task.surrounding_text, api_key, model)
         log.debug(f"{task.img_path.name}: {time.time()-t0:.1f}s")
         cache.set(task.img_path, desc)
         return task, desc
@@ -385,10 +377,12 @@ def main() -> None:
     )
     parser.add_argument("--docs", required=True,
                         help="Folder containing .md files and images.")
+    parser.add_argument("--model", default=DEFAULT_MODEL,
+                        help=f"OpenRouter model ID (default: {DEFAULT_MODEL}).")
     parser.add_argument("--workers", type=int, default=15,
                         help="Concurrent API calls (default: 15).")
-    parser.add_argument("--gemini-key", default=os.environ.get("GEMINI_API_KEY"),
-                        help="Gemini API key. Alternatively set GEMINI_API_KEY env var.")
+    parser.add_argument("--api-key", default=os.environ.get("OPENROUTER_API_KEY"),
+                        help="OpenRouter API key. Alternatively set OPENROUTER_API_KEY env var.")
     parser.add_argument("--glob", default="**/*.md",
                         help="Glob pattern for markdown files (default: **/*.md).")
     parser.add_argument("--dry-run", action="store_true",
@@ -407,12 +401,14 @@ def main() -> None:
         sys.exit(f"ERROR: not a directory: {docs_dir}")
 
     # ── Validation ───────────────────────────────────────────────────────────
-    if not args.gemini_key:
-        sys.exit("ERROR: set GEMINI_API_KEY or pass --gemini-key.")
+    if not args.api_key:
+        sys.exit("ERROR: set OPENROUTER_API_KEY or pass --api-key.")
     try:
-        from google import genai  # noqa: F401
+        from openai import OpenAI  # noqa: F401
     except ImportError:
-        sys.exit("ERROR: pip install google-genai")
+        sys.exit("ERROR: pip install openai")
+
+    log.info(f"Model: {args.model}")
 
     # ── Discover files ───────────────────────────────────────────────────────
     md_files = sorted(docs_dir.glob(args.glob))
@@ -456,7 +452,7 @@ def main() -> None:
     t_start = time.time()
 
     def _run(task: ImageTask) -> tuple[ImageTask, Optional[str]]:
-        return process_task(task, cache, args.gemini_key)
+        return process_task(task, cache, args.api_key, args.model)
 
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {pool.submit(_run, t): t for t in tasks}
