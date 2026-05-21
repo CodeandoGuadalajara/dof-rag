@@ -25,9 +25,9 @@ import json
 import os
 import random
 import re
+import sys
 import time
 from pathlib import Path
-from openai import OpenAI
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Configuration
@@ -96,8 +96,10 @@ def extract_surrounding_text(md_text: str, img_ref: str, before: int = 800, afte
     pos = md_text.find(f"]({img_ref})")
     if pos == -1:
         return ""
+    # match_end is the position right after the full ![alt](ref) syntax
+    match_end = pos + 2 + len(img_ref) + 1  # ](img_ref)
     start = max(0, pos - before)
-    end = min(len(md_text), pos + after)
+    end = min(len(md_text), match_end + after)
     snippet = md_text[start:end]
     snippet = IMAGE_RE.sub("", snippet)
     snippet = re.sub(r"\n{3,}", "\n\n", snippet).strip()
@@ -164,7 +166,7 @@ def discover_image_refs(dof_dir: Path, max_scan: int = 5000) -> list[dict]:
 # API call
 # ─────────────────────────────────────────────────────────────────────────────
 
-def caption_image(client: OpenAI, img_path: Path, context: str, model: str) -> dict:
+def caption_image(client, img_path: Path, context: str, model: str) -> dict:
     user_text = build_user_prompt(context)
 
     with open(img_path, "rb") as f:
@@ -229,6 +231,11 @@ def main():
     if not OPENROUTER_API_KEY:
         print("ERROR: set OPENROUTER_API_KEY")
         return
+
+    try:
+        from openai import OpenAI  # noqa: F401
+    except ImportError:
+        sys.exit("ERROR: pip install openai")
 
     random.seed(args.seed)
     client = OpenAI(base_url=OPENROUTER_BASE, api_key=OPENROUTER_API_KEY)

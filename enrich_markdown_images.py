@@ -33,7 +33,7 @@ Output format per image
 
 Install
 ───────
-  pip install openai pillow
+  pip install openai
 
 Prerequisites
 ─────────────
@@ -49,8 +49,6 @@ Recommended models (cost for ~97k images, tested with prompt v3)
 
 import argparse
 import base64
-import hashlib
-import json
 import logging
 import os
 import re
@@ -60,7 +58,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from threading import Lock
-from typing import Optional
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging
@@ -132,52 +129,15 @@ def build_user_prompt(surrounding_text: str = "") -> str:
 # Context extraction
 # ─────────────────────────────────────────────────────────────────────────────
 def extract_surrounding_text(
-    md_text: str, match_pos: int, before: int = 800, after: int = 200
+    md_text: str, match_start: int, match_end: int, before: int = 800, after: int = 200
 ) -> str:
     """Grab text around an image reference, stripping other image tags."""
-    start = max(0, match_pos - before)
-    end = min(len(md_text), match_pos + after)
+    start = max(0, match_start - before)
+    end = min(len(md_text), match_end + after)
     snippet = md_text[start:end]
     snippet = IMAGE_RE.sub("", snippet)
     snippet = re.sub(r"\n{3,}", "\n\n", snippet).strip()
     return snippet
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Cache — SHA-256 keyed, thread-safe
-# ─────────────────────────────────────────────────────────────────────────────
-class DescriptionCache:
-    def __init__(self, path: Path):
-        self.path = path
-        self._lock = Lock()
-        self._data: dict[str, str] = (
-            json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-        )
-
-    @staticmethod
-    def hash_file(img_path: Path) -> str:
-        h = hashlib.sha256()
-        with open(img_path, "rb") as f:
-            for chunk in iter(lambda: f.read(65536), b""):
-                h.update(chunk)
-        return h.hexdigest()[:32]
-
-    def get(self, content_hash: str) -> Optional[str]:
-        with self._lock:
-            return self._data.get(content_hash)
-
-    def set(self, content_hash: str, description: str) -> None:
-        with self._lock:
-            self._data[content_hash] = description
-
-    def save(self) -> None:
-        with self._lock:
-            self.path.write_text(
-                json.dumps(self._data, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-
-    def __len__(self) -> int:
-        return len(self._data)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -256,16 +216,15 @@ def caption_image(
 # Work item
 # ─────────────────────────────────────────────────────────────────────────────
 class ImageTask:
-    __slots__ = ("md_path", "img_ref", "img_path", "surrounding_text", "full_match", "alt_text", "content_hash")
+    __slots__ = ("md_path", "img_ref", "img_path", "surrounding_text", "full_match", "alt_text")
 
-    def __init__(self, md_path, img_ref, img_path, surrounding_text, full_match, alt_text, content_hash):
+    def __init__(self, md_path, img_ref, img_path, surrounding_text, full_match, alt_text):
         self.md_path = md_path
         self.img_ref = img_ref
         self.img_path = img_path
         self.surrounding_text = surrounding_text
         self.full_match = full_match
         self.alt_text = alt_text
-        self.content_hash = content_hash
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -304,10 +263,9 @@ def collect_tasks(md_files: list[Path], docs_dir: Path) -> list[ImageTask]:
                 log.warning(f"Skipping image outside docs_dir: {img_ref}")
                 continue
 
-            surrounding = extract_surrounding_text(text, pos)
-            content_hash = DescriptionCache.hash_file(img_path)
+            surrounding = extract_surrounding_text(text, m.start(), m.end())
             tasks.append(
-                ImageTask(md_path, img_ref, img_path, surrounding, full_match, alt_text, content_hash)
+                ImageTask(md_path, img_ref, img_path, surrounding, full_match, alt_text)
             )
 
     if skipped_done:
@@ -323,31 +281,25 @@ def collect_tasks(md_files: list[Path], docs_dir: Path) -> list[ImageTask]:
 # ─────────────────────────────────────────────────────────────────────────────
 def process_task(
     task: ImageTask,
-    cache: DescriptionCache,
     api_key: str,
     model: str,
-) -> tuple[ImageTask, Optional[str], bool]:
-
-    cached = cache.get(task.content_hash)
-    if cached:
-        return task, cached, True
+) -> tuple[ImageTask, str | None]:
 
     try:
         t0 = time.time()
         desc = caption_image(task.img_path, task.surrounding_text, api_key, model)
         log.debug(f"{task.img_path.name}: {time.time()-t0:.1f}s")
-        cache.set(task.content_hash, desc)
-        return task, desc, False
+        return task, desc
     except Exception as e:
         log.error(f"FAILED {task.img_path.name}: {e}")
-        return task, None, False
+        return task, None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Apply descriptions back to markdown files (one write per file)
 # ─────────────────────────────────────────────────────────────────────────────
 def apply_descriptions(
-    results: list[tuple[ImageTask, Optional[str]]], dry_run: bool
+    results: list[tuple[ImageTask, str | None]], dry_run: bool
 ) -> int:
     from collections import defaultdict
     by_file: dict[Path, list[tuple[ImageTask, str]]] = defaultdict(list)
@@ -402,8 +354,8 @@ def main() -> None:
                         help="Glob pattern for markdown files (default: **/*.md).")
     parser.add_argument("--dry-run", action="store_true",
                         help="Discover and report tasks without calling APIs or writing files.")
-    parser.add_argument("--save-every", type=int, default=100,
-                        help="Save cache to disk every N processed images (default: 100).")
+    parser.add_argument("--progress-every", type=int, default=100,
+                        help="Log progress every N processed images (default: 100).")
     parser.add_argument("--verbose", action="store_true",
                         help="Show per-image timing in logs.")
     args = parser.parse_args()
@@ -431,9 +383,6 @@ def main() -> None:
         sys.exit(f"No markdown files found with '{args.glob}' in {docs_dir}")
     log.info(f"Markdown files: {len(md_files):,}")
 
-    cache = DescriptionCache(docs_dir / ".image_caption_cache.json")
-    log.info(f"Cache: {len(cache):,} existing entries.")
-
     log.info("Scanning for image references...")
     tasks = collect_tasks(md_files, docs_dir)
     log.info(f"Images to caption: {len(tasks):,}")
@@ -460,31 +409,27 @@ def main() -> None:
         return
 
     # ── Process ──────────────────────────────────────────────────────────────
-    results: list[tuple[ImageTask, Optional[str]]] = []
+    results: list[tuple[ImageTask, str | None]] = []
     done_count = 0
     error_count = 0
-    cached_count = 0
     t_start = time.time()
 
-    def _run(task: ImageTask) -> tuple[ImageTask, Optional[str], bool]:
-        return process_task(task, cache, args.api_key, args.model)
+    def _run(task: ImageTask) -> tuple[ImageTask, str | None]:
+        return process_task(task, args.api_key, args.model)
 
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {pool.submit(_run, t): t for t in tasks}
         for future in as_completed(futures):
-            task, desc, was_cached = future.result()
+            task, desc = future.result()
             results.append((task, desc))
 
             if desc is None:
                 error_count += 1
-            elif was_cached:
-                cached_count += 1
             else:
                 done_count += 1
 
-            total_done = done_count + error_count + cached_count
-            if total_done % args.save_every == 0:
-                cache.save()
+            total_done = done_count + error_count
+            if total_done % args.progress_every == 0:
                 elapsed = time.time() - t_start
                 rate = total_done / elapsed if elapsed > 0 else 0
                 remaining = (len(tasks) - total_done) / rate if rate > 0 else 0
@@ -497,14 +442,12 @@ def main() -> None:
     # ── Write ────────────────────────────────────────────────────────────────
     log.info("Writing enriched markdown files...")
     written = apply_descriptions(results, dry_run=False)
-    cache.save()
 
     elapsed = time.time() - t_start
     log.info(
         f"\n✅ Done in {elapsed/60:.1f} min — "
         f"{written:,} images captioned | "
-        f"{error_count} errors | "
-        f"cache: {docs_dir / '.image_caption_cache.json'}"
+        f"{error_count} errors"
     )
 
 
