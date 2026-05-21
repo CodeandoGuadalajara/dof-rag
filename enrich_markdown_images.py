@@ -40,13 +40,11 @@ Prerequisites
   WMF/EMF metafiles should be pre-converted to PNG using rasterize_metafiles.py:
     python rasterize_metafiles.py --docs ./docs --workers 8
 
-Recommended models (cost for ~98k images)
-──────────────────────────────────────────
-  google/gemini-2.5-flash-lite    ~$1.87   (fast, cheap, good enough)
-  google/gemini-2.5-flash         ~$2.80   (better OCR on dense tables)
-  openai/gpt-4o-mini              ~$2.34   (solid vision, good Spanish)
-  qwen/qwen2.5-vl-72b-instruct   ~$2.00   (strong multilingual)
-  anthropic/claude-haiku-3.5      ~$9.44   (best instruction following)
+Recommended models (cost for ~97k images, tested with prompt v3)
+──────────────────────────────────────────────────────────────────
+  google/gemini-2.5-flash-lite    ~$41     (tested: 100% success, 2.3s/img)
+  google/gemini-2.5-flash         ~$62     (better OCR on dense tables)
+  openai/gpt-4o-mini              ~$52     (solid vision, good Spanish)
 """
 
 import argparse
@@ -90,27 +88,32 @@ IMAGE_RE = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
 # Prompt — retrieval-optimized, context-aware
 # ─────────────────────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = (
-    "Eres un sistema de indexacion para un motor RAG (Retrieval Augmented Generation) "
-    "sobre documentos legales mexicanos en espanol.\n\n"
-    "Tu unica tarea es generar una descripcion de imagenes optimizada para busqueda semantica. "
-    "La imagen original estara disponible en la fase de generacion de respuestas, "
-    "por lo que NO debes describir aspectos visuales como colores, bordes o diseno grafico.\n\n"
-    "Genera una descripcion que incluya obligatoriamente:\n"
-    "1. TIPO: Indica si es tabla, diagrama, grafica, mapa, organigrama, figura, fotografia, etc.\n"
-    "2. IDENTIFICADORES LEGALES: Numero de articulo, fraccion, inciso, nombre del reglamento, "
-    "decreto, ley, norma oficial mexicana (NOM), DOF, fecha o cualquier referencia legal "
-    "que aparezca en la imagen o se infiera del contexto del documento.\n"
-    "3. CONTENIDO LITERAL: Todos los valores numericos, rangos, categorias, claves, "
-    "abreviaturas y terminos tecnicos exactamente como aparecen "
-    "(ej. UMAS, VSM, UMA, categoria I-V, puntajes, montos, porcentajes, plazos).\n"
-    "4. VOCABULARIO DE BUSQUEDA: Los terminos legales y tecnicos en espanol que un abogado, "
-    "funcionario publico, notario o investigador usaria al buscar este contenido especifico.\n\n"
-    "NO incluyas:\n"
-    "- Descripciones visuales (colores, fuentes, bordes, sombreado, diseno)\n"
-    "- Frases introductorias como 'Esta imagen muestra...' o 'La tabla presenta...'\n"
-    "- Comillas, markdown, listas con guiones, o cualquier formato especial\n"
-    "- Repeticion innecesaria\n\n"
-    "Responde UNICAMENTE con la descripcion en texto corrido, en espanol, entre 4 y 8 oraciones."
+    "Eres un sistema de indexación para un motor RAG sobre documentos legales "
+    "mexicanos (Diario Oficial de la Federación).\n\n"
+    "Tu tarea es generar una descripción de esta imagen optimizada para búsqueda "
+    "semántica. La imagen original estará disponible al generar la respuesta final, "
+    "así que no describas aspectos visuales como colores, bordes o diseño.\n\n"
+    "Si el contexto del documento incluye el título o caption de la figura "
+    "(por ejemplo \"FIGURA 1 Flexómetro\"), úsalo como punto de partida — tiene "
+    "más peso que tu interpretación visual.\n\n"
+    "Si la imagen es ambigua o de baja resolución, infiere el contenido a partir "
+    "del contexto del documento.\n\n"
+    "Si el contexto del documento no parece relacionado con el contenido visual "
+    "de la imagen, prioriza lo que ves en la imagen sobre el contexto.\n\n"
+    "Escribe un párrafo continuo en español de 4 a 6 oraciones que incluya:\n"
+    "- El tipo de imagen (tabla, diagrama, gráfica, mapa, logotipo, formato "
+    "administrativo, etc.)\n"
+    "- Los identificadores legales que aparezcan en la imagen o se infieran del "
+    "contexto: número de artículo, fracción, NOM, decreto, ley, DOF, fecha, "
+    "nombre de dependencia\n"
+    "- Si no hay identificadores legales no menciones ninguno\n"
+    "- Todo el contenido literal relevante: valores numéricos, rangos, categorías, "
+    "claves, abreviaturas, nombres propios exactamente como aparecen\n"
+    "- Los términos que un abogado, funcionario o investigador usaría para buscar "
+    "este contenido\n\n"
+    "No listes elementos que ya aparecen en el texto circundante del documento.\n\n"
+    "No uses encabezados, etiquetas (TIPO:, CONTENIDO LITERAL:), viñetas, "
+    "comillas ni markdown. Solo texto corrido."
 )
 
 
@@ -128,14 +131,11 @@ def build_user_prompt(surrounding_text: str = "") -> str:
 # Context extraction
 # ─────────────────────────────────────────────────────────────────────────────
 def extract_surrounding_text(
-    md_text: str, img_ref: str, before: int = 800, after: int = 200
+    md_text: str, match_pos: int, before: int = 800, after: int = 200
 ) -> str:
     """Grab text around an image reference, stripping other image tags."""
-    pos = md_text.find(f"]({img_ref})")
-    if pos == -1:
-        return ""
-    start = max(0, pos - before)
-    end = min(len(md_text), pos + after)
+    start = max(0, match_pos - before)
+    end = min(len(md_text), match_pos + after)
     snippet = md_text[start:end]
     snippet = IMAGE_RE.sub("", snippet)
     snippet = re.sub(r"\n{3,}", "\n\n", snippet).strip()
@@ -154,20 +154,20 @@ class DescriptionCache:
         )
 
     @staticmethod
-    def _hash(img_path: Path) -> str:
+    def hash_file(img_path: Path) -> str:
         h = hashlib.sha256()
         with open(img_path, "rb") as f:
             for chunk in iter(lambda: f.read(65536), b""):
                 h.update(chunk)
-        return h.hexdigest()[:20]
+        return h.hexdigest()[:32]
 
-    def get(self, img_path: Path) -> Optional[str]:
+    def get(self, content_hash: str) -> Optional[str]:
         with self._lock:
-            return self._data.get(self._hash(img_path))
+            return self._data.get(content_hash)
 
-    def set(self, img_path: Path, description: str) -> None:
+    def set(self, content_hash: str, description: str) -> None:
         with self._lock:
-            self._data[self._hash(img_path)] = description
+            self._data[content_hash] = description
 
     def save(self) -> None:
         with self._lock:
@@ -230,6 +230,11 @@ def caption_image(
                 max_tokens=512,
                 temperature=0.1,
             )
+            if not response.choices or not response.choices[0].message.content:
+                raise RuntimeError(
+                    f"Empty response from {model} for {img_path.name} — "
+                    f"choices={len(response.choices) if response.choices else 0}"
+                )
             return response.choices[0].message.content.strip()
 
         except Exception as e:
@@ -250,15 +255,16 @@ def caption_image(
 # Work item
 # ─────────────────────────────────────────────────────────────────────────────
 class ImageTask:
-    __slots__ = ("md_path", "img_ref", "img_path", "surrounding_text", "full_match", "alt_text")
+    __slots__ = ("md_path", "img_ref", "img_path", "surrounding_text", "full_match", "alt_text", "content_hash")
 
-    def __init__(self, md_path, img_ref, img_path, surrounding_text, full_match, alt_text):
+    def __init__(self, md_path, img_ref, img_path, surrounding_text, full_match, alt_text, content_hash):
         self.md_path = md_path
         self.img_ref = img_ref
         self.img_path = img_path
         self.surrounding_text = surrounding_text
         self.full_match = full_match
         self.alt_text = alt_text
+        self.content_hash = content_hash
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -279,7 +285,7 @@ def collect_tasks(md_files: list[Path], docs_dir: Path) -> list[ImageTask]:
             if img_ref.startswith(("http://", "https://")):
                 continue
 
-            pos = text.find(full_match)
+            pos = m.start()
             preceding = text[max(0, pos - 250):pos]
             if "IMAGE_DESCRIPTION:" in preceding:
                 skipped_done += 1
@@ -290,9 +296,17 @@ def collect_tasks(md_files: list[Path], docs_dir: Path) -> list[ImageTask]:
                 skipped_missing += 1
                 continue
 
-            surrounding = extract_surrounding_text(text, img_ref)
+            # Reject paths outside docs_dir (path traversal safety)
+            try:
+                img_path.relative_to(docs_dir)
+            except ValueError:
+                log.warning(f"Skipping image outside docs_dir: {img_ref}")
+                continue
+
+            surrounding = extract_surrounding_text(text, pos)
+            content_hash = DescriptionCache.hash_file(img_path)
             tasks.append(
-                ImageTask(md_path, img_ref, img_path, surrounding, full_match, alt_text)
+                ImageTask(md_path, img_ref, img_path, surrounding, full_match, alt_text, content_hash)
             )
 
     if skipped_done:
@@ -311,21 +325,21 @@ def process_task(
     cache: DescriptionCache,
     api_key: str,
     model: str,
-) -> tuple[ImageTask, Optional[str]]:
+) -> tuple[ImageTask, Optional[str], bool]:
 
-    cached = cache.get(task.img_path)
+    cached = cache.get(task.content_hash)
     if cached:
-        return task, cached
+        return task, cached, True
 
     try:
         t0 = time.time()
         desc = caption_image(task.img_path, task.surrounding_text, api_key, model)
         log.debug(f"{task.img_path.name}: {time.time()-t0:.1f}s")
-        cache.set(task.img_path, desc)
-        return task, desc
+        cache.set(task.content_hash, desc)
+        return task, desc, False
     except Exception as e:
         log.error(f"FAILED {task.img_path.name}: {e}")
-        return task, None
+        return task, None, False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -436,9 +450,9 @@ def main() -> None:
             log.info(f"  {rel}  |  ctx: {ctx_preview!r}...")
         if len(tasks) > 20:
             log.info(f"  ...and {len(tasks) - 20:,} more.")
-        # Rough cost estimate
-        est_input_tok = len(tasks) * 800
-        est_output_tok = len(tasks) * 200
+        # Rough cost estimate based on batch-100 results
+        est_input_tok = len(tasks) * 2144
+        est_output_tok = len(tasks) * 171
         est_cost = est_input_tok * 0.10 / 1e6 + est_output_tok * 0.40 / 1e6
         log.info(f"[DRY-RUN] Estimated cost (Flash Lite): ${est_cost:.2f}")
         log.info("[DRY-RUN] No API calls made, no files written.")
@@ -451,18 +465,18 @@ def main() -> None:
     cached_count = 0
     t_start = time.time()
 
-    def _run(task: ImageTask) -> tuple[ImageTask, Optional[str]]:
+    def _run(task: ImageTask) -> tuple[ImageTask, Optional[str], bool]:
         return process_task(task, cache, args.api_key, args.model)
 
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {pool.submit(_run, t): t for t in tasks}
         for future in as_completed(futures):
-            task, desc = future.result()
+            task, desc, was_cached = future.result()
             results.append((task, desc))
 
             if desc is None:
                 error_count += 1
-            elif cache.get(task.img_path) == desc and done_count == 0:
+            elif was_cached:
                 cached_count += 1
             else:
                 done_count += 1
