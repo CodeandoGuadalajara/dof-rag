@@ -37,7 +37,7 @@ OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
 DEFAULT_MODEL = "google/gemini-2.5-flash-lite"
-DOF_MD_DIR = Path(__file__).parent / "dof_md"
+DOF_MD_DIR = (Path(__file__).parent / "dof_md").resolve()
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 IMAGE_RE = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
@@ -195,6 +195,15 @@ def caption_image(client, img_path: Path, context: str, model: str) -> dict:
         )
         elapsed = time.time() - t0
         usage = response.usage
+        if not response.choices or not response.choices[0].message.content:
+            return {
+                "text": None,
+                "time": round(elapsed, 1),
+                "model": model,
+                "error": f"Empty response — choices={len(response.choices) if response.choices else 0}",
+                "input_tokens": usage.prompt_tokens if usage else None,
+                "output_tokens": usage.completion_tokens if usage else None,
+            }
         return {
             "text": response.choices[0].message.content.strip(),
             "time": round(elapsed, 1),
@@ -229,8 +238,10 @@ def main():
     args = parser.parse_args()
 
     if not OPENROUTER_API_KEY:
-        print("ERROR: set OPENROUTER_API_KEY")
-        return
+        sys.exit("ERROR: set OPENROUTER_API_KEY")
+
+    if not DOF_MD_DIR.is_dir():
+        sys.exit(f"ERROR: DOF markdown directory not found: {DOF_MD_DIR}")
 
     try:
         from openai import OpenAI  # noqa: F401

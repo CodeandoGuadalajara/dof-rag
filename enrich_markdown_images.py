@@ -76,6 +76,12 @@ log = logging.getLogger(__name__)
 DEFAULT_MODEL = "google/gemini-2.5-flash-lite"
 OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
+# Cost estimate constants (from vlm_batch_100 run, Gemini Flash Lite pricing)
+COST_AVG_INPUT_TOKENS = 2144
+COST_AVG_OUTPUT_TOKENS = 171
+COST_INPUT_PER_M = 0.10   # $/M tokens
+COST_OUTPUT_PER_M = 0.40  # $/M tokens
+
 IMAGE_EXTENSIONS = {
     ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff", ".tif"
 }
@@ -401,9 +407,9 @@ def main() -> None:
         if len(tasks) > 20:
             log.info(f"  ...and {len(tasks) - 20:,} more.")
         # Rough cost estimate based on batch-100 results
-        est_input_tok = len(tasks) * 2144
-        est_output_tok = len(tasks) * 171
-        est_cost = est_input_tok * 0.10 / 1e6 + est_output_tok * 0.40 / 1e6
+        est_input_tok = len(tasks) * COST_AVG_INPUT_TOKENS
+        est_output_tok = len(tasks) * COST_AVG_OUTPUT_TOKENS
+        est_cost = est_input_tok * COST_INPUT_PER_M / 1e6 + est_output_tok * COST_OUTPUT_PER_M / 1e6
         log.info(f"[DRY-RUN] Estimated cost (Flash Lite): ${est_cost:.2f}")
         log.info("[DRY-RUN] No API calls made, no files written.")
         return
