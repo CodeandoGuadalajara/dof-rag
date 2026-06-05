@@ -142,6 +142,44 @@ python extract_embeddings.py dof_markdown/2024/04/
 
 Puedes especificar la carpeta de un solo archivo, o la carpeta de un mes, o incluso la carpeta de un año.
 
+## RAG PoC — Búsqueda híbrida con sqlite-vec + FTS5 (local ONNX)
+
+En `rag_poc/` hay una prueba de concepto de motor RAG para el DOF usando:
+
+- **Embeddings:** `pplx-embed-context-v1-0.6b` (Perplexity) corriendo localmente via ONNX Runtime — late chunking contextual
+- **Vector search:** `sqlite-vec` — KNN en SQLite con virtual tables
+- **Full-text search:** SQLite FTS5
+- **Ranking híbrido:** Reciprocal Rank Fusion (RRF) sobre resultados vectoriales + texto
+
+### Uso rápido
+
+```bash
+# Primera ejecución descarga el modelo ONNX (~1.2 GB) automáticamente
+
+# Indexar un directorio de markdown
+python -m rag_poc.cli index ./dof_md/2020/01/15012020/MAT
+
+# Buscar
+python -m rag_poc.cli search "subsidio federal articulo 47 vivienda"
+
+# Ver estadísticas
+python -m rag_poc.cli stats
+```
+
+### Chunking inteligente por patrón
+
+El chunker clasifica cada documento en 5 patrones antes de dividir:
+
+| Patrón | Trigger | Estrategia |
+|---|---|---|
+| `small` | < 10 KB | Un solo chunk |
+| `h2_compound` | ≥2 H2 headings | Cada H2 = chunk atómico; si no cabe, partir por H3 |
+| `bold_headers` | ≥2 líneas en negritas | Las negritas son metadato; split por párrafos |
+| `plain_text` | Sin estructura | Split por párrafos con overlap |
+| `giant_table` | >40% líneas son tabla | Cada tabla markdown = chunk; repetir header de columnas |
+
+Ver `rag_poc/README.md` para detalles de arquitectura y late chunking.
+
 ## Estructura del proyecto
 
 ```
@@ -150,7 +188,14 @@ Puedes especificar la carpeta de un solo archivo, o la carpeta de un mes, o incl
 ├── get_word_dof.py         # Descarga archivos Word (.doc) del DOF (1999+)
 ├── convert_doc_to_md.py    # Convierte .doc → .md (pipeline individual)
 ├── extract_markdown.py     # Extrae texto de PDFs escaneados con Gemini (pre-1999)
-├── extract_embeddings.py   # Extrae embeddings para RAG
+├── extract_embeddings.py   # Extrae embeddings para RAG (pipeline anterior)
+├── rag_poc/                # PoC de RAG híbrido (sqlite-vec + FTS5 + pplx-embed)
+│   ├── cli.py              # CLI: index / search / stats
+│   ├── chunker.py          # Chunking por patrón
+│   ├── embedder.py         # Cliente de embeddings
+│   ├── database.py         # SQLite + sqlite-vec + FTS5
+│   ├── search.py           # Búsqueda híbrida con RRF
+│   └── README.md           # Documentación del PoC
 ├── ai_agent.ipynb          # Notebook del agente de consulta
 ├── pandoc_filters/         # Filtros Lua para pandoc
 ├── modules_captions/       # Módulo de descripción de imágenes
