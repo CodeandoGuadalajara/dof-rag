@@ -50,16 +50,26 @@ _IMAGE_DESC_RE = re.compile(
 )
 
 
-# ── Token approximation (Spanish legal: ~3.5 chars / token) ──────────────
-# TODO: Replace with the model's real tokenizer for accurate limits.
-# This heuristic under-counts markdown tables heavily: a 5 KB table
-# with many |, spaces and - may report ~480 tokens while the real
-# count is ~1,500.  That causes _flush_table to skip splitting tables
-# that exceed MAX_TOKENS, producing oversized chunks.
-# For the PoC this is acceptable; production should use
-# tokenizer.encode(text, add_special_tokens=False) or similar.
+# ── Token counter (lazy-loaded real tokenizer) ────────────────────────────
+_tokenizer = None
+
+
 def _count_tokens(text: str) -> int:
-    return max(1, len(text) // 3)
+    """Return token count using the model's real tokenizer if available."""
+    global _tokenizer
+    if _tokenizer is None:
+        try:
+            from transformers import AutoTokenizer
+
+            _tokenizer = AutoTokenizer.from_pretrained(
+                "perplexity-ai/pplx-embed-context-v1-0.6b",
+                trust_remote_code=True,
+            )
+        except Exception:
+            # If tokenizer is not available (e.g. transformers not installed),
+            # fall back to a conservative heuristic.
+            return max(1, len(text) // 3)
+    return len(_tokenizer.encode(text, add_special_tokens=False))
 
 
 # ── Classifier ───────────────────────────────────────────────────────────
@@ -147,6 +157,23 @@ def _split_h2_compound(text: str, doc_id: str, pattern: DocPattern) -> list[Chun
         else:
             # Partir por H3 dentro del H2
             sub_sections = _split_by_heading(content, H3_RE)
+            # If there are no real H3 headings, split the whole section directly
+            if len(sub_sections) == 1 and sub_sections[0][0] == "":
+                sub_content = BOILERPLATE_H.sub("", sub_sections[0][1])
+                if sub_content.strip():
+                    parts = _split_by_tokens(sub_content, MAX_TOKENS, OVERLAP_TOKENS)
+                    for part in parts:
+                        chunks.append(
+                            Chunk(
+                                text=f"## {heading}\n\n{part}",
+                                heading_path=[heading],
+                                chunk_index=len(chunks),
+                                pattern=pattern,
+                                has_image=bool(IMAGE_RE.search(part)),
+                            )
+                        )
+                continue
+
             for sub_heading, sub_content in sub_sections:
                 sub_content = BOILERPLATE_H.sub("", sub_content)
                 if not sub_content.strip():
@@ -206,43 +233,55 @@ def _split_plain(text: str, doc_id: str, pattern: DocPattern) -> list[Chunk]:
 
 # ── Strategy: GIANT_TABLE ──────────────────────────────────────────────
 def _split_giant_table(text: str, doc_id: str, pattern: DocPattern) -> list[Chunk]:
+    """Split a table-heavy document preserving both tables and non-table text."""
     chunks: list[Chunk] = []
     current_heading: list[str] = []
-    current_text: list[str] = []
-    in_table = False
+
+    table_buffer: list[str] = []
+    text_buffer: list[str] = []
+
+    def _flush_table_buffer() -> None:
+        if table_buffer:
+            chunks.extend(
+                _flush_table(
+                    "".join(table_buffer), doc_id, current_heading, pattern
+                )
+            )
+            table_buffer.clear()
+
+    def _flush_text_buffer() -> None:
+        if text_buffer:
+            txt = "".join(text_buffer).strip()
+            if txt:
+                for part in _split_by_tokens(txt, MAX_TOKENS, OVERLAP_TOKENS):
+                    chunks.append(
+                        Chunk(
+                            text=part,
+                            heading_path=list(current_heading),
+                            chunk_index=len(chunks),
+                            pattern=pattern,
+                            has_image=bool(IMAGE_RE.search(part)),
+                        )
+                    )
+            text_buffer.clear()
 
     for line in text.splitlines(keepends=True):
         is_table_line = line.startswith("|")
         is_heading = re.match(r"^#{1,6} ", line)
 
         if is_heading and not BOILERPLATE_H.match(line):
-            if in_table and current_text:
-                chunks.extend(
-                    _flush_table(
-                        "".join(current_text), doc_id, current_heading, pattern
-                    )
-                )
-                current_text = []
+            _flush_table_buffer()
+            _flush_text_buffer()
             current_heading = [line.strip().lstrip("#").strip()]
-            in_table = False
         elif is_table_line:
-            in_table = True
-            current_text.append(line)
+            _flush_text_buffer()
+            table_buffer.append(line)
         else:
-            if in_table and current_text:
-                chunks.extend(
-                    _flush_table(
-                        "".join(current_text), doc_id, current_heading, pattern
-                    )
-                )
-                current_text = []
-                in_table = False
-    if current_text:
-        chunks.extend(
-            _flush_table(
-                "".join(current_text), doc_id, current_heading, pattern
-            )
-        )
+            _flush_table_buffer()
+            text_buffer.append(line)
+
+    _flush_table_buffer()
+    _flush_text_buffer()
 
     # Deduplicate chunk_index after all flushes
     for i, ch in enumerate(chunks):
@@ -270,7 +309,12 @@ def _split_by_heading(text: str, heading_re: re.Pattern) -> list[tuple[str, str]
     result = []
     for i, (pos, heading) in enumerate(positions):
         end = positions[i + 1][0] if i + 1 < len(positions) else len(text)
-        nl_pos = text.index("\n", pos) + 1
+        # Safe newline search: handle heading at EOF without trailing \n
+        nl_pos = text.find("\n", pos)
+        if nl_pos == -1:
+            nl_pos = len(text)
+        else:
+            nl_pos += 1
         result.append((heading, text[nl_pos:end]))
     return result
 
