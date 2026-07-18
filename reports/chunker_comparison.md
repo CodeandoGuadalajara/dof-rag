@@ -7,8 +7,9 @@ Límite de tokens por chunk: **800**
 
 | Chunker | Archivos | Errores | Chunks total | Chunks/archivo (med) | Tiempo (s) | Chunks/s |
 |---|---|---|---|---|---|---|
-| Custom | 1,000 | 0 | 26,636 | 2.0 | 27.56 | 966.4 |
-| Chonkie Recursive | 1,000 | 0 | 7,157 | 2.0 | 20.12 | 355.8 |
+| Custom | 1,000 | 0 | 26,636 | 2.0 | 27.39 | 972.5 |
+| Chonkie Recursive | 1,000 | 0 | 7,157 | 2.0 | 20.31 | 352.4 |
+| Chonkie H2 | 1,000 | 0 | 7,028 | 2.0 | 25.37 | 277.0 |
 
 ## Tokens por chunk
 
@@ -16,6 +17,7 @@ Límite de tokens por chunk: **800**
 |---|---|---|---|---|---|
 | Custom | 165.0 | 36.0 | 775.0 | 853 | 0 (0.0%) |
 | Chonkie Recursive | 601.9 | 707.0 | 796.0 | 800 | 0 (0.0%) |
+| Chonkie H2 | 615.0 | 702.0 | 798.0 | 7,895 | 47 (4.7%) |
 
 ## Distribución de patrones (chunker custom)
 
@@ -30,11 +32,13 @@ Límite de tokens por chunk: **800**
 ## Observaciones
 
 - El chunker custom clasifica el documento antes de dividir; Chonkie RecursiveChunker aplica una regla markdown genérica.
-- El contador de tokens es el mismo para ambos (tokenizer de `pplx-embed-context-v1-0.6b`) para hacer la comparación justa.
+- Chonkie H2 usa H2 como delimitador principal, lo que lo hace más comparable con el custom en documentos compuestos.
+- El contador de tokens es el mismo para los tres (tokenizer de `pplx-embed-context-v1-0.6b`) para hacer la comparación justa.
 - Chonkie también ofrece `TableChunker` para documentos dominados por tablas; no se incluyó en esta comparación.
 
 ## Conclusión provisional
 
 - **Custom**: chunks más pequeños y granulares (mediana 36 tokens), 0 archivos con chunks que exceden el límite. Máximo observado: 853 tokens.
 - **Chonkie Recursive**: chunks más grandes (mediana 707 tokens), máx 800, 0 errores.
-- El custom es más adecuado para el DOF porque respeta la estructura documental (H2s, tablas, negritas) y produce chunks más recuperables; Chonkie es una buena línea base genérica pero no distingue patrones del DOF.
+- **Chonkie H2**: con H2 como delimitador principal genera 7,028 chunks (mediana 702 tokens), pero 47 archivos (4.7%) producen chunks que exceden el límite; máximo observado: 7,895 tokens. Esto pasa cuando una sección H2 es un párrafo o tabla gigante sin sub-delimitadores.
+- El custom es más adecuado para el DOF porque respeta la estructura documental (H2s, tablas, negritas), genera chunks más recuperables y no deja secciones completas sin partir.
