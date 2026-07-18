@@ -74,7 +74,11 @@ def _count_tokens(text: str) -> int:
 
 # ── Classifier ───────────────────────────────────────────────────────────
 def classify(text: str, size_bytes: int) -> DocPattern:
-    if size_bytes < 10_000:
+    # Size threshold tuned for the real tokenizer: 6 KB of markdown legal
+    # text is roughly in the 800-1500 token range. Docs below this are very
+    # likely to fit in a single chunk, so we avoid paying for structural
+    # analysis on them.
+    if size_bytes < 6_000:
         return DocPattern.SMALL
 
     # Table dominance check — if most non-empty lines are table rows,
@@ -124,14 +128,28 @@ def split_file(md_path: Path) -> list[Chunk]:
 # ── Strategy: SMALL ──────────────────────────────────────────────────────
 def _split_small(text: str, doc_id: str, pattern: DocPattern) -> list[Chunk]:
     clean = BOILERPLATE_H.sub("", text).strip()
+    heading_path = _extract_h1(text)
+    has_image = bool(IMAGE_RE.search(text))
+    if _count_tokens(clean) <= MAX_TOKENS:
+        return [
+            Chunk(
+                text=clean,
+                heading_path=heading_path,
+                chunk_index=0,
+                pattern=pattern,
+                has_image=has_image,
+            )
+        ]
+    parts = _split_by_tokens(clean, MAX_TOKENS, OVERLAP_TOKENS)
     return [
         Chunk(
-            text=clean,
-            heading_path=_extract_h1(text),
-            chunk_index=0,
+            text=part,
+            heading_path=heading_path,
+            chunk_index=i,
             pattern=pattern,
-            has_image=bool(IMAGE_RE.search(text)),
+            has_image=has_image,
         )
+        for i, part in enumerate(parts)
     ]
 
 
@@ -143,11 +161,12 @@ def _split_h2_compound(text: str, doc_id: str, pattern: DocPattern) -> list[Chun
         if not content.strip():
             continue
         content = BOILERPLATE_H.sub("", content)
-        token_count = _count_tokens(content)
+        chunk_text = f"## {heading}\n\n{content}"
+        token_count = _count_tokens(chunk_text)
         if token_count <= MAX_TOKENS:
             chunks.append(
                 Chunk(
-                    text=f"## {heading}\n\n{content}",
+                    text=chunk_text,
                     heading_path=[heading],
                     chunk_index=len(chunks),
                     pattern=pattern,
@@ -161,11 +180,15 @@ def _split_h2_compound(text: str, doc_id: str, pattern: DocPattern) -> list[Chun
             if len(sub_sections) == 1 and sub_sections[0][0] == "":
                 sub_content = BOILERPLATE_H.sub("", sub_sections[0][1])
                 if sub_content.strip():
-                    parts = _split_by_tokens(sub_content, MAX_TOKENS, OVERLAP_TOKENS)
+                    prefix = f"## {heading}\n\n"
+                    prefix_tokens = _count_tokens(prefix)
+                    budget = max(1, MAX_TOKENS - prefix_tokens)
+                    overlap = min(OVERLAP_TOKENS, budget - 1)
+                    parts = _split_by_tokens(sub_content, budget, overlap)
                     for part in parts:
                         chunks.append(
                             Chunk(
-                                text=f"## {heading}\n\n{part}",
+                                text=prefix + part,
                                 heading_path=[heading],
                                 chunk_index=len(chunks),
                                 pattern=pattern,
@@ -178,7 +201,11 @@ def _split_h2_compound(text: str, doc_id: str, pattern: DocPattern) -> list[Chun
                 sub_content = BOILERPLATE_H.sub("", sub_content)
                 if not sub_content.strip():
                     continue
-                parts = _split_by_tokens(sub_content, MAX_TOKENS, OVERLAP_TOKENS)
+                prefix = f"## {heading}\n### {sub_heading}\n\n"
+                prefix_tokens = _count_tokens(prefix)
+                budget = max(1, MAX_TOKENS - prefix_tokens)
+                overlap = min(OVERLAP_TOKENS, budget - 1)
+                parts = _split_by_tokens(sub_content, budget, overlap)
                 for part in parts:
                     chunks.append(
                         Chunk(
@@ -374,11 +401,30 @@ def _split_by_tokens(text: str, max_tokens: int, overlap: int) -> list[str]:
 
 
 def _force_split(text: str, max_tokens: int) -> list[str]:
-    """Brute-force split by character count when no structural breaks exist."""
-    max_chars = max_tokens * 3
-    parts = []
-    for i in range(0, len(text), max_chars):
-        parts.append(text[i : i + max_chars])
+    """Split text into pieces each respecting the token limit.
+
+    Uses binary search over character prefixes to find the longest
+    substring that fits within max_tokens. This is slower than a pure
+    character split but guarantees token compliance.
+    """
+    parts: list[str] = []
+    remaining = text
+    while remaining:
+        if _count_tokens(remaining) <= max_tokens:
+            parts.append(remaining)
+            break
+        lo, hi = 1, len(remaining)
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if _count_tokens(remaining[:mid]) <= max_tokens:
+                lo = mid
+            else:
+                hi = mid - 1
+        if lo == 0:
+            # Should not happen with a real tokenizer, but guard anyway
+            lo = len(remaining)
+        parts.append(remaining[:lo])
+        remaining = remaining[lo:].lstrip()
     return parts
 
 
@@ -396,11 +442,10 @@ def _merge_and_chunk(
         part = part.strip()
         if not part:
             continue
-        # If a single part is huge, split it first
+        # If a single part is huge, flush current first, then split it
         if _count_tokens(part) > MAX_TOKENS:
-            sub_parts = _split_by_tokens(part, MAX_TOKENS, OVERLAP_TOKENS)
-            for sub in sub_parts:
-                text = "\n\n".join(current + [sub]) if current else sub
+            if current:
+                text = "\n\n".join(current)
                 chunks.append(
                     Chunk(
                         text=text,
@@ -410,7 +455,18 @@ def _merge_and_chunk(
                         has_image=bool(IMAGE_RE.search(text)),
                     )
                 )
-            current, current_tokens = [], 0
+                current, current_tokens = [], 0
+            sub_parts = _split_by_tokens(part, MAX_TOKENS, OVERLAP_TOKENS)
+            for sub in sub_parts:
+                chunks.append(
+                    Chunk(
+                        text=sub,
+                        heading_path=list(heading_path),
+                        chunk_index=len(chunks),
+                        pattern=pattern,
+                        has_image=bool(IMAGE_RE.search(sub)),
+                    )
+                )
             continue
         t = _count_tokens(part)
         if current_tokens + t > MAX_TOKENS and current:
@@ -447,74 +503,29 @@ def _flush_table(
     heading: list[str],
     pattern: DocPattern,
 ) -> list[Chunk]:
-    """Convierte una tabla en uno o más chunks, repitiendo el header."""
-    lines = table_text.strip().splitlines()
+    """Split a table buffer into chunks, repeating a real header if present."""
+    lines = table_text.strip("\n").splitlines()
     if not lines:
         return []
-    header_lines = lines[:2]
-    data_lines = lines[2:]
-    header_text = "\n".join(header_lines) + "\n"
-    header_tokens = _count_tokens("\n".join(header_lines))
 
-    if _count_tokens(table_text) <= MAX_TOKENS:
-        return [
-            Chunk(
-                text=table_text,
-                heading_path=list(heading),
-                chunk_index=0,
-                pattern=pattern,
-                has_image=False,
-            )
-        ]
+    # Detect markdown table header: [header row, separator row, ...]
+    header_lines: list[str] = []
+    data_lines: list[str] = list(lines)
+    if len(lines) >= 2 and _is_table_separator(lines[1]):
+        header_lines = lines[:2]
+        data_lines = lines[2:]
+
+    header_text = "\n".join(header_lines) + "\n" if header_lines else ""
+    header_tokens = _count_tokens(header_text) if header_lines else 0
+    max_row_tokens = MAX_TOKENS - header_tokens
 
     chunks: list[Chunk] = []
     batch: list[str] = []
     batch_tokens = header_tokens
 
-    for row in data_lines:
-        row_tokens = _count_tokens(row)
-        # If a single row is too big, force-split it
-        if row_tokens > MAX_TOKENS:
-            # Flush current batch first
-            if batch:
-                chunks.append(
-                    Chunk(
-                        text=header_text + "\n".join(batch),
-                        heading_path=list(heading),
-                        chunk_index=len(chunks),
-                        pattern=pattern,
-                        has_image=False,
-                    )
-                )
-                batch, batch_tokens = [], header_tokens
-            forced = _force_split(row, MAX_TOKENS - header_tokens)
-            for piece in forced:
-                chunks.append(
-                    Chunk(
-                        text=header_text + piece,
-                        heading_path=list(heading),
-                        chunk_index=len(chunks),
-                        pattern=pattern,
-                        has_image=False,
-                    )
-                )
-            continue
-
-        if batch_tokens + row_tokens > MAX_TOKENS and batch:
-            chunks.append(
-                Chunk(
-                    text=header_text + "\n".join(batch),
-                    heading_path=list(heading),
-                    chunk_index=len(chunks),
-                    pattern=pattern,
-                    has_image=False,
-                )
-            )
-            batch, batch_tokens = [], header_tokens
-        batch.append(row)
-        batch_tokens += row_tokens
-
-    if batch:
+    def _flush_batch() -> None:
+        if not batch:
+            return
         chunks.append(
             Chunk(
                 text=header_text + "\n".join(batch),
@@ -524,7 +535,46 @@ def _flush_table(
                 has_image=False,
             )
         )
+        batch.clear()
+
+    for row in data_lines:
+        row_tokens = _count_tokens(row)
+        if row_tokens > max_row_tokens:
+            _flush_batch()
+            # Row alone exceeds the budget; force-split it.
+            for piece in _force_split(row, max_row_tokens):
+                chunks.append(
+                    Chunk(
+                        text=header_text + piece,
+                        heading_path=list(heading),
+                        chunk_index=len(chunks),
+                        pattern=pattern,
+                        has_image=False,
+                    )
+                )
+            batch_tokens = header_tokens
+            continue
+
+        if batch_tokens + row_tokens > MAX_TOKENS and batch:
+            _flush_batch()
+            batch_tokens = header_tokens
+
+        batch.append(row)
+        batch_tokens += row_tokens
+
+    _flush_batch()
     return chunks
+
+
+def _is_table_separator(line: str) -> bool:
+    """Return True if the line is a markdown table separator (e.g. |---|---|)."""
+    stripped = line.strip()
+    if not stripped.startswith("|") or not stripped.endswith("|"):
+        return False
+    inner = stripped[1:-1]
+    # Must contain at least one column separator dash/colon and only
+    # allowed separator characters otherwise.
+    return ("-" in inner or ":" in inner) and all(c in "-:| \t" for c in inner)
 
 
 def _extract_h1(text: str) -> list[str]:
