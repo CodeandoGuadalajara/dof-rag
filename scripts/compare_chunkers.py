@@ -15,15 +15,45 @@ from pathlib import Path
 from random import sample, seed
 
 from chonkie import RecursiveChunker
+from chonkie.tokenizer import Tokenizer
 from chonkie.types import RecursiveRules
 
+
+class PPLXTokenizer(Tokenizer):
+    """Chonkie-compatible wrapper around the pplx-embed-context-v1 tokenizer."""
+
+    def __init__(self, model_name: str = "perplexity-ai/pplx-embed-context-v1-0.6b"):
+        super().__init__()
+        from transformers import AutoTokenizer
+
+        self._model_name = model_name
+        self._tokenizer = AutoTokenizer.from_pretrained(
+            model_name,
+            trust_remote_code=True,
+        )
+
+    def __repr__(self) -> str:
+        return f"PPLXTokenizer(model={self._model_name!r})"
+
+    def encode(self, text: str) -> list[int]:
+        return self._tokenizer.encode(text, add_special_tokens=False)
+
+    def decode(self, tokens: list[int]) -> str:
+        return self._tokenizer.decode(tokens)
+
+    def tokenize(self, text: str) -> list[str]:
+        return self._tokenizer.tokenize(text)
+
+    def count_tokens(self, text: str) -> int:
+        return len(self.encode(text))
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from rag_poc.chunker import (
+from rag_poc.chunker import (  # noqa: E402
     _count_tokens,
     classify,
     split_file,
 )
-from rag_poc.config import MAX_TOKENS
+from rag_poc.config import MAX_TOKENS  # noqa: E402
 
 REPORT_DIR = Path("reports")
 SAMPLE_SIZE = 1_000
@@ -80,7 +110,7 @@ def _run_chonkie_recursive(files: list[Path]) -> dict:
         "files_with_oversized": [],
     }
     chunker = RecursiveChunker(
-        tokenizer=_count_tokens,
+        tokenizer=PPLXTokenizer(),
         chunk_size=MAX_TOKENS,
         rules=RecursiveRules.from_recipe("markdown"),
     )
@@ -189,9 +219,9 @@ def _format_report(custom: dict, recursive: dict) -> str:
         "",
         "## Conclusión provisional",
         "",
-        f"- **Custom**: chunks más pequeños (mediana {custom['tokens_per_chunk']['median']:.0f} tokens) pero {custom['oversized_files']} archivos ({custom['oversized_pct']:.1f}%) con chunks que exceden el límite. Máximo observado: {custom['tokens_per_chunk']['max']:,} tokens.",
-        f"- **Chonkie Recursive**: respeta el límite en todos los casos (máx {recursive['tokens_per_chunk']['max']:,}), chunks más grandes (mediana {recursive['tokens_per_chunk']['median']:.0f} tokens), y {recursive['errors']} errores.",
-        "- El custom es más adecuado para el DOF por su granularidad y preservación de estructura, pero se debe trabajar en acotar los chunks oversized (especialmente tablas gigantes y documentos justo por debajo del umbral `small`).",
+        f"- **Custom**: chunks más pequeños y granulares (mediana {custom['tokens_per_chunk']['median']:.0f} tokens), {custom['oversized_files']} archivos con chunks que exceden el límite. Máximo observado: {custom['tokens_per_chunk']['max']:,} tokens.",
+        f"- **Chonkie Recursive**: chunks más grandes (mediana {recursive['tokens_per_chunk']['median']:.0f} tokens), máx {recursive['tokens_per_chunk']['max']:,}, {recursive['errors']} errores.",
+        "- El custom es más adecuado para el DOF porque respeta la estructura documental (H2s, tablas, negritas) y produce chunks más recuperables; Chonkie es una buena línea base genérica pero no distingue patrones del DOF.",
         "",
     ])
     return "\n".join(lines)
