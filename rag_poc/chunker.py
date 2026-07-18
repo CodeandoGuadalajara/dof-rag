@@ -7,7 +7,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Iterator
 
-from rag_poc.config import MAX_TOKENS, OVERLAP_TOKENS
+from rag_poc.config import H2_MAX_TOKENS, MAX_TOKENS, OVERLAP_TOKENS
 
 
 # ── Patterns ────────────────────────────────────────────────────────────
@@ -163,7 +163,7 @@ def _split_h2_compound(text: str, doc_id: str, pattern: DocPattern) -> list[Chun
         content = BOILERPLATE_H.sub("", content)
         chunk_text = f"## {heading}\n\n{content}"
         token_count = _count_tokens(chunk_text)
-        if token_count <= MAX_TOKENS:
+        if token_count <= H2_MAX_TOKENS:
             chunks.append(
                 Chunk(
                     text=chunk_text,
