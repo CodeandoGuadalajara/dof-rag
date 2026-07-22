@@ -293,7 +293,7 @@ def _split_giant_table(text: str, doc_id: str, pattern: DocPattern) -> list[Chun
             text_buffer.clear()
 
     for line in text.splitlines(keepends=True):
-        is_table_line = line.startswith("|")
+        is_table_line = _is_table_line(line)
         is_heading = re.match(r"^#{1,6} ", line)
 
         if is_heading and not BOILERPLATE_H.match(line):
@@ -303,8 +303,11 @@ def _split_giant_table(text: str, doc_id: str, pattern: DocPattern) -> list[Chun
         elif is_table_line:
             _flush_text_buffer()
             table_buffer.append(line)
-        else:
+        elif line.strip():
             _flush_table_buffer()
+            text_buffer.append(line)
+        else:
+            # Empty line: keep text buffer alive but do not flush table.
             text_buffer.append(line)
 
     _flush_table_buffer()
@@ -566,15 +569,34 @@ def _flush_table(
     return chunks
 
 
-def _is_table_separator(line: str) -> bool:
-    """Return True if the line is a markdown table separator (e.g. |---|---|)."""
+def _is_table_line(line: str) -> bool:
+    """Return True if the line belongs to a markdown table.
+
+    Markdown tables may use `|` for data rows and `+` for separator rows
+    (e.g. from marker-pdf conversions).  Bulleted lists use `+ `, so we
+    exclude those.
+    """
     stripped = line.strip()
-    if not stripped.startswith("|") or not stripped.endswith("|"):
+    if not stripped:
+        return False
+    if stripped.startswith("|"):
+        return True
+    if stripped.startswith("+") and not stripped.startswith("+ "):
+        return True
+    return False
+
+
+def _is_table_separator(line: str) -> bool:
+    """Return True if the line is a markdown table separator (e.g. |---|---| or +---+---+) ."""
+    stripped = line.strip()
+    if not stripped:
+        return False
+    if not (stripped.startswith(("|", "+")) and stripped.endswith(("|", "+"))):
         return False
     inner = stripped[1:-1]
     # Must contain at least one column separator dash/colon and only
     # allowed separator characters otherwise.
-    return ("-" in inner or ":" in inner) and all(c in "-:| \t" for c in inner)
+    return ("-" in inner or ":" in inner) and all(c in "-:+| \t" for c in inner)
 
 
 def _extract_h1(text: str) -> list[str]:
