@@ -14,7 +14,7 @@ from collections import defaultdict
 from pathlib import Path
 from random import sample, seed
 
-from chonkie import RecursiveChunker
+from chonkie import RecursiveChunker, TableChunker
 from chonkie.tokenizer import Tokenizer
 from chonkie.types import RecursiveLevel, RecursiveRules
 
@@ -175,6 +175,39 @@ def _run_chonkie_h2(files: list[Path]) -> dict:
     return _summarize(results, elapsed, "chonkie_h2")
 
 
+def _run_chonkie_table(files: list[Path]) -> dict:
+    """Chonkie TableChunker on the whole document."""
+    results: dict = {
+        "chunks": [],
+        "tokens": [],
+        "errors": [],
+        "files_with_oversized": [],
+    }
+    chunker = TableChunker(
+        tokenizer=PPLXTokenizer(),
+        chunk_size=MAX_TOKENS,
+    )
+    start = time.perf_counter()
+
+    for f in files:
+        text = f.read_text(encoding="utf-8", errors="replace")
+        try:
+            chunks = chunker(text)
+        except Exception as exc:
+            results["errors"].append((str(f), str(exc)))
+            continue
+
+        tokens = [c.token_count for c in chunks]
+        results["chunks"].append(len(chunks))
+        results["tokens"].extend(tokens)
+        results["files_with_oversized"].append(
+            1 if any(t > MAX_TOKENS * 1.10 for t in tokens) else 0
+        )
+
+    elapsed = time.perf_counter() - start
+    return _summarize(results, elapsed, "chonkie_table")
+
+
 def _summarize(results: dict, elapsed: float, label: str) -> dict:
     chunks_per_file = results.get("chunks", [])
     tokens = results.get("tokens", [])
@@ -219,9 +252,9 @@ def _safe_percentile(values: list, percentile: int) -> float:
     return s[min(idx, len(s) - 1)]
 
 
-def _format_report(custom: dict, recursive: dict, h2: dict) -> str:
+def _format_report(custom: dict, recursive: dict, h2: dict, table: dict) -> str:
     lines = [
-        "# Comparación: chunker custom vs Chonkie RecursiveChunker",
+        "# Comparación: chunker custom vs Chonkie chunkers",
         "",
         f"Muestra: **{SAMPLE_SIZE:,}** archivos markdown de `./dof_md`",
         f"Límite de tokens por chunk: **{MAX_TOKENS}**",
@@ -233,6 +266,7 @@ def _format_report(custom: dict, recursive: dict, h2: dict) -> str:
         f"| Custom | {custom['files']:,} | {custom['errors']} | {custom['total_chunks']:,} | {custom['chunks_per_file']['median']:.1f} | {custom['elapsed_seconds']:.2f} | {custom['chunks_per_second']:.1f} |",
         f"| Chonkie Recursive | {recursive['files']:,} | {recursive['errors']} | {recursive['total_chunks']:,} | {recursive['chunks_per_file']['median']:.1f} | {recursive['elapsed_seconds']:.2f} | {recursive['chunks_per_second']:.1f} |",
         f"| Chonkie H2 | {h2['files']:,} | {h2['errors']} | {h2['total_chunks']:,} | {h2['chunks_per_file']['median']:.1f} | {h2['elapsed_seconds']:.2f} | {h2['chunks_per_second']:.1f} |",
+        f"| Chonkie Table | {table['files']:,} | {table['errors']} | {table['total_chunks']:,} | {table['chunks_per_file']['median']:.1f} | {table['elapsed_seconds']:.2f} | {table['chunks_per_second']:.1f} |",
         "",
         "## Tokens por chunk",
         "",
@@ -241,6 +275,7 @@ def _format_report(custom: dict, recursive: dict, h2: dict) -> str:
         f"| Custom | {custom['tokens_per_chunk']['mean']:.1f} | {custom['tokens_per_chunk']['median']:.1f} | {custom['tokens_per_chunk']['p95']:.1f} | {custom['tokens_per_chunk']['max']:,} | {custom['oversized_files']} ({custom['oversized_pct']:.1f}%) |",
         f"| Chonkie Recursive | {recursive['tokens_per_chunk']['mean']:.1f} | {recursive['tokens_per_chunk']['median']:.1f} | {recursive['tokens_per_chunk']['p95']:.1f} | {recursive['tokens_per_chunk']['max']:,} | {recursive['oversized_files']} ({recursive['oversized_pct']:.1f}%) |",
         f"| Chonkie H2 | {h2['tokens_per_chunk']['mean']:.1f} | {h2['tokens_per_chunk']['median']:.1f} | {h2['tokens_per_chunk']['p95']:.1f} | {h2['tokens_per_chunk']['max']:,} | {h2['oversized_files']} ({h2['oversized_pct']:.1f}%) |",
+        f"| Chonkie Table | {table['tokens_per_chunk']['mean']:.1f} | {table['tokens_per_chunk']['median']:.1f} | {table['tokens_per_chunk']['p95']:.1f} | {table['tokens_per_chunk']['max']:,} | {table['oversized_files']} ({table['oversized_pct']:.1f}%) |",
         "",
         "## Distribución de patrones (chunker custom)",
         "",
@@ -257,15 +292,16 @@ def _format_report(custom: dict, recursive: dict, h2: dict) -> str:
         "",
         "- El chunker custom clasifica el documento antes de dividir; Chonkie RecursiveChunker aplica una regla markdown genérica.",
         "- Chonkie H2 usa H2 como delimitador principal, lo que lo hace más comparable con el custom en documentos compuestos.",
-        "- El contador de tokens es el mismo para los tres (tokenizer de `pplx-embed-context-v1-0.6b`) para hacer la comparación justa.",
-        "- Chonkie también ofrece `TableChunker` para documentos dominados por tablas; no se incluyó en esta comparación.",
+        "- Chonkie TableChunker detecta tablas en el documento y repite automáticamente el encabezado del documento en cada chunk.",
+        "- El contador de tokens es el mismo para los cuatro (tokenizer de `pplx-embed-context-v1-0.6b`) para hacer la comparación justa.",
         "",
         "## Conclusión provisional",
         "",
         f"- **Custom**: chunks más pequeños y granulares (mediana {custom['tokens_per_chunk']['median']:.0f} tokens), {custom['oversized_files']} archivos con chunks que exceden el límite. Máximo observado: {custom['tokens_per_chunk']['max']:,} tokens.",
         f"- **Chonkie Recursive**: chunks más grandes (mediana {recursive['tokens_per_chunk']['median']:.0f} tokens), máx {recursive['tokens_per_chunk']['max']:,}, {recursive['errors']} errores.",
-        f"- **Chonkie H2**: con H2 como delimitador principal genera {h2['total_chunks']:,} chunks (mediana {h2['tokens_per_chunk']['median']:.0f} tokens), pero {h2['oversized_files']} archivos ({h2['oversized_pct']:.1f}%) producen chunks que exceden el límite; máximo observado: {h2['tokens_per_chunk']['max']:,} tokens. Esto pasa cuando una sección H2 es un párrafo o tabla gigante sin sub-delimitadores.",
-        "- El custom es más adecuado para el DOF porque respeta la estructura documental (H2s, tablas, negritas), genera chunks más recuperables y no deja secciones completas sin partir.",
+        f"- **Chonkie H2**: {h2['total_chunks']:,} chunks (mediana {h2['tokens_per_chunk']['median']:.0f} tokens), pero {h2['oversized_files']} archivos ({h2['oversized_pct']:.1f}%) producen chunks que exceden el límite; máx {h2['tokens_per_chunk']['max']:,} tokens.",
+        f"- **Chonkie Table**: {table['total_chunks']:,} chunks (mediana {table['tokens_per_chunk']['median']:.0f} tokens), pero {table['oversized_files']} archivos ({table['oversized_pct']:.1f}%) producen chunks enormes; máx {table['tokens_per_chunk']['max']:,} tokens. TableChunker no respeta el límite de tokens en documentos con tablas grandes y genera chunks inmanejables para recuperación.",
+        "- El custom es más adecuado para el DOF porque respeta la estructura documental (H2s, tablas, negritas) y genera chunks recuperables; entre las opciones de Chonkie, RecursiveChunker es la más estable.",
         "",
     ])
     return "\n".join(lines)
@@ -292,9 +328,13 @@ def main() -> int:
     h2 = _run_chonkie_h2(files)
     print(f"  {h2['total_chunks']:,} chunks in {h2['elapsed_seconds']:.2f}s")
 
+    print("Running Chonkie TableChunker...")
+    table = _run_chonkie_table(files)
+    print(f"  {table['total_chunks']:,} chunks in {table['elapsed_seconds']:.2f}s")
+
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     report_path = REPORT_DIR / "chunker_comparison.md"
-    report_path.write_text(_format_report(custom, recursive, h2), encoding="utf-8")
+    report_path.write_text(_format_report(custom, recursive, h2, table), encoding="utf-8")
     print(f"Report written to {report_path}")
     return 0
 
