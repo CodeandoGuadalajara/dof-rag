@@ -1,0 +1,62 @@
+# Comparación: chunker custom vs Chonkie chunkers
+
+Muestra: **1,000** archivos markdown de `./dof_md`
+Límite de tokens por chunk: **800**
+
+## Resumen general
+
+| Chunker | Archivos | Errores | Chunks total | Chunks/archivo (med) | Tiempo (s) | Chunks/s |
+|---|---|---|---|---|---|---|
+| Custom | 1,000 | 0 | 7,735 | 2.0 | 26.08 | 296.5 |
+| Chonkie Recursive | 1,000 | 0 | 7,157 | 2.0 | 20.34 | 351.9 |
+| Chonkie H2 | 1,000 | 0 | 7,028 | 2.0 | 25.51 | 275.5 |
+| Chonkie Table | 1,000 | 0 | 13,856 | 1.0 | 18.13 | 764.1 |
+| Chonkie Token | 1,000 | 0 | 6,132 | 2.0 | 10.24 | 599.1 |
+| Chonkie Sentence | 1,000 | 0 | 6,273 | 2.0 | 18.12 | 346.2 |
+| Chonkie Pipeline | 1,000 | 0 | 98,576 | 2.0 | 26.59 | 3706.9 |
+| Chonkie Pipeline Rev | 1,000 | 0 | 6,070 | 2.0 | 14.82 | 409.5 |
+
+## Tokens por chunk
+
+| Chunker | Media | Mediana | P95 | Máx | Archivos con chunks >10% over max |
+|---|---|---|---|---|---|
+| Custom | 568.2 | 706.0 | 798.0 | 879 | 0 (0.0%) |
+| Chonkie Recursive | 601.9 | 707.0 | 796.0 | 800 | 0 (0.0%) |
+| Chonkie H2 | 615.0 | 702.0 | 798.0 | 7,895 | 47 (4.7%) |
+| Chonkie Table | 4958.2 | 3633.5 | 12097.0 | 102,786 | 268 (26.8%) |
+| Chonkie Token | 744.3 | 800.0 | 800.0 | 800 | 0 (0.0%) |
+| Chonkie Sentence | 705.1 | 765.0 | 794.0 | 2,997 | 7 (0.7%) |
+| Chonkie Pipeline | 680.9 | 737.0 | 798.0 | 800 | 0 (0.0%) |
+| Chonkie Pipeline Rev | 696.6 | 761.0 | 798.0 | 800 | 0 (0.0%) |
+
+## Distribución de patrones (chunker custom)
+
+| Patrón | Archivos | Chunks/archivo (media) |
+|---|---|---|
+| bold_headers | 248 | 6.4 |
+| giant_table | 123 | 32.5 |
+| h2_compound | 39 | 31.7 |
+| plain_text | 32 | 5.6 |
+| small | 558 | 1.3 |
+
+## Observaciones
+
+- El chunker custom clasifica el documento antes de dividir; Chonkie RecursiveChunker aplica una regla markdown genérica.
+- Chonkie H2 usa H2 como delimitador principal, lo que lo hace más comparable con el custom en documentos compuestos.
+- Chonkie TableChunker detecta tablas en el documento y repite automáticamente el encabezado del documento en cada chunk.
+- Chonkie TokenChunker y SentenceChunker tienen `chunk_overlap` integrado y garantizan respetar el límite de tokens.
+- Chonkie Pipeline encadena TableChunker y RecursiveChunker para manejar documentos mixtos.
+- Chonkie Pipeline Rev hace lo inverso: RecursiveChunker primero y TableChunker solo sobre los fragmentos que contienen tablas válidas.
+- El contador de tokens es el mismo para los ocho (tokenizer de `pplx-embed-context-v1-0.6b`) para hacer la comparación justa.
+
+## Conclusión provisional
+
+- **Custom**: chunks más pequeños y granulares (mediana 706 tokens), 0 archivos con chunks que exceden el límite. Máximo observado: 879 tokens.
+- **Chonkie Recursive**: chunks más grandes (mediana 707 tokens), máx 800, 0 errores.
+- **Chonkie H2**: 7,028 chunks (mediana 702 tokens), pero 47 archivos (4.7%) producen chunks que exceden el límite; máx 7,895 tokens.
+- **Chonkie Table**: 13,856 chunks (mediana 3634 tokens), pero 268 archivos (26.8%) producen chunks enormes; máx 102,786 tokens. TableChunker no respeta el límite de tokens en documentos con tablas grandes y genera chunks inmanejables para recuperación.
+- **Chonkie Token**: 6,132 chunks (mediana 800 tokens), 0 archivos oversized; máx 800 tokens.
+- **Chonkie Sentence**: 6,273 chunks (mediana 765 tokens), 7 archivos oversized; máx 2,997 tokens.
+- **Chonkie Pipeline**: 98,576 chunks (mediana 737 tokens), 0 archivos oversized; máx 800 tokens. El pipeline explota el número de chunks en documentos con muchas tablas porque TableChunker divide en cada límite de tabla y RecursiveChunker vuelve a partir cada fragmento.
+- **Chonkie Pipeline Rev**: 6,070 chunks (mediana 761 tokens), 0 archivos oversized; máx 800 tokens.
+- El custom es más adecuado para el DOF porque respeta la estructura documental (H2s, tablas, negritas) y genera chunks recuperables; entre las opciones de Chonkie, RecursiveChunker es la más estable para markdown general, mientras que TokenChunker/SentenceChunker son las más seguras para límites estrictos. El Pipeline table+recursive no es recomendable para este corpus; el Pipeline recursivo+table es mejor pero aún puede partir tablas.
