@@ -14,7 +14,13 @@ from collections import defaultdict
 from pathlib import Path
 from random import sample, seed
 
-from chonkie import RecursiveChunker, SentenceChunker, TableChunker, TokenChunker
+from chonkie import (
+    Pipeline,
+    RecursiveChunker,
+    SentenceChunker,
+    TableChunker,
+    TokenChunker,
+)
 from chonkie.tokenizer import Tokenizer
 from chonkie.types import RecursiveLevel, RecursiveRules
 
@@ -276,6 +282,42 @@ def _run_chonkie_sentence(files: list[Path]) -> dict:
     return _summarize(results, elapsed, "chonkie_sentence")
 
 
+def _run_chonkie_pipeline(files: list[Path]) -> dict:
+    """Chonkie Pipeline: TableChunker followed by RecursiveChunker."""
+    results: dict = {
+        "chunks": [],
+        "tokens": [],
+        "errors": [],
+        "files_with_oversized": [],
+    }
+    tokenizer = PPLXTokenizer()
+    pipeline = (
+        Pipeline()
+        .chunk_with("table", chunk_size=MAX_TOKENS * 2, tokenizer=tokenizer)
+        .chunk_with("recursive", chunk_size=MAX_TOKENS, tokenizer=tokenizer)
+    )
+    start = time.perf_counter()
+
+    for f in files:
+        text = f.read_text(encoding="utf-8", errors="replace")
+        try:
+            docs = pipeline.run(texts=[text])
+            chunks = docs[0].chunks if docs else []
+        except Exception as exc:
+            results["errors"].append((str(f), str(exc)))
+            continue
+
+        tokens = [c.token_count for c in chunks]
+        results["chunks"].append(len(chunks))
+        results["tokens"].extend(tokens)
+        results["files_with_oversized"].append(
+            1 if any(t > MAX_TOKENS * 1.10 for t in tokens) else 0
+        )
+
+    elapsed = time.perf_counter() - start
+    return _summarize(results, elapsed, "chonkie_pipeline")
+
+
 def _summarize(results: dict, elapsed: float, label: str) -> dict:
     chunks_per_file = results.get("chunks", [])
     tokens = results.get("tokens", [])
@@ -320,7 +362,7 @@ def _safe_percentile(values: list, percentile: int) -> float:
     return s[min(idx, len(s) - 1)]
 
 
-def _format_report(custom: dict, recursive: dict, h2: dict, table: dict, token: dict, sentence: dict) -> str:
+def _format_report(custom: dict, recursive: dict, h2: dict, table: dict, token: dict, sentence: dict, pipeline: dict) -> str:
     lines = [
         "# Comparación: chunker custom vs Chonkie chunkers",
         "",
@@ -337,6 +379,7 @@ def _format_report(custom: dict, recursive: dict, h2: dict, table: dict, token: 
         f"| Chonkie Table | {table['files']:,} | {table['errors']} | {table['total_chunks']:,} | {table['chunks_per_file']['median']:.1f} | {table['elapsed_seconds']:.2f} | {table['chunks_per_second']:.1f} |",
         f"| Chonkie Token | {token['files']:,} | {token['errors']} | {token['total_chunks']:,} | {token['chunks_per_file']['median']:.1f} | {token['elapsed_seconds']:.2f} | {token['chunks_per_second']:.1f} |",
         f"| Chonkie Sentence | {sentence['files']:,} | {sentence['errors']} | {sentence['total_chunks']:,} | {sentence['chunks_per_file']['median']:.1f} | {sentence['elapsed_seconds']:.2f} | {sentence['chunks_per_second']:.1f} |",
+        f"| Chonkie Pipeline | {pipeline['files']:,} | {pipeline['errors']} | {pipeline['total_chunks']:,} | {pipeline['chunks_per_file']['median']:.1f} | {pipeline['elapsed_seconds']:.2f} | {pipeline['chunks_per_second']:.1f} |",
         "",
         "## Tokens por chunk",
         "",
@@ -348,6 +391,7 @@ def _format_report(custom: dict, recursive: dict, h2: dict, table: dict, token: 
         f"| Chonkie Table | {table['tokens_per_chunk']['mean']:.1f} | {table['tokens_per_chunk']['median']:.1f} | {table['tokens_per_chunk']['p95']:.1f} | {table['tokens_per_chunk']['max']:,} | {table['oversized_files']} ({table['oversized_pct']:.1f}%) |",
         f"| Chonkie Token | {token['tokens_per_chunk']['mean']:.1f} | {token['tokens_per_chunk']['median']:.1f} | {token['tokens_per_chunk']['p95']:.1f} | {token['tokens_per_chunk']['max']:,} | {token['oversized_files']} ({token['oversized_pct']:.1f}%) |",
         f"| Chonkie Sentence | {sentence['tokens_per_chunk']['mean']:.1f} | {sentence['tokens_per_chunk']['median']:.1f} | {sentence['tokens_per_chunk']['p95']:.1f} | {sentence['tokens_per_chunk']['max']:,} | {sentence['oversized_files']} ({sentence['oversized_pct']:.1f}%) |",
+        f"| Chonkie Pipeline | {pipeline['tokens_per_chunk']['mean']:.1f} | {pipeline['tokens_per_chunk']['median']:.1f} | {pipeline['tokens_per_chunk']['p95']:.1f} | {pipeline['tokens_per_chunk']['max']:,} | {pipeline['oversized_files']} ({pipeline['oversized_pct']:.1f}%) |",
         "",
         "## Distribución de patrones (chunker custom)",
         "",
@@ -366,7 +410,8 @@ def _format_report(custom: dict, recursive: dict, h2: dict, table: dict, token: 
         "- Chonkie H2 usa H2 como delimitador principal, lo que lo hace más comparable con el custom en documentos compuestos.",
         "- Chonkie TableChunker detecta tablas en el documento y repite automáticamente el encabezado del documento en cada chunk.",
         "- Chonkie TokenChunker y SentenceChunker tienen `chunk_overlap` integrado y garantizan respetar el límite de tokens.",
-        "- El contador de tokens es el mismo para los seis (tokenizer de `pplx-embed-context-v1-0.6b`) para hacer la comparación justa.",
+        "- Chonkie Pipeline encadena TableChunker y RecursiveChunker para manejar documentos mixtos.",
+        "- El contador de tokens es el mismo para los siete (tokenizer de `pplx-embed-context-v1-0.6b`) para hacer la comparación justa.",
         "",
         "## Conclusión provisional",
         "",
@@ -376,7 +421,8 @@ def _format_report(custom: dict, recursive: dict, h2: dict, table: dict, token: 
         f"- **Chonkie Table**: {table['total_chunks']:,} chunks (mediana {table['tokens_per_chunk']['median']:.0f} tokens), pero {table['oversized_files']} archivos ({table['oversized_pct']:.1f}%) producen chunks enormes; máx {table['tokens_per_chunk']['max']:,} tokens. TableChunker no respeta el límite de tokens en documentos con tablas grandes y genera chunks inmanejables para recuperación.",
         f"- **Chonkie Token**: {token['total_chunks']:,} chunks (mediana {token['tokens_per_chunk']['median']:.0f} tokens), {token['oversized_files']} archivos oversized; máx {token['tokens_per_chunk']['max']:,} tokens.",
         f"- **Chonkie Sentence**: {sentence['total_chunks']:,} chunks (mediana {sentence['tokens_per_chunk']['median']:.0f} tokens), {sentence['oversized_files']} archivos oversized; máx {sentence['tokens_per_chunk']['max']:,} tokens.",
-        "- El custom es más adecuado para el DOF porque respeta la estructura documental (H2s, tablas, negritas) y genera chunks recuperables; entre las opciones de Chonkie, RecursiveChunker es la más estable para markdown general, mientras que TokenChunker/SentenceChunker son las más seguras para límites estrictos.",
+        f"- **Chonkie Pipeline**: {pipeline['total_chunks']:,} chunks (mediana {pipeline['tokens_per_chunk']['median']:.0f} tokens), {pipeline['oversized_files']} archivos oversized; máx {pipeline['tokens_per_chunk']['max']:,} tokens. El pipeline explota el número de chunks en documentos con muchas tablas porque TableChunker divide en cada límite de tabla y RecursiveChunker vuelve a partir cada fragmento.",
+        "- El custom es más adecuado para el DOF porque respeta la estructura documental (H2s, tablas, negritas) y genera chunks recuperables; entre las opciones de Chonkie, RecursiveChunker es la más estable para markdown general, mientras que TokenChunker/SentenceChunker son las más seguras para límites estrictos. El Pipeline table+recursive no es recomendable para este corpus.",
         "",
     ])
     return "\n".join(lines)
@@ -415,10 +461,14 @@ def main() -> int:
     sentence = _run_chonkie_sentence(files)
     print(f"  {sentence['total_chunks']:,} chunks in {sentence['elapsed_seconds']:.2f}s")
 
+    print("Running Chonkie Pipeline (table + recursive)...")
+    pipeline = _run_chonkie_pipeline(files)
+    print(f"  {pipeline['total_chunks']:,} chunks in {pipeline['elapsed_seconds']:.2f}s")
+
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     report_path = REPORT_DIR / "chunker_comparison.md"
     report_path.write_text(
-        _format_report(custom, recursive, h2, table, token, sentence),
+        _format_report(custom, recursive, h2, table, token, sentence, pipeline),
         encoding="utf-8",
     )
     print(f"Report written to {report_path}")
