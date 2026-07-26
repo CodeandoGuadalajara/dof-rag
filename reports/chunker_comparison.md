@@ -7,13 +7,14 @@ Límite de tokens por chunk: **800**
 
 | Chunker | Archivos | Errores | Chunks total | Chunks/archivo (med) | Tiempo (s) | Chunks/s |
 |---|---|---|---|---|---|---|
-| Custom | 1,000 | 0 | 7,735 | 2.0 | 26.20 | 295.2 |
-| Chonkie Recursive | 1,000 | 0 | 7,157 | 2.0 | 20.39 | 351.0 |
-| Chonkie H2 | 1,000 | 0 | 7,028 | 2.0 | 25.71 | 273.4 |
-| Chonkie Table | 1,000 | 0 | 13,856 | 1.0 | 18.24 | 759.6 |
-| Chonkie Token | 1,000 | 0 | 6,132 | 2.0 | 10.26 | 597.5 |
-| Chonkie Sentence | 1,000 | 0 | 6,273 | 2.0 | 18.28 | 343.1 |
-| Chonkie Pipeline | 1,000 | 0 | 98,576 | 2.0 | 26.73 | 3687.2 |
+| Custom | 1,000 | 0 | 7,735 | 2.0 | 26.08 | 296.5 |
+| Chonkie Recursive | 1,000 | 0 | 7,157 | 2.0 | 20.34 | 351.9 |
+| Chonkie H2 | 1,000 | 0 | 7,028 | 2.0 | 25.51 | 275.5 |
+| Chonkie Table | 1,000 | 0 | 13,856 | 1.0 | 18.13 | 764.1 |
+| Chonkie Token | 1,000 | 0 | 6,132 | 2.0 | 10.24 | 599.1 |
+| Chonkie Sentence | 1,000 | 0 | 6,273 | 2.0 | 18.12 | 346.2 |
+| Chonkie Pipeline | 1,000 | 0 | 98,576 | 2.0 | 26.59 | 3706.9 |
+| Chonkie Pipeline Rev | 1,000 | 0 | 6,070 | 2.0 | 14.82 | 409.5 |
 
 ## Tokens por chunk
 
@@ -26,6 +27,7 @@ Límite de tokens por chunk: **800**
 | Chonkie Token | 744.3 | 800.0 | 800.0 | 800 | 0 (0.0%) |
 | Chonkie Sentence | 705.1 | 765.0 | 794.0 | 2,997 | 7 (0.7%) |
 | Chonkie Pipeline | 680.9 | 737.0 | 798.0 | 800 | 0 (0.0%) |
+| Chonkie Pipeline Rev | 696.6 | 761.0 | 798.0 | 800 | 0 (0.0%) |
 
 ## Distribución de patrones (chunker custom)
 
@@ -44,7 +46,8 @@ Límite de tokens por chunk: **800**
 - Chonkie TableChunker detecta tablas en el documento y repite automáticamente el encabezado del documento en cada chunk.
 - Chonkie TokenChunker y SentenceChunker tienen `chunk_overlap` integrado y garantizan respetar el límite de tokens.
 - Chonkie Pipeline encadena TableChunker y RecursiveChunker para manejar documentos mixtos.
-- El contador de tokens es el mismo para los siete (tokenizer de `pplx-embed-context-v1-0.6b`) para hacer la comparación justa.
+- Chonkie Pipeline Rev hace lo inverso: RecursiveChunker primero y TableChunker solo sobre los fragmentos que contienen tablas válidas.
+- El contador de tokens es el mismo para los ocho (tokenizer de `pplx-embed-context-v1-0.6b`) para hacer la comparación justa.
 
 ## Conclusión provisional
 
@@ -55,4 +58,5 @@ Límite de tokens por chunk: **800**
 - **Chonkie Token**: 6,132 chunks (mediana 800 tokens), 0 archivos oversized; máx 800 tokens.
 - **Chonkie Sentence**: 6,273 chunks (mediana 765 tokens), 7 archivos oversized; máx 2,997 tokens.
 - **Chonkie Pipeline**: 98,576 chunks (mediana 737 tokens), 0 archivos oversized; máx 800 tokens. El pipeline explota el número de chunks en documentos con muchas tablas porque TableChunker divide en cada límite de tabla y RecursiveChunker vuelve a partir cada fragmento.
-- El custom es más adecuado para el DOF porque respeta la estructura documental (H2s, tablas, negritas) y genera chunks recuperables; entre las opciones de Chonkie, RecursiveChunker es la más estable para markdown general, mientras que TokenChunker/SentenceChunker son las más seguras para límites estrictos. El Pipeline table+recursive no es recomendable para este corpus.
+- **Chonkie Pipeline Rev**: 6,070 chunks (mediana 761 tokens), 0 archivos oversized; máx 800 tokens.
+- El custom es más adecuado para el DOF porque respeta la estructura documental (H2s, tablas, negritas) y genera chunks recuperables; entre las opciones de Chonkie, RecursiveChunker es la más estable para markdown general, mientras que TokenChunker/SentenceChunker son las más seguras para límites estrictos. El Pipeline table+recursive no es recomendable para este corpus; el Pipeline recursivo+table es mejor pero aún puede partir tablas.
