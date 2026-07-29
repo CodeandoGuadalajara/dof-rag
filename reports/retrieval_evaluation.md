@@ -1,35 +1,35 @@
 # Evaluación de calidad de recuperación: modelos de embedding
 
 Muestra: **50** documentos markdown de `./dof_md`
-Fecha: 2026-07-27
+Fecha: 2026-07-29
 
 ## Resumen general
 
 | Modelo | Dim | Recall@1 | Recall@5 | Recall@10 | MRR | NDCG |
 |---|---|---|---|---|---|---|
-| perplexity-ai/pplx-embed-context-v1-0.6b | - | 0.520 | 0.700 | 0.770 | 0.590 | 0.633 |
-| perplexity-ai/pplx-embed-v1-0.6b | - | 0.520 | 0.710 | 0.760 | 0.598 | 0.637 |
-| nvidia/Nemotron-3-Embed-1B-BF16 | - | 0.350 | 0.560 | 0.630 | 0.434 | 0.481 |
-| jinaai/jina-embeddings-v5-text-small | - | 0.450 | 0.660 | 0.710 | 0.537 | 0.579 |
-| jinaai/jina-embeddings-v5-text-nano | - | 0.430 | 0.650 | 0.710 | 0.519 | 0.565 |
-| Octen/Octen-Embedding-0.6B | - | 0.470 | 0.630 | 0.710 | 0.537 | 0.578 |
+| perplexity-ai/pplx-embed-context-v1-0.6b | - | 0.420 | 0.650 | 0.700 | 0.511 | 0.557 |
+| perplexity-ai/pplx-embed-v1-0.6b | - | 0.450 | 0.610 | 0.640 | 0.512 | 0.543 |
+| nvidia/Nemotron-3-Embed-1B-BF16 | - | 0.300 | 0.440 | 0.470 | 0.359 | 0.386 |
+| jinaai/jina-embeddings-v5-text-small | - | 0.410 | 0.560 | 0.580 | 0.464 | 0.492 |
+| jinaai/jina-embeddings-v5-text-nano | - | 0.380 | 0.530 | 0.570 | 0.443 | 0.474 |
+| Octen/Octen-Embedding-0.6B | - | 0.410 | 0.530 | 0.570 | 0.455 | 0.482 |
 
 ## Métricas por tipo de query
 
 | Modelo | Query type | Recall@1 | Recall@5 | Recall@10 |
 |---|---|---|---|---|
-| perplexity-ai/pplx-embed-context-v1-0.6b | title | 0.260 | 0.400 | 0.540 |
-| perplexity-ai/pplx-embed-context-v1-0.6b | first_words | 0.780 | 1.000 | 1.000 |
-| perplexity-ai/pplx-embed-v1-0.6b | title | 0.260 | 0.440 | 0.520 |
-| perplexity-ai/pplx-embed-v1-0.6b | first_words | 0.780 | 0.980 | 1.000 |
-| nvidia/Nemotron-3-Embed-1B-BF16 | title | 0.080 | 0.240 | 0.320 |
-| nvidia/Nemotron-3-Embed-1B-BF16 | first_words | 0.620 | 0.880 | 0.940 |
-| jinaai/jina-embeddings-v5-text-small | title | 0.160 | 0.360 | 0.420 |
-| jinaai/jina-embeddings-v5-text-small | first_words | 0.740 | 0.960 | 1.000 |
-| jinaai/jina-embeddings-v5-text-nano | title | 0.180 | 0.340 | 0.420 |
-| jinaai/jina-embeddings-v5-text-nano | first_words | 0.680 | 0.960 | 1.000 |
-| Octen/Octen-Embedding-0.6B | title | 0.220 | 0.360 | 0.460 |
-| Octen/Octen-Embedding-0.6B | first_words | 0.720 | 0.900 | 0.960 |
+| perplexity-ai/pplx-embed-context-v1-0.6b | first_words | 0.640 | 0.980 | 1.000 |
+| perplexity-ai/pplx-embed-context-v1-0.6b | title | 0.200 | 0.320 | 0.400 |
+| perplexity-ai/pplx-embed-v1-0.6b | first_words | 0.660 | 0.960 | 1.000 |
+| perplexity-ai/pplx-embed-v1-0.6b | title | 0.240 | 0.260 | 0.280 |
+| nvidia/Nemotron-3-Embed-1B-BF16 | first_words | 0.540 | 0.820 | 0.880 |
+| nvidia/Nemotron-3-Embed-1B-BF16 | title | 0.060 | 0.060 | 0.060 |
+| jinaai/jina-embeddings-v5-text-small | first_words | 0.700 | 0.960 | 0.980 |
+| jinaai/jina-embeddings-v5-text-small | title | 0.120 | 0.160 | 0.180 |
+| jinaai/jina-embeddings-v5-text-nano | first_words | 0.620 | 0.900 | 0.980 |
+| jinaai/jina-embeddings-v5-text-nano | title | 0.140 | 0.160 | 0.160 |
+| Octen/Octen-Embedding-0.6B | first_words | 0.700 | 0.900 | 0.980 |
+| Octen/Octen-Embedding-0.6B | title | 0.120 | 0.160 | 0.160 |
 
 ## Notas
 
@@ -41,12 +41,12 @@ Fecha: 2026-07-27
 ## Conclusión provisional
 
 **Ranking por MRR:**
-1. **perplexity-ai/pplx-embed-v1-0.6b**: MRR=0.598, Recall@1=0.520, Recall@5=0.710
-2. **perplexity-ai/pplx-embed-context-v1-0.6b**: MRR=0.590, Recall@1=0.520, Recall@5=0.700
-3. **jinaai/jina-embeddings-v5-text-small**: MRR=0.537, Recall@1=0.450, Recall@5=0.660
-4. **Octen/Octen-Embedding-0.6B**: MRR=0.537, Recall@1=0.470, Recall@5=0.630
-5. **jinaai/jina-embeddings-v5-text-nano**: MRR=0.519, Recall@1=0.430, Recall@5=0.650
-6. **nvidia/Nemotron-3-Embed-1B-BF16**: MRR=0.434, Recall@1=0.350, Recall@5=0.560
+1. **perplexity-ai/pplx-embed-v1-0.6b**: MRR=0.512, Recall@1=0.450, Recall@5=0.610
+2. **perplexity-ai/pplx-embed-context-v1-0.6b**: MRR=0.511, Recall@1=0.420, Recall@5=0.650
+3. **jinaai/jina-embeddings-v5-text-small**: MRR=0.464, Recall@1=0.410, Recall@5=0.560
+4. **Octen/Octen-Embedding-0.6B**: MRR=0.455, Recall@1=0.410, Recall@5=0.530
+5. **jinaai/jina-embeddings-v5-text-nano**: MRR=0.443, Recall@1=0.380, Recall@5=0.530
+6. **nvidia/Nemotron-3-Embed-1B-BF16**: MRR=0.359, Recall@1=0.300, Recall@5=0.440
 
 ## Siguientes pasos
 

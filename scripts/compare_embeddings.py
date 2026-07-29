@@ -21,6 +21,7 @@ For MacBook Pro M3 (36GB RAM):
 from __future__ import annotations
 
 import gc
+import os
 import sys
 import time
 import warnings
@@ -37,10 +38,20 @@ SAMPLE_SIZE = 100  # files to chunk for embedding test
 SEED = 42
 
 
+def _iter_md_files(root: Path) -> list[Path]:
+    """Recursively list .md files, following directory symlinks."""
+    files: list[Path] = []
+    for dirpath, _dirnames, filenames in os.walk(root, followlinks=True):
+        for name in filenames:
+            if name.endswith(".md"):
+                files.append(Path(dirpath) / name)
+    return files
+
+
 def _get_sample_chunks(n_files: int = SAMPLE_SIZE) -> list[str]:
     """Get a sample of chunks from the corpus."""
     seed(SEED)
-    files = sorted(sample(list(Path("./dof_md").rglob("*.md")), n_files))
+    files = sorted(sample(sorted(_iter_md_files(Path("./dof_md"))), n_files))
     chunks: list[str] = []
     for f in files:
         try:

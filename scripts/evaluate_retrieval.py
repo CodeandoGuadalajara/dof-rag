@@ -13,6 +13,7 @@ Outputs a Markdown report to `reports/retrieval_evaluation.md`.
 from __future__ import annotations
 
 import gc
+import os
 import sys
 import time
 import warnings
@@ -33,10 +34,20 @@ SEED = 42
 TOP_K = [1, 5, 10]
 
 
+def _iter_md_files(root: Path) -> list[Path]:
+    """Recursively list .md files, following directory symlinks."""
+    files: list[Path] = []
+    for dirpath, _dirnames, filenames in os.walk(root, followlinks=True):
+        for name in filenames:
+            if name.endswith(".md"):
+                files.append(Path(dirpath) / name)
+    return files
+
+
 def _get_documents(n_files: int = SAMPLE_SIZE) -> list[dict]:
     """Get documents with their chunks and metadata."""
     seed(SEED)
-    files = sorted(sample(list(Path("./dof_md").rglob("*.md")), n_files))
+    files = sorted(sample(sorted(_iter_md_files(Path("./dof_md"))), n_files))
     docs: list[dict] = []
     for f in files:
         try:

@@ -10,8 +10,21 @@ from random import sample, seed
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import os  # noqa: E402
+
+
+def _iter_md_files(root: Path) -> list[Path]:
+    """Recursively list .md files, following directory symlinks."""
+    files: list[Path] = []
+    for dirpath, _dirnames, filenames in os.walk(root, followlinks=True):
+        for name in filenames:
+            if name.endswith(".md"):
+                files.append(Path(dirpath) / name)
+    return files
+
+
 seed(42)
-files = sorted(sample(list(Path("./dof_md").rglob("*.md")), 1000))
+files = sorted(sample(sorted(_iter_md_files(Path("./dof_md"))), 1000))
 
 
 def run(max_tokens: int, h2_max: int) -> dict:

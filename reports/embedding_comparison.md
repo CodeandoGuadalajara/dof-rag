@@ -1,18 +1,18 @@
 # Comparación: modelos de embedding para DOF RAG
 
 Muestra: **100** archivos markdown de `./dof_md`
-Fecha: 2026-07-27
+Fecha: 2026-07-29
 
 ## Resumen general
 
 | Modelo | Device | Dim | Chunks | Tiempo (s) | Chunks/s | Memoria pico (MB) |
 |---|---|---|---|---|---|---|
-| perplexity-ai/pplx-embed-context-v1-0.6b | cpu | 1,024 | 773 | 1394.49 | 0.6 | 2188 |
-| perplexity-ai/pplx-embed-v1-0.6b | cpu | 1,024 | 773 | 1399.11 | 0.6 | 1862 |
-| nvidia/Nemotron-3-Embed-1B-BF16 | cpu | 2,048 | 773 | 1069.47 | 0.7 | 2078 |
-| jinaai/jina-embeddings-v5-text-small | cpu | 1,024 | 773 | 1193.92 | 0.6 | 1176 |
-| jinaai/jina-embeddings-v5-text-nano | cpu | 768 | 773 | 411.52 | 1.9 | 810 |
-| Octen/Octen-Embedding-0.6B | cpu | 1,024 | 773 | 737.80 | 1.0 | 1021 |
+| perplexity-ai/pplx-embed-context-v1-0.6b | mps | 1,024 | 1,378 | 477.18 | 2.9 | 1776 |
+| perplexity-ai/pplx-embed-v1-0.6b | mps | 1,024 | 1,378 | 423.10 | 3.3 | 55 |
+| nvidia/Nemotron-3-Embed-1B-BF16 | mps | 2,048 | 1,378 | 522.25 | 2.6 | 0 |
+| jinaai/jina-embeddings-v5-text-small | mps | 1,024 | 1,378 | 495.28 | 2.8 | 244 |
+| jinaai/jina-embeddings-v5-text-nano | mps | 768 | 1,378 | 122.79 | 11.2 | 452 |
+| Octen/Octen-Embedding-0.6B | mps | 1,024 | 1,378 | 391.11 | 3.5 | 0 |
 
 ## Notas
 
@@ -23,12 +23,12 @@ Fecha: 2026-07-27
 
 ## Conclusión provisional
 
-- **perplexity-ai/pplx-embed-context-v1-0.6b**: 1,024 dims, 0.6 chunks/s, 2188 MB pico.
-- **perplexity-ai/pplx-embed-v1-0.6b**: 1,024 dims, 0.6 chunks/s, 1862 MB pico.
-- **nvidia/Nemotron-3-Embed-1B-BF16**: 2,048 dims, 0.7 chunks/s, 2078 MB pico.
-- **jinaai/jina-embeddings-v5-text-small**: 1,024 dims, 0.6 chunks/s, 1176 MB pico.
-- **jinaai/jina-embeddings-v5-text-nano**: 768 dims, 1.9 chunks/s, 810 MB pico.
-- **Octen/Octen-Embedding-0.6B**: 1,024 dims, 1.0 chunks/s, 1021 MB pico.
+- **perplexity-ai/pplx-embed-context-v1-0.6b**: 1,024 dims, 2.9 chunks/s, 1776 MB pico.
+- **perplexity-ai/pplx-embed-v1-0.6b**: 1,024 dims, 3.3 chunks/s, 55 MB pico.
+- **nvidia/Nemotron-3-Embed-1B-BF16**: 2,048 dims, 2.6 chunks/s, 0 MB pico.
+- **jinaai/jina-embeddings-v5-text-small**: 1,024 dims, 2.8 chunks/s, 244 MB pico.
+- **jinaai/jina-embeddings-v5-text-nano**: 768 dims, 11.2 chunks/s, 452 MB pico.
+- **Octen/Octen-Embedding-0.6B**: 1,024 dims, 3.5 chunks/s, 0 MB pico.
 
 ## Siguientes pasos
 
