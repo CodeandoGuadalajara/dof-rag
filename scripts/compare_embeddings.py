@@ -5,21 +5,23 @@ Run from repo root:
 
 Outputs a Markdown report to `reports/embedding_comparison.md`.
 
-Models tested:
-- perplexity-ai/pplx-embed-context-v1-0.6b (contextual, int8)
-- perplexity-ai/pplx-embed-v1-0.6b (non-contextual)
-- nvidia/Nemotron-3-Embed-1B-BF16
-- jinaai/jina-embeddings-v5-text-small
-- jinaai/jina-embeddings-v5-text-nano
-- Octen/Octen-Embedding-0.6B
+Models tested (round-1 winners):
+- perplexity-ai/pplx-embed-context-v1-0.6b (contextual, late chunking candidate)
+- codefuse-ai/F2LLM-v2-1.7B
+- codefuse-ai/F2LLM-v2-0.6B
+- jinaai/jina-embeddings-v5-text-small (binary quantization support)
 
 For MacBook Pro M3 (36GB RAM):
 - Uses MPS (Metal Performance Shaders) if available
 - Falls back to CPU otherwise
 - Reports peak memory usage per model
+
+Round 2: model list narrowed to the round-1 winners; corpus path and
+sample size are CLI args (defaults reproduce round 1).
 """
 from __future__ import annotations
 
+import argparse
 import gc
 import os
 import sys
@@ -34,8 +36,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from rag_poc.chunker import split_file  # noqa: E402
 
 REPORT_DIR = Path("reports")
-SAMPLE_SIZE = 100  # files to chunk for embedding test
+DEFAULT_CORPUS = "./dof_md"
+SAMPLE_SIZE = 100  # default files to chunk for embedding test (round-1 value)
 SEED = 42
+
+MODELS = [
+    "perplexity-ai/pplx-embed-context-v1-0.6b",
+    "codefuse-ai/F2LLM-v2-1.7B",
+    "codefuse-ai/F2LLM-v2-0.6B",
+    "jinaai/jina-embeddings-v5-text-small",
+]
 
 
 def _iter_md_files(root: Path) -> list[Path]:
@@ -48,10 +58,10 @@ def _iter_md_files(root: Path) -> list[Path]:
     return files
 
 
-def _get_sample_chunks(n_files: int = SAMPLE_SIZE) -> list[str]:
+def _get_sample_chunks(corpus: Path, n_files: int = SAMPLE_SIZE) -> list[str]:
     """Get a sample of chunks from the corpus."""
     seed(SEED)
-    files = sorted(sample(sorted(_iter_md_files(Path("./dof_md"))), n_files))
+    files = sorted(sample(sorted(_iter_md_files(corpus)), n_files))
     chunks: list[str] = []
     for f in files:
         try:
@@ -148,11 +158,12 @@ def _run_model(model_name: str, chunks: list[str], device: str) -> dict:
     return results
 
 
-def _format_report(results: list[dict]) -> str:
+def _format_report(results: list[dict], corpus: str, sample_size: int) -> str:
     lines = [
         "# Comparación: modelos de embedding para DOF RAG",
         "",
-        f"Muestra: **{SAMPLE_SIZE}** archivos markdown de `./dof_md`",
+        f"Corpus: `{corpus}`",
+        f"Muestra: **{sample_size}** archivos markdown (seed {SEED})",
         f"Fecha: {time.strftime('%Y-%m-%d')}",
         "",
         "## Resumen general",
@@ -213,14 +224,28 @@ def _format_report(results: list[dict]) -> str:
 
 
 def main() -> int:
-    root = Path("./dof_md")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--corpus",
+        default=DEFAULT_CORPUS,
+        help=f"Raíz del corpus markdown (default: {DEFAULT_CORPUS})",
+    )
+    parser.add_argument(
+        "--sample-size",
+        type=int,
+        default=SAMPLE_SIZE,
+        help=f"Número de archivos a muestrear (default: {SAMPLE_SIZE})",
+    )
+    args = parser.parse_args()
+
+    root = Path(args.corpus)
     if not root.exists():
         print(f"ERROR: {root} does not exist", file=sys.stderr)
         return 1
 
     print("Getting sample chunks...")
-    chunks = _get_sample_chunks(SAMPLE_SIZE)
-    print(f"  {len(chunks):,} chunks from {SAMPLE_SIZE} files")
+    chunks = _get_sample_chunks(root, args.sample_size)
+    print(f"  {len(chunks):,} chunks from {args.sample_size} files")
 
     # Detect device
     import torch
@@ -228,21 +253,8 @@ def main() -> int:
     device = "mps" if torch.backends.mps.is_available() else "cpu"
     print(f"Using device: {device}")
 
-    models = [
-        "perplexity-ai/pplx-embed-context-v1-0.6b",
-        "perplexity-ai/pplx-embed-v1-0.6b",
-        "nvidia/Nemotron-3-Embed-1B-BF16",
-        "jinaai/jina-embeddings-v5-text-small",
-        "jinaai/jina-embeddings-v5-text-nano",
-        "Octen/Octen-Embedding-0.6B",
-        "codefuse-ai/F2LLM-v2-1.7B",
-        "microsoft/harrier-oss-v1-0.6b",
-        "Qwen/Qwen3-Embedding-0.6B",
-        "codefuse-ai/F2LLM-v2-0.6B",
-    ]
-
     results: list[dict] = []
-    for model_name in models:
+    for model_name in MODELS:
         print(f"\nRunning {model_name}...")
         r = _run_model(model_name, chunks, device)
         results.append(r)
@@ -257,7 +269,9 @@ def main() -> int:
 
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     report_path = REPORT_DIR / "embedding_comparison.md"
-    report_path.write_text(_format_report(results), encoding="utf-8")
+    report_path.write_text(
+        _format_report(results, args.corpus, args.sample_size), encoding="utf-8"
+    )
     print(f"\nReport written to {report_path}")
     return 0
 
