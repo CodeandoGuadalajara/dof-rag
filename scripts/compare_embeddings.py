@@ -235,6 +235,9 @@ def main() -> int:
         "jinaai/jina-embeddings-v5-text-small",
         "jinaai/jina-embeddings-v5-text-nano",
         "Octen/Octen-Embedding-0.6B",
+        "codefuse-ai/F2LLM-v2-1.7B",
+        "microsoft/harrier-oss-v1-0.6b",
+        "Qwen/Qwen3-Embedding-0.6B",
     ]
 
     results: list[dict] = []

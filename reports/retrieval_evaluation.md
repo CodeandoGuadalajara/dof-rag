@@ -13,6 +13,9 @@ Fecha: 2026-07-29
 | jinaai/jina-embeddings-v5-text-small | - | 0.410 | 0.560 | 0.580 | 0.464 | 0.492 |
 | jinaai/jina-embeddings-v5-text-nano | - | 0.380 | 0.530 | 0.570 | 0.443 | 0.474 |
 | Octen/Octen-Embedding-0.6B | - | 0.410 | 0.530 | 0.570 | 0.455 | 0.482 |
+| codefuse-ai/F2LLM-v2-1.7B | - | 0.500 | 0.620 | 0.640 | 0.542 | 0.566 |
+| microsoft/harrier-oss-v1-0.6b | - | 0.360 | 0.590 | 0.610 | 0.464 | 0.501 |
+| Qwen/Qwen3-Embedding-0.6B | - | 0.410 | 0.510 | 0.530 | 0.449 | 0.469 |
 
 ## Métricas por tipo de query
 
@@ -30,6 +33,12 @@ Fecha: 2026-07-29
 | jinaai/jina-embeddings-v5-text-nano | title | 0.140 | 0.160 | 0.160 |
 | Octen/Octen-Embedding-0.6B | first_words | 0.700 | 0.900 | 0.980 |
 | Octen/Octen-Embedding-0.6B | title | 0.120 | 0.160 | 0.160 |
+| codefuse-ai/F2LLM-v2-1.7B | title | 0.140 | 0.240 | 0.280 |
+| codefuse-ai/F2LLM-v2-1.7B | first_words | 0.860 | 1.000 | 1.000 |
+| microsoft/harrier-oss-v1-0.6b | title | 0.120 | 0.200 | 0.220 |
+| microsoft/harrier-oss-v1-0.6b | first_words | 0.600 | 0.980 | 1.000 |
+| Qwen/Qwen3-Embedding-0.6B | first_words | 0.720 | 0.920 | 0.960 |
+| Qwen/Qwen3-Embedding-0.6B | title | 0.100 | 0.100 | 0.100 |
 
 ## Notas
 
@@ -41,12 +50,15 @@ Fecha: 2026-07-29
 ## Conclusión provisional
 
 **Ranking por MRR:**
-1. **perplexity-ai/pplx-embed-v1-0.6b**: MRR=0.512, Recall@1=0.450, Recall@5=0.610
-2. **perplexity-ai/pplx-embed-context-v1-0.6b**: MRR=0.511, Recall@1=0.420, Recall@5=0.650
-3. **jinaai/jina-embeddings-v5-text-small**: MRR=0.464, Recall@1=0.410, Recall@5=0.560
-4. **Octen/Octen-Embedding-0.6B**: MRR=0.455, Recall@1=0.410, Recall@5=0.530
-5. **jinaai/jina-embeddings-v5-text-nano**: MRR=0.443, Recall@1=0.380, Recall@5=0.530
-6. **nvidia/Nemotron-3-Embed-1B-BF16**: MRR=0.359, Recall@1=0.300, Recall@5=0.440
+1. **codefuse-ai/F2LLM-v2-1.7B**: MRR=0.542, Recall@1=0.500, Recall@5=0.620
+2. **perplexity-ai/pplx-embed-v1-0.6b**: MRR=0.512, Recall@1=0.450, Recall@5=0.610
+3. **perplexity-ai/pplx-embed-context-v1-0.6b**: MRR=0.511, Recall@1=0.420, Recall@5=0.650
+4. **jinaai/jina-embeddings-v5-text-small**: MRR=0.464, Recall@1=0.410, Recall@5=0.560
+5. **microsoft/harrier-oss-v1-0.6b**: MRR=0.464, Recall@1=0.360, Recall@5=0.590
+6. **Octen/Octen-Embedding-0.6B**: MRR=0.455, Recall@1=0.410, Recall@5=0.530
+7. **Qwen/Qwen3-Embedding-0.6B**: MRR=0.449, Recall@1=0.410, Recall@5=0.510
+8. **jinaai/jina-embeddings-v5-text-nano**: MRR=0.443, Recall@1=0.380, Recall@5=0.530
+9. **nvidia/Nemotron-3-Embed-1B-BF16**: MRR=0.359, Recall@1=0.300, Recall@5=0.440
 
 ## Siguientes pasos
 
