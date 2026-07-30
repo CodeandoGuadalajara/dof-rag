@@ -7,6 +7,7 @@ Outputs a Markdown report to `reports/chunker_comparison.md`.
 """
 from __future__ import annotations
 
+import os
 import statistics
 import sys
 import time
@@ -66,9 +67,19 @@ SAMPLE_SIZE = 1_000
 SEED = 42
 
 
+def _iter_md_files(root: Path) -> list[Path]:
+    """Recursively list .md files, following directory symlinks."""
+    files: list[Path] = []
+    for dirpath, _dirnames, filenames in os.walk(root, followlinks=True):
+        for name in filenames:
+            if name.endswith(".md"):
+                files.append(Path(dirpath) / name)
+    return files
+
+
 def _sample_files(root: Path, n: int) -> list[Path]:
     seed(SEED)
-    all_files = list(root.rglob("*.md"))
+    all_files = sorted(_iter_md_files(root))
     if len(all_files) <= n:
         return all_files
     return sorted(sample(all_files, n))
