@@ -4,9 +4,14 @@ Run from repo root:
     python scripts/evaluate_retrieval.py
 
 For each embedding model:
-1. Embed a sample of document chunks
-2. Generate synthetic queries from document titles/headings
-3. Measure Recall@k, MRR, NDCG
+1. Embed a sample of document chunks once (full fp32).
+2. Evaluate retrieval quality on post-hoc variants:
+   - full fp32 (baseline)
+   - Matryoshka truncation to 768 dims (mrl_768)
+   - int8 scalar quantization
+   - binary (sign) quantization
+3. Generate synthetic queries from document titles/headings.
+4. Measure Recall@k, MRR, NDCG per variant.
 
 Outputs a Markdown report to `reports/retrieval_evaluation.md`.
 """
@@ -32,6 +37,10 @@ REPORT_DIR = Path("reports")
 SAMPLE_SIZE = 50  # files to use for retrieval evaluation
 SEED = 42
 TOP_K = [1, 5, 10]
+MRL_DIM = 768
+
+# Variants evaluated per model (post-hoc transforms of the same fp32 embeddings)
+VARIANTS = ["full_fp32", "mrl_768", "int8", "binary"]
 
 
 def _iter_md_files(root: Path) -> list[Path]:
@@ -54,9 +63,7 @@ def _get_documents(n_files: int = SAMPLE_SIZE) -> list[dict]:
             chunks = list(split_file(f))
             if not chunks:
                 continue
-            # Use filename as document ID
             doc_id = f.stem
-            # Extract title from first chunk or filename
             title = chunks[0].heading_path[0] if chunks[0].heading_path else doc_id
             docs.append({
                 "doc_id": doc_id,
@@ -73,13 +80,11 @@ def _create_queries(docs: list[dict]) -> list[dict]:
     """Create synthetic queries from document titles."""
     queries: list[dict] = []
     for doc in docs:
-        # Query 1: use the document title
         queries.append({
             "query": doc["title"],
             "expected_doc_id": doc["doc_id"],
             "query_type": "title",
         })
-        # Query 2: use first 20 words of first chunk (simulating a user query)
         first_words = " ".join(doc["chunks"][0].split()[:20])
         if len(first_words) > 10:
             queries.append({
@@ -92,9 +97,95 @@ def _create_queries(docs: list[dict]) -> list[dict]:
 
 def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """Compute cosine similarity between vectors."""
-    a_norm = a / np.linalg.norm(a, axis=1, keepdims=True)
-    b_norm = b / np.linalg.norm(b, axis=1, keepdims=True)
+    a = a.astype(np.float32)
+    b = b.astype(np.float32)
+    a_norm = a / (np.linalg.norm(a, axis=1, keepdims=True) + 1e-12)
+    b_norm = b / (np.linalg.norm(b, axis=1, keepdims=True) + 1e-12)
     return np.dot(a_norm, b_norm.T)
+
+
+def _apply_variant(emb: np.ndarray, variant: str) -> np.ndarray:
+    """Apply a post-hoc transform to embeddings."""
+    if variant == "full_fp32":
+        return emb.astype(np.float32)
+    if variant == "mrl_768":
+        if emb.shape[1] <= MRL_DIM:
+            return emb.astype(np.float32)
+        truncated = emb[:, :MRL_DIM].astype(np.float32)
+        norms = np.linalg.norm(truncated, axis=1, keepdims=True) + 1e-12
+        return truncated / norms
+    if variant == "int8":
+        # Per-vector absmax scalar quantization; cosine on the int grid
+        # (per-vector scale cancels under cosine normalization, leaving
+        # only the rounding error, which is what we want to measure).
+        scale = np.abs(emb).max(axis=1, keepdims=True) / 127.0 + 1e-12
+        q = np.round(emb / scale).clip(-127, 127)
+        return q.astype(np.float32)
+    if variant == "binary":
+        return np.sign(emb).astype(np.float32)
+    raise ValueError(f"unknown variant {variant}")
+
+
+def _bytes_per_vec(dims: int, variant: str) -> int:
+    if variant == "binary":
+        return dims // 8
+    if variant == "int8":
+        return dims
+    if variant == "mrl_768":
+        return min(dims, MRL_DIM) * 4
+    return dims * 4
+
+
+def _compute_metrics(
+    query_emb: np.ndarray,
+    chunk_emb: np.ndarray,
+    chunk_doc_ids: list[str],
+    queries: list[dict],
+) -> dict:
+    """Compute Recall@k, MRR, NDCG for a given embedding pair."""
+    similarities = _cosine_similarity(query_emb, chunk_emb)
+    recall_at_k: dict = defaultdict(float)
+    query_type_metrics: dict = defaultdict(lambda: defaultdict(float))
+    reciprocal_ranks: list[float] = []
+    dcg_scores: list[float] = []
+
+    for i, q in enumerate(queries):
+        expected_doc_id = q["expected_doc_id"]
+        query_type = q["query_type"]
+        sim_scores = similarities[i]
+        top_indices = np.argsort(sim_scores)[::-1][: max(TOP_K)]
+
+        rank = None
+        for r, idx in enumerate(top_indices, 1):
+            if chunk_doc_ids[idx] == expected_doc_id:
+                rank = r
+                break
+
+        for k in TOP_K:
+            if rank is not None and rank <= k:
+                recall_at_k[k] += 1
+                query_type_metrics[query_type][k] += 1
+
+        if rank is not None:
+            reciprocal_ranks.append(1.0 / rank)
+            dcg_scores.append(1.0 / np.log2(rank + 1))
+        else:
+            reciprocal_ranks.append(0.0)
+            dcg_scores.append(0.0)
+
+    for k in TOP_K:
+        recall_at_k[k] /= len(queries)
+    for qtype in query_type_metrics:
+        type_count = sum(1 for q in queries if q["query_type"] == qtype)
+        for k in TOP_K:
+            query_type_metrics[qtype][k] /= type_count
+
+    return {
+        "recall_at_k": dict(recall_at_k),
+        "mrr": float(np.mean(reciprocal_ranks)),
+        "ndcg": float(np.mean(dcg_scores)),
+        "query_type_metrics": {k: dict(v) for k, v in query_type_metrics.items()},
+    }
 
 
 def _evaluate_model(
@@ -103,7 +194,7 @@ def _evaluate_model(
     queries: list[dict],
     device: str,
 ) -> dict:
-    """Evaluate a single embedding model on retrieval quality."""
+    """Evaluate a single embedding model on retrieval quality across variants."""
     results: dict = {
         "model": model_name,
         "device": device,
@@ -111,16 +202,13 @@ def _evaluate_model(
         "queries": len(queries),
         "errors": 0,
         "elapsed_seconds": 0.0,
-        "recall_at_k": defaultdict(float),
-        "mrr": 0.0,
-        "ndcg": 0.0,
-        "query_type_metrics": defaultdict(lambda: defaultdict(float)),
+        "vector_dim": 0,
+        "variants": {},
     }
 
     try:
         from sentence_transformers import SentenceTransformer
 
-        # Load model
         model_kwargs = {}
         if "jina" in model_name.lower():
             model_kwargs["default_task"] = "retrieval"
@@ -131,7 +219,6 @@ def _evaluate_model(
             model_kwargs=model_kwargs,
         )
 
-        # Embed all chunks from all documents
         all_chunks: list[str] = []
         chunk_doc_ids: list[str] = []
         for doc in docs:
@@ -146,8 +233,8 @@ def _evaluate_model(
             show_progress_bar=False,
         )
         results["elapsed_seconds"] = time.perf_counter() - start_embed
+        results["vector_dim"] = int(chunk_embeddings.shape[1])
 
-        # Embed queries
         query_texts = [q["query"] for q in queries]
         if "jina" in model_name.lower():
             query_embeddings = model.encode(
@@ -163,56 +250,18 @@ def _evaluate_model(
                 show_progress_bar=False,
             )
 
-        # Compute similarities
-        similarities = _cosine_similarity(query_embeddings, chunk_embeddings)
+        for variant in VARIANTS:
+            # mrl_768 is a no-op for models already at or below MRL_DIM
+            if variant == "mrl_768" and results["vector_dim"] <= MRL_DIM:
+                continue
+            q_var = _apply_variant(query_embeddings, variant)
+            c_var = _apply_variant(chunk_embeddings, variant)
+            metrics = _compute_metrics(q_var, c_var, chunk_doc_ids, queries)
+            eff_dims = min(results["vector_dim"], MRL_DIM) if variant == "mrl_768" else results["vector_dim"]
+            metrics["bytes_per_vec"] = _bytes_per_vec(results["vector_dim"], variant)
+            metrics["eff_dims"] = eff_dims
+            results["variants"][variant] = metrics
 
-        # Evaluate each query
-        reciprocal_ranks: list[float] = []
-        dcg_scores: list[float] = []
-
-        for i, q in enumerate(queries):
-            expected_doc_id = q["expected_doc_id"]
-            query_type = q["query_type"]
-
-            # Get top-k chunk indices by similarity
-            sim_scores = similarities[i]
-            top_indices = np.argsort(sim_scores)[::-1][: max(TOP_K)]
-
-            # Find the rank of the first chunk from the expected document
-            rank = None
-            for r, idx in enumerate(top_indices, 1):
-                if chunk_doc_ids[idx] == expected_doc_id:
-                    rank = r
-                    break
-
-            # Compute metrics
-            for k in TOP_K:
-                if rank is not None and rank <= k:
-                    results["recall_at_k"][k] += 1
-                    results["query_type_metrics"][query_type][k] += 1
-
-            if rank is not None:
-                reciprocal_ranks.append(1.0 / rank)
-                # NDCG: binary relevance (1 if correct doc, 0 otherwise)
-                dcg = 1.0 / np.log2(rank + 1)
-                dcg_scores.append(dcg)
-            else:
-                reciprocal_ranks.append(0.0)
-                dcg_scores.append(0.0)
-
-        # Average metrics
-        results["mrr"] = float(np.mean(reciprocal_ranks))
-        results["ndcg"] = float(np.mean(dcg_scores))
-        for k in TOP_K:
-            results["recall_at_k"][k] /= len(queries)
-
-        # Per-query-type metrics
-        for qtype in results["query_type_metrics"]:
-            type_queries = [q for q in queries if q["query_type"] == qtype]
-            for k in TOP_K:
-                results["query_type_metrics"][qtype][k] /= len(type_queries)
-
-        # Cleanup
         del model
         gc.collect()
 
@@ -230,79 +279,74 @@ def _format_report(results: list[dict]) -> str:
         f"Muestra: **{SAMPLE_SIZE}** documentos markdown de `./dof_md`",
         f"Fecha: {time.strftime('%Y-%m-%d')}",
         "",
-        "## Resumen general",
+        "## Tabla maestra: modelo × variante",
         "",
-        "| Modelo | Dim | Recall@1 | Recall@5 | Recall@10 | MRR | NDCG |",
-        "|---|---|---|---|---|---|---|",
+        "Variantes post-hoc sobre los mismos embeddings fp32: `full_fp32` (baseline), "
+        "`mrl_768` (truncado Matryoshka a 768 dims), `int8` (cuantización escalar), "
+        "`binary` (signo, 1 bit/dim).",
+        "",
+        "| Modelo | Variante | Dims ef. | Bytes/vec | Recall@1 | Recall@5 | Recall@10 | MRR | NDCG |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for r in results:
         if r["errors"]:
+            lines.append(f"| {r['model']} | - | - | - | ERROR | - | - | - | - |")
+            continue
+        for variant in VARIANTS:
+            v = r["variants"].get(variant)
+            if v is None:
+                continue
             lines.append(
-                f"| {r['model']} | - | ERROR | - | - | - | - |"
-            )
-        else:
-            lines.append(
-                f"| {r['model']} | {r.get('vector_dim', '-')} | "
-                f"{r['recall_at_k'][1]:.3f} | {r['recall_at_k'][5]:.3f} | "
-                f"{r['recall_at_k'][10]:.3f} | {r['mrr']:.3f} | {r['ndcg']:.3f} |"
+                f"| {r['model']} | {variant} | {v['eff_dims']} | {v['bytes_per_vec']} | "
+                f"{v['recall_at_k'][1]:.3f} | {v['recall_at_k'][5]:.3f} | "
+                f"{v['recall_at_k'][10]:.3f} | {v['mrr']:.3f} | {v['ndcg']:.3f} |"
             )
 
-    lines.extend(
-        [
-            "",
-            "## Métricas por tipo de query",
-            "",
-            "| Modelo | Query type | Recall@1 | Recall@5 | Recall@10 |",
-            "|---|---|---|---|---|",
-        ]
-    )
+    lines.extend([
+        "",
+        "## Ranking por MRR (full fp32)",
+        "",
+    ])
+    valid = [(r["model"], r["variants"]["full_fp32"]) for r in results if not r["errors"] and "full_fp32" in r["variants"]]
+    valid.sort(key=lambda x: x[1]["mrr"], reverse=True)
+    for i, (name, v) in enumerate(valid, 1):
+        lines.append(
+            f"{i}. **{name}**: MRR={v['mrr']:.3f}, "
+            f"Recall@1={v['recall_at_k'][1]:.3f}, Recall@5={v['recall_at_k'][5]:.3f}"
+        )
+
+    lines.extend([
+        "",
+        "## Impacto de la cuantización (Δ MRR vs full fp32)",
+        "",
+        "| Modelo | int8 Δ | binary Δ | mrl_768 Δ |",
+        "|---|---|---|---|",
+    ])
     for r in results:
-        if not r["errors"]:
-            for qtype, metrics in r["query_type_metrics"].items():
-                lines.append(
-                    f"| {r['model']} | {qtype} | "
-                    f"{metrics[1]:.3f} | {metrics[5]:.3f} | {metrics[10]:.3f} |"
-                )
+        if r["errors"] or "full_fp32" not in r["variants"]:
+            continue
+        base = r["variants"]["full_fp32"]["mrr"]
+        def delta(variant: str) -> str:
+            v = r["variants"].get(variant)
+            if v is None:
+                return "-"
+            d = (v["mrr"] - base) * 100
+            return f"{d:+.1f} pts"
+        lines.append(
+            f"| {r['model']} | {delta('int8')} | {delta('binary')} | {delta('mrl_768')} |"
+        )
 
-    lines.extend(
-        [
-            "",
-            "## Notas",
-            "",
-            "- Las queries sintéticas se generan a partir de títulos de documentos y primeras palabras de chunks.",
-            "- Recall@k mide si el documento correcto aparece en los top-k chunks recuperados.",
-            "- MRR (Mean Reciprocal Rank) y NDCG son métricas estándar de ranking.",
-            "- Todos los modelos usan los mismos documentos y queries.",
-            "",
-            "## Conclusión provisional",
-            "",
-        ]
-    )
-
-    # Rank models by MRR
-    valid_results = [r for r in results if not r["errors"]]
-    if valid_results:
-        sorted_by_mrr = sorted(valid_results, key=lambda x: x["mrr"], reverse=True)
-        lines.append("**Ranking por MRR:**")
-        for i, r in enumerate(sorted_by_mrr, 1):
-            lines.append(
-                f"{i}. **{r['model']}**: MRR={r['mrr']:.3f}, "
-                f"Recall@1={r['recall_at_k'][1]:.3f}, "
-                f"Recall@5={r['recall_at_k'][5]:.3f}"
-            )
-        lines.append("")
-
-    lines.extend(
-        [
-            "## Siguientes pasos",
-            "",
-            "- Evaluar con queries reales de usuarios.",
-            "- Probar late chunking con pplx-embed-context-v1.",
-            "- Medir latencia de búsqueda vectorial con sqlite-vec.",
-            "- Optimizar hiperparámetros (top-k, umbral de similitud).",
-            "",
-        ]
-    )
+    lines.extend([
+        "",
+        "## Notas",
+        "",
+        "- Las queries sintéticas se generan a partir de títulos de documentos y primeras palabras de chunks.",
+        "- Recall@k mide si el documento correcto aparece en los top-k chunks recuperados.",
+        "- La cuantización int8 es escalar por-vector (absmax); la binaria es sign().",
+        "- `mrl_768` solo aplica a modelos con más de 768 dims nativas; jina-v5-text-nano (768 nativas) no tiene variante mrl.",
+        "- Muestra determinística (seed 42, archivos ordenados): reproducible en cualquier máquina.",
+        "",
+    ])
     return "\n".join(lines)
 
 
@@ -320,7 +364,6 @@ def main() -> int:
     queries = _create_queries(docs)
     print(f"  {len(queries)} queries")
 
-    # Detect device
     import torch
 
     device = "mps" if torch.backends.mps.is_available() else "cpu"
@@ -336,6 +379,7 @@ def main() -> int:
         "codefuse-ai/F2LLM-v2-1.7B",
         "microsoft/harrier-oss-v1-0.6b",
         "Qwen/Qwen3-Embedding-0.6B",
+        "codefuse-ai/F2LLM-v2-0.6B",
     ]
 
     results: list[dict] = []
@@ -346,10 +390,14 @@ def main() -> int:
         if r["errors"]:
             print(f"  ERROR: {r.get('error_message', 'unknown')}")
         else:
+            base = r["variants"]["full_fp32"]
             print(
-                f"  Recall@1={r['recall_at_k'][1]:.3f}, "
-                f"Recall@5={r['recall_at_k'][5]:.3f}, "
-                f"MRR={r['mrr']:.3f}"
+                f"  full: MRR={base['mrr']:.3f} R@1={base['recall_at_k'][1]:.3f} | "
+                + " | ".join(
+                    f"{v}: MRR={m['mrr']:.3f}"
+                    for v, m in r["variants"].items()
+                    if v != "full_fp32"
+                )
             )
 
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
