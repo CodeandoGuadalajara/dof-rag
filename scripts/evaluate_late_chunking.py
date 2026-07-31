@@ -272,6 +272,10 @@ def _format_report(
         "- Las queries se codifican de forma estándar en ambos brazos.",
         "- Solo fp32: la cuantización int8 se evalúa después si el delta lo justifica.",
         "- Muestra determinística (seed 42, archivos ordenados).",
+        "- Caveat de pareo: los documentos truncados (>32k tokens) aportan chunks al pool "
+        "`standard` pero no al pool `late_chunking`; las queries que los apuntan son "
+        "misses automáticos para late chunking. Documentos gigantes requieren late "
+        "chunking ventaneado (windowed) en una implementación de producción.",
         "",
     ])
     return "\n".join(lines)
