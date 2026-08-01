@@ -1,0 +1,19 @@
+{
+  "corpus": "/Users/jackbravo/Documents/jackbravo/dof_md-local",
+  "docs_requested": 500,
+  "docs_generated": 51,
+  "docs_error": 1,
+  "queries": 204,
+  "rejected_queries": 6,
+  "by_type": {
+    "paraphrase": 48,
+    "thematic": 50,
+    "factual": 102,
+    "article_specific": 4
+  },
+  "model": "deepseek-v4-flash-free",
+  "base_url": "https://opencode.ai/zen/v1",
+  "seed": 42,
+  "date": "2026-07-31",
+  "elapsed_seconds": 486.6
+}
