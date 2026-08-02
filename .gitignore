@@ -4,6 +4,7 @@ dof_markdown/
 dof_md/
 dof_failed/
 dof/
+dof_db/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -178,3 +179,7 @@ cython_debug/
 .pypirc
 .aider*
 .DS_Store
+
+# embedding caches (regenerable, ~100MB)
+eval/cache/*.npy
+logs/

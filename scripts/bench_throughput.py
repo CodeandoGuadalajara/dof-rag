@@ -4,7 +4,7 @@ Tests whether the round-1 speeds (batch=32, fp32) leave performance on
 the table for the final embedding job over ~6.5M chunks.
 
 Run from repo root:
-    uv run python scripts/bench_throughput.py [--model NAME] [--n-files 100]
+    uv run python scripts/bench_throughput.py [--model NAME] [--corpus PATH] [--n-files 100]
 """
 from __future__ import annotations
 
@@ -40,6 +40,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="codefuse-ai/F2LLM-v2-0.6B")
     parser.add_argument("--n-files", type=int, default=100)
+    parser.add_argument("--corpus", default="./dof_md")
     parser.add_argument("--batch-sizes", default="32,64,128,256")
     args = parser.parse_args()
 
@@ -47,7 +48,7 @@ def main() -> int:
     device = "mps" if torch.backends.mps.is_available() else "cpu"
     print(f"device: {device}")
 
-    chunks = _get_sample_chunks(Path("../dof_md-local"), args.n_files)
+    chunks = _get_sample_chunks(Path(args.corpus), args.n_files)
     print(f"{len(chunks):,} chunks from {args.n_files} files")
 
     from sentence_transformers import SentenceTransformer
@@ -64,7 +65,7 @@ def main() -> int:
         # warmup
         model.encode(["warmup"], convert_to_numpy=True, show_progress_bar=False)
         for bs in batch_sizes:
-            tps = bench(model, chunks, bs, n_batches=20)
+            tps = bench(model, chunks, bs, n_batches=10)
             print(f"  {dtype_name} batch={bs:4d}: {tps:6.2f} chunks/s")
         del model
         gc.collect()
@@ -76,8 +77,10 @@ def main() -> int:
     emb32 = None
     for dtype_name, dtype in [("fp32", None), ("fp16", torch.float16)]:
         kwargs = {"trust_remote_code": True, "device": device}
+        if "jina" in args.model.lower():
+            kwargs["model_kwargs"] = {"default_task": "retrieval"}
         if dtype is not None:
-            kwargs["model_kwargs"] = {"torch_dtype": dtype}
+            kwargs["model_kwargs"] = {**kwargs.get("model_kwargs", {}), "torch_dtype": dtype}
         model = SentenceTransformer(args.model, **kwargs)
         emb = model.encode(chunks[:8], convert_to_numpy=True, show_progress_bar=False)
         if emb32 is None:
