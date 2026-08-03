@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sqlite3
 import sys
 import time
@@ -29,13 +30,16 @@ from pathlib import Path
 
 from corpus_store.db import connect, init_fresh_db
 
-CORPUS_VERSION = "poc-10k-seed42"
+CORPUS_VERSION = "poc-10k-seed42"  # default; full builds pass --corpus-version
 BATCH_SIZE = 256
+
+SOURCE_RE = re.compile(r"^[a-z0-9_]+$")  # safe for dict_chooser group names
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS documents (
     document_id INTEGER PRIMARY KEY,
     path TEXT NOT NULL UNIQUE,
+    source TEXT NOT NULL DEFAULT 'dof',
     year INTEGER NOT NULL,
     publication_date TEXT,
     section TEXT,
@@ -44,6 +48,7 @@ CREATE TABLE IF NOT EXISTS documents (
     sha256 BLOB NOT NULL,
     corpus_version TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS documents_source_idx ON documents(source);
 CREATE INDEX IF NOT EXISTS documents_year_idx ON documents(year);
 CREATE INDEX IF NOT EXISTS documents_section_idx ON documents(section);
 
@@ -65,10 +70,13 @@ CREATE TABLE IF NOT EXISTS ingestion_log (
 );
 """
 
+# dict_chooser is source-aware so future sources (constitucion, state laws)
+# train their own dictionaries instead of diluting the DOF ones. Changing
+# the chooser expression is safe: decompression uses the stored dict ids.
 ENABLE_ZSTD = """SELECT zstd_enable_transparent('{{
     "table": "documents", "column": "markdown",
     "compression_level": {level},
-    "dict_chooser": "printf(''year_%d'', year)"
+    "dict_chooser": "printf(''%s_%d'', source, year)"
 }}')"""
 ENABLE_ZSTD_SEGMENTS = """SELECT zstd_enable_transparent('{{
     "table": "document_segments", "column": "segment_text",
@@ -84,8 +92,14 @@ def already_compressed(conn: sqlite3.Connection) -> bool:
 
 
 def ingest_batch(conn: sqlite3.Connection, corpus: Path, batch: list[dict],
-                 segment_threshold: int) -> tuple[int, int]:
-    """Insert one batch inside a single transaction. Returns (docs, bytes)."""
+                 segment_threshold: int, source: str = "dof",
+                 corpus_version: str = CORPUS_VERSION) -> tuple[int, int]:
+    """Insert one batch inside a single transaction. Returns (docs, bytes).
+
+    documents.path is namespaced per source: DOF keeps its historical
+    relpaths (1999/01/...); future sources must prefix their paths with
+    '<source>/' (e.g. 'constitucion/...') so path stays globally UNIQUE.
+    """
     n_docs = n_bytes = 0
     with conn:
         for rec in batch:
@@ -101,11 +115,11 @@ def ingest_batch(conn: sqlite3.Connection, corpus: Path, batch: list[dict],
             if size > segment_threshold:
                 # metadata row with empty text; content lives in segments
                 cur = conn.execute(
-                    "INSERT INTO documents (path, year, publication_date, section,"
+                    "INSERT INTO documents (path, source, year, publication_date, section,"
                     " markdown, byte_length, sha256, corpus_version)"
-                    " VALUES (?, ?, ?, ?, '', ?, ?, ?)",
-                    (rel, rec["year"], rec["publication_date"], rec["section"],
-                     size, digest, CORPUS_VERSION))
+                    " VALUES (?, ?, ?, ?, ?, '', ?, ?, ?)",
+                    (rel, source, rec["year"], rec["publication_date"], rec["section"],
+                     size, digest, corpus_version))
                 doc_id = cur.lastrowid
                 for i, start in enumerate(range(0, size, segment_threshold)):
                     seg = text[start:start + segment_threshold]
@@ -115,11 +129,11 @@ def ingest_batch(conn: sqlite3.Connection, corpus: Path, batch: list[dict],
                         (doc_id, i, start, start + len(seg), seg))
             else:
                 conn.execute(
-                    "INSERT INTO documents (path, year, publication_date, section,"
+                    "INSERT INTO documents (path, source, year, publication_date, section,"
                     " markdown, byte_length, sha256, corpus_version)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (rel, rec["year"], rec["publication_date"], rec["section"],
-                     text, size, digest, CORPUS_VERSION))
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (rel, source, rec["year"], rec["publication_date"], rec["section"],
+                     text, size, digest, corpus_version))
             n_docs += 1
             n_bytes += size
         conn.execute(
@@ -142,9 +156,20 @@ def main() -> None:
     ap.add_argument("--db", required=True)
     ap.add_argument("--level", type=int, default=3, choices=[3, 19])
     ap.add_argument("--segment-threshold", type=int, default=32 * 2**20)
+    ap.add_argument("--source", default="dof",
+                    help="corpus source id; recorded per row and used by the"
+                         " zstd dict_chooser (groups per source_year). Future"
+                         " sources must namespace their manifest relpaths as"
+                         " '<source>/...' to keep documents.path UNIQUE.")
+    ap.add_argument("--corpus-version", default=CORPUS_VERSION,
+                    help="recorded on every row and in corpus_meta")
     ap.add_argument("--max-docs", type=int, default=None,
                     help="ingest only the first N manifest docs (resume testing)")
     args = ap.parse_args()
+
+    if not SOURCE_RE.match(args.source):
+        sys.exit(f"--source must match {SOURCE_RE.pattern!r} "
+                 f"(it is used in zstd dict group names), got {args.source!r}")
 
     corpus = Path(args.corpus)
     db_path = Path(args.db)
@@ -159,7 +184,9 @@ def main() -> None:
         init_fresh_db(conn)
         conn.executescript(SCHEMA)
         conn.execute("INSERT INTO corpus_meta VALUES ('corpus_version', ?)",
-                     (CORPUS_VERSION,))
+                     (args.corpus_version,))
+        conn.execute("INSERT INTO corpus_meta VALUES ('source', ?)",
+                     (args.source,))
         conn.execute("INSERT INTO corpus_meta VALUES ('source_manifest', ?)",
                      (str(args.manifest),))
         conn.execute("INSERT INTO corpus_meta VALUES ('compression_level', ?)",
@@ -170,7 +197,8 @@ def main() -> None:
     total_docs = total_bytes = 0
     for i in range(0, len(manifest), BATCH_SIZE):
         d, b = ingest_batch(conn, corpus, manifest[i:i + BATCH_SIZE],
-                            args.segment_threshold)
+                            args.segment_threshold, args.source,
+                            args.corpus_version)
         total_docs += d
         total_bytes += b
         done = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
