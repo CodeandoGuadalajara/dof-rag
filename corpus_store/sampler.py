@@ -77,6 +77,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--corpus", default="../dof_md")
     ap.add_argument("--n", type=int, default=10_000)
+    ap.add_argument("--all", action="store_true",
+                    help="manifest the entire corpus (full build), not a sample")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--out", default="poc/data/manifest_10k.jsonl")
     args = ap.parse_args()
@@ -96,8 +98,8 @@ def main() -> None:
         print(f"WARN: {n_dataless:,} dataless (non-materialized) files in corpus", file=sys.stderr)
 
     rng = random.Random(args.seed)
-    sampled = rng.sample(entries, min(args.n, total))
-    sampled.sort()
+    sampled = entries if args.all else rng.sample(entries, min(args.n, total))
+    sampled = sorted(sampled)
 
     n_skipped = 0
     with out.open("w") as f:
