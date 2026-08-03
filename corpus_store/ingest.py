@@ -147,6 +147,71 @@ def enable_compression(conn: sqlite3.Connection, level: int) -> None:
     conn.execute(ENABLE_ZSTD.format(level=level))
     conn.execute(ENABLE_ZSTD_SEGMENTS.format(level=level))
     conn.commit()
+    # The maintenance todo query GROUPs BY the dict_chooser expression over
+    # all uncompressed rows; without this index SQLite spills the whole
+    # uncompressed corpus to a temp b-tree (26+ GiB at full scale — fills
+    # the disk, SQLITE_FULL). The expression must match dict_chooser.
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS _group_dict_idx ON _documents_zstd"
+        "(_markdown_dict, printf('%s_%d', source, year))")
+    conn.commit()
+
+
+def pretrain_dicts(conn: sqlite3.Connection, source: str = "dof",
+                   max_sample_bytes: int = int(1.8 * 2**30)) -> None:
+    """Train per-source-year dicts via the year index, before maintenance.
+
+    The extension's own training path runs one unindexed query per chooser
+    group (full-table scan each), and reservoir-samples ALL rows of groups
+    larger than ~2 GiB, which exceeds ZDICT's 2 GB sample limit (the 2011
+    group is 2.35 GiB). Indexed per-year queries with a reservoir cap avoid
+    both. Idempotent: skips chooser keys that already have a dict. Mirrors
+    the extension defaults: dict target = 1% of group bytes (min 5000).
+    """
+    groups = conn.execute(
+        "SELECT year, COUNT(*), SUM(byte_length) FROM documents"
+        " WHERE source = ? GROUP BY year", (source,)).fetchall()
+    for year, count, total in groups:
+        key = f"{source}_{year}"
+        if conn.execute("SELECT 1 FROM _zstd_dicts WHERE chooser_key = ?",
+                        (key,)).fetchone():
+            continue
+        avg = total / count
+        dict_target = max(int(0.01 * total), 5000)
+        samples = min(count, int(max_sample_bytes / avg))
+        t0 = time.time()
+        conn.execute(
+            "SELECT zstd_train_dict_and_save(markdown, ?, ?, ?)"
+            " FROM documents WHERE year = ? AND source = ?",
+            (dict_target, float(samples), key, year, source)).fetchone()
+        conn.commit()
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        print(f"  trained {key}: target={dict_target} samples={samples}"
+              f" ({time.time() - t0:.0f}s)", flush=True)
+
+
+def run_maintenance(conn: sqlite3.Connection, pass_seconds: int = 1800,
+                    max_passes: int = 24) -> None:
+    """Dict training + recompression until done, checkpointing between passes.
+
+    One long call risks a giant WAL (disk-full on the full corpus) and loses
+    all progress on failure; bounded passes with wal_checkpoint(TRUNCATE)
+    keep peak disk use low and every pass resumable. The function returns 0
+    when no work remains.
+    """
+    for i in range(max_passes):
+        t0 = time.time()
+        remaining = conn.execute(
+            f"SELECT zstd_incremental_maintenance({pass_seconds}, 1.0)"
+        ).fetchone()[0]
+        conn.commit()
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        print(f"  maintenance pass {i + 1}: {time.time() - t0:.0f}s, "
+              f"remaining={remaining}", flush=True)
+        if not remaining:
+            return
+    print(f"WARN: maintenance not finished after {max_passes} passes; "
+          "re-run to continue", file=sys.stderr)
 
 
 def main() -> None:
@@ -214,17 +279,16 @@ def main() -> None:
         t1 = time.time()
         enable_compression(conn, args.level)
         print(f"  compression enabled in {time.time() - t1:.0f}s")
-        print("Running incremental maintenance (dict training + recompression)...")
+        pretrain_dicts(conn, args.source)
+        print("Running incremental maintenance (recompression)...")
         t2 = time.time()
-        rows = conn.execute("SELECT zstd_incremental_maintenance(3600, 1.0)").fetchall()
-        conn.commit()
-        print(f"  maintenance in {time.time() - t2:.0f}s: {rows}")
+        run_maintenance(conn)
+        print(f"  maintenance in {time.time() - t2:.0f}s")
     else:
         print("Database already compressed; running maintenance on new rows...")
         conn.commit()
-        rows = conn.execute("SELECT zstd_incremental_maintenance(3600, 1.0)").fetchall()
-        conn.commit()
-        print(f"  maintenance: {rows}")
+        pretrain_dicts(conn, args.source)
+        run_maintenance(conn)
 
     print(f"DB file size: {db_path.stat().st_size / 2**20:.1f} MiB")
     conn.close()
