@@ -95,15 +95,62 @@ from the real extension):
 TurboQuant4 is quality-equivalent to fp32 after fusion and beats the
 validated sqlite-vec binary fallback, at 7.8x smaller storage.
 
-## Full-corpus storage extrapolation (31.47 GiB, ~5.1M chunks)
+## Full-corpus storage extrapolation (31.47 GiB, ~6.67M chunks)
+
+The PoC measured 10.1 chunks/doc, so the full corpus yields ~6.6–6.7M
+chunks — more than the ~5.1M the architecture doc originally estimated.
+Per-doc extrapolations (corpus, FTS, chunk store) are unchanged; per-chunk
+figures (vectors) scale up accordingly.
 
 | Component | Estimate | Basis |
 |---|---:|---|
 | Compressed corpus (L3 / L19) | 2.9 / 2.3 GiB | 10.92x / 13.51x |
 | Doc-level FTS5 | ~2.8 GiB | 0.09x text |
 | Chunk metadata + recipes | ~2.8 GiB | 43 MiB per 10k docs |
-| TurboQuant4 vectors | ~2.5 GiB | 524 B/vec |
-| **Total** | **~11 GiB** | fits comfortably in 19 GiB free |
+| **Binary (sign) vectors (decided)** | **~0.85 GiB** | 128 B/vec |
+| TurboQuant4 vectors (upgrade path) | ~3.5 GiB | 524 B/vec |
+| fp32 vectors (rejected) | ~27 GiB | 4 KiB/vec — does not fit |
+| **Total (binary)** | **~9.4 GiB** | fits comfortably in 19 GiB free |
+
+## Post-PoC decisions
+
+### Vector store: binary (sign) quantization, not TurboQuant
+
+Decided after the PoC, before the full-corpus build. `sign()` runs in the
+embedding pipeline on the in-memory fp32 vector; only the packed 128-byte
+blob touches disk.
+
+- Hybrid MRR 0.649–0.650 (binary) vs 0.656 (turbo4/fp32) — ~1 point, and
+  binary was already the validated production config.
+- No separate quantization step; sidesteps the fp32 disk problem entirely
+  (sqlite-vector's `vector_quantize` requires stored fp32 blobs as input).
+- Hamming scan (XOR + popcount) is the fastest exact scan; works with
+  sqlite-vec `bit[1024]` (already a dependency, MIT) or sqlite-vector
+  1Bit mode — pilot picks whichever needs less new code.
+- TurboQuant4 stays as the documented quality upgrade path if disk
+  headroom improves; `poc_turboquant_recall.py` +
+  `poc_hybrid_turboquant.py` make re-validation cheap. A two-stage
+  binary-scan + int8-rerank is a possible future option.
+
+Embedding config locked in `vector_meta`: jina-v5-text-small via llama.cpp
+GGUF f16 (`~/dof-gguf/jina-v5-small-retrieval-F16.gguf`), explicit
+"Document: "/"Query: " prefixes (silently degrades to cosine 0.958 vs
+0.9999 without them), sign packing `np.packbits(emb >= 0)` big-endian.
+The run checkpoints by contiguous `chunk_id` ranges and refuses to resume
+with a mismatched config.
+
+### Multi-source schema prep (landed before the full build)
+
+- `documents.source TEXT NOT NULL DEFAULT 'dof'` — the compressed schema
+  is migrate-by-rebuild, so this had to go in first.
+- zstd `dict_chooser` is source-aware (`printf('%s_%d', source, year)`),
+  e.g. `dof_1999`; future sources train their own dictionaries.
+- `documents.path` namespaced per source (DOF keeps historical relpaths;
+  future sources prefix `<source>/`).
+- Everything else for multi-source is incremental: per-source chunkers
+  use the existing `chunker_version` mechanism; per-source eval is needed
+  because BM25 IDF and vector candidate statistics change when sources
+  mix.
 
 ## Engineering notes (gotchas worth keeping)
 
@@ -140,9 +187,15 @@ validated sqlite-vec binary fallback, at 7.8x smaller storage.
 
 ## Next steps
 
-1. Full-corpus build (657,867 docs): ~6 min/10k docs ingestion +
+1. Binary vector-store pilot (~100k chunks): real on-disk size, hamming
+   scan latency, spot MRR — gates the full build.
+2. Full-corpus build (657,867 docs): ~6 min/10k docs ingestion +
   chunking pipeline; embeddings via llama.cpp GGUF f16 (~14 days at
-  5.42 chunks/s) with explicit "Document: "/"Query: " prefixes.
-2. PostgreSQL + pgvector prototype only if limited-production
+  5.42 chunks/s) with explicit "Document: "/"Query: " prefixes,
+  resumable by chunk_id ranges.
+3. Eval on the full corpus: the 499-doc / 3,023-query set becomes a much
+   harder retrieval test (MRR will drop vs the 499-doc subset — that's
+   signal, not regression); compare BM25 vs vectors vs hybrid α=0.5.
+4. PostgreSQL + pgvector prototype only if limited-production
   concurrency is confirmed (see architecture doc).
-3. Blog post on the PoC results (dof-rag-website).
+5. Blog post on the PoC results (dof-rag-website).

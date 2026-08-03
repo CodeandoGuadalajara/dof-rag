@@ -9,9 +9,11 @@ The active text corpus contains approximately:
 
 - 657,867 Markdown files
 - 31.47 GiB of Markdown
-- ~5.1 million expected chunks at the current 800-token configuration
+- ~6.6–6.7 million expected chunks at the current 800-token configuration
+  (the PoC measured 10.1 chunks/doc on 10k documents, more than the ~5.1M
+  originally estimated)
 
-A 1,024-dimensional float32 vector index for all chunks would require approximately 20.8 GiB before database and index overhead. Storing another copy of every chunk's text would add roughly 33–40 GiB, making the combined source/chunk/vector layout difficult to maintain on a 460 GiB MacBook disk.
+A 1,024-dimensional float32 vector index for all chunks would require approximately 27 GiB before database and index overhead — this does not fit the disk budget, so the production build uses binary (sign) quantization instead (see "Vector store"). Storing another copy of every chunk's text would add roughly 33–40 GiB, making the combined source/chunk/vector layout difficult to maintain on a 460 GiB MacBook disk.
 
 The architecture should store document text once, avoid duplicated chunk text, and keep vector indexes reproducible from versioned corpus metadata.
 
@@ -78,6 +80,7 @@ Illustrative schema:
 CREATE TABLE documents (
     document_id INTEGER PRIMARY KEY,
     path TEXT NOT NULL UNIQUE,
+    source TEXT NOT NULL DEFAULT 'dof',
     year INTEGER NOT NULL,
     publication_date TEXT,
     section TEXT,
@@ -87,15 +90,49 @@ CREATE TABLE documents (
     corpus_version TEXT NOT NULL
 );
 
+CREATE INDEX documents_source_idx ON documents(source);
 CREATE INDEX documents_year_idx ON documents(year);
 CREATE INDEX documents_section_idx ON documents(section);
 ```
 
+`source` identifies the corpus a document belongs to (`'dof'` for the
+current corpus; future sources such as the federal constitution or state
+laws get their own ids). Because the compressed schema is
+migrate-by-rebuild, this column had to land before the full-corpus build.
+`documents.path` is namespaced per source: DOF keeps its historical
+relpaths (`1999/01/...`), and future sources must prefix their paths with
+`'<source>/'` (e.g. `constitucion/...`) so `path` stays globally UNIQUE
+and idempotent-by-path resume keeps working.
+
 Enable transparent compression on `documents.markdown`. Start with level 3 and benchmark level 19 afterward; level 3 may provide most of the savings with much lower ingestion cost.
 
-Use dictionary groups that reflect corpus structure, such as year and optionally document-size class. Validate the exact `dict_chooser` expression during the proof of concept.
+The zstd `dict_chooser` is source-aware — `printf('%s_%d', source, year)` —
+so each source trains its own per-year dictionaries instead of diluting the
+DOF ones. Changing the chooser expression between builds is safe because
+decompression resolves dictionaries by the stored dict id, not by the
+expression.
 
 Documents above a configurable threshold, initially 32 MiB uncompressed, should be segmented rather than stored as one very large compressed row. Segment metadata should preserve ordering and byte offsets.
+
+## Multi-source readiness
+
+Adding non-DOF sources (federal constitution, state laws, regulations) is
+incremental on top of this architecture, with two deliberate constraints:
+
+- **Per-source chunkers use the existing `chunker_version` mechanism.** A
+  constitution chunker (article-aware) or a state-law chunker registers a
+  new `chunker_version` and coexists with `dof-chunker-v1` chunks in the
+  same chunk store (`UNIQUE(document_id, chunk_index, chunker_version)`).
+  Span recipes already reference normalized text per chunker, so no schema
+  change is needed.
+- **Per-source evaluation is required before mixing.** BM25 IDF statistics
+  and vector-candidate distributions change when sources with different
+  vocabulary and document sizes share one index, so each source needs its
+  own eval slice plus a mixed-corpus eval before fusion weights (α) tuned
+  on DOF-only data are trusted.
+
+The `documents.source` column and source-aware zstd dictionaries (above)
+are the only schema-level changes; everything else is additive.
 
 ## Chunk store
 
@@ -150,25 +187,49 @@ The proof of concept must validate this interaction explicitly. In particular, t
 
 ## Vector store
 
-Use [sqliteai/sqlite-vector](https://github.com/sqliteai/sqlite-vector) for the next SQLite proof of concept, but keep it in a separate database from the compressed corpus. It is actively maintained, provides macOS ARM binaries, stores vectors as ordinary `BLOB` columns, and supports SIMD exact scans plus 2-, 3-, and 4-bit TurboQuant scans. Test loading sqlite-zstd and sqlite-vector in the same Python process even if the databases remain separate.
+**Decision (post-PoC): the full-corpus build stores jina binary (sign)
+embeddings.** `sign()` runs inside the embedding pipeline on the in-memory
+fp32 vector returned by llama.cpp and only the packed 128-byte blob
+(1,024 dims / 8) touches disk — no fp32 vectors are stored and no separate
+quantization pass is needed. Rationale:
 
-TurboQuant is a scan rather than an HNSW/IVF preindex. For approximately 5.1 million 1,024-dimensional vectors, 4-bit TurboQuant should require roughly 2.7 GiB before database overhead. Based on the upstream 1-million-vector macOS ARM benchmark, a full-corpus scan may take on the order of one second when preloaded. That is acceptable for initial limited-user workloads if recall is validated; otherwise use an ANN engine.
+- Hybrid MRR is 0.649–0.650 for binary vs 0.656 for TurboQuant4/fp32
+  (~1 point; binary was already the validated production fallback).
+- fp32 storage does not fit: ~6.67M chunks × 4 KiB ≈ 27 GiB.
+- sqlite-vector's `vector_quantize` (TurboQuant) requires stored fp32
+  blobs as input, so TurboQuant cannot avoid the fp32 disk problem either.
+- Hamming scan (XOR + popcount) is the fastest exact scan option and works
+  with sqlite-vec `bit[1024]` tables (`vec_bit()`, already a dependency)
+  or sqlite-vector 1Bit mode.
 
-The extension uses a modified Elastic License 2.0. This repository is MIT-licensed, which appears to satisfy the open-source grant, but production or managed-service use should be reviewed before deployment.
+Expected store size: ~6.67M × 128 B ≈ **0.85 GiB** plus row overhead.
 
-For larger or latency-sensitive indexes, evaluate LanceDB IVF-PQ, FAISS IVF-PQ, or PostgreSQL pgvector. A quantized 1,024-dimensional index should be much smaller than the ~20.8 GiB raw float32 matrix. Build only one full production model index; continue evaluating alternative models on sampled subsets.
+TurboQuant4 remains the documented quality upgrade path if disk headroom
+improves (e.g. offloading fp32 to external storage during the build, or a
+two-stage binary-scan + int8/fp32-rerank design). The recall and hybrid
+harnesses (`scripts/poc_turboquant_recall.py`,
+`scripts/poc_hybrid_turboquant.py`) make re-validation cheap.
+
+For larger or latency-sensitive deployments, evaluate LanceDB IVF-PQ, FAISS IVF-PQ, or PostgreSQL pgvector (which also supports binary quantization with reranking). Build only one full production model index; continue evaluating alternative models on sampled subsets.
+
+The extension licenses still need review before production deployment:
+sqlite-vector uses a modified Elastic License 2.0 (this repository is
+MIT-licensed, which appears to satisfy the open-source grant) and
+sqlite-zstd is LGPL-3.0. sqlite-vec is MIT. Neither blocks the local build.
 
 ## Estimated storage
 
-Approximate full-corpus targets:
+Approximate full-corpus targets (updated with the PoC's 10.1 chunks/doc
+measurement, i.e. ~6.67M chunks):
 
 | Component | Target |
 |---|---:|
-| Compressed Markdown corpus | 2–8 GiB |
-| Chunk metadata and offsets | 1–2 GiB |
-| sqlite-vec float32 index | 25–30 GiB |
-| sqlite-vector TurboQuant4 scan | 3–6 GiB |
-| Quantized ANN index | 1–8 GiB |
+| Compressed Markdown corpus | 2.3–2.9 GiB |
+| Doc-level FTS5 | ~2.8 GiB |
+| Chunk metadata and span recipes | ~2.8 GiB |
+| Binary (sign) vector store, 128 B/vec | ~0.85 GiB |
+| TurboQuant4 upgrade path, 524 B/vec | ~3.5 GiB |
+| fp32 vectors (rejected: does not fit) | ~27 GiB |
 | Model caches | ~10 GiB |
 
 The raw Google Drive corpus may consume another ~60 GiB if fully pinned. Derived databases must remain on local APFS storage, not inside Google Drive.
@@ -240,5 +301,8 @@ Measure both sqlite-zstd level 3 and level 19. If level 19 adds little compressi
 - Keep `.bak` files and media assets out of the initial text corpus.
 - Do not store full chunk text unless a later benchmark proves that query-time reconstruction is a bottleneck.
 - Batch inserts, checkpoint the WAL regularly, and run `VACUUM` only after major ingestion phases.
-- Record corpus version, document hashes, chunker version, model ID, dimensions, and quantization settings.
+- Record corpus version, document hashes, chunker version, model ID, dimensions, quantization settings, and embedding prefixes (`Document: `/`Query: ` — required by jina via llama.cpp).
 - Keep only one full production vector index until disk headroom improves.
+- The embedding run must be resumable from the start: checkpoint by
+  contiguous `chunk_id` ranges, batch inserts in single transactions, and
+  refuse to resume with a mismatched model/prefix/packing config.
