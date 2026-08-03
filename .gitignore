@@ -183,3 +183,8 @@ cython_debug/
 # embedding caches (regenerable, ~100MB)
 eval/cache/*.npy
 logs/
+
+# PoC local artifacts
+poc/extensions/
+poc/data/*.sqlite*
+poc/data/*.db
