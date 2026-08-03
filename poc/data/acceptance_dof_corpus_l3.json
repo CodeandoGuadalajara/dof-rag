@@ -1,0 +1,38 @@
+{
+  "db": "poc/data/dof_corpus_l3.sqlite",
+  "checks": {
+    "compression": {
+      "source_bytes": 503111202,
+      "db_file_bytes": 46071808,
+      "ratio": 10.920153209528916
+    },
+    "roundtrip": {
+      "docs_ok": 10000,
+      "segmented_docs": 1,
+      "failures": [],
+      "seconds": 1.1303880214691162
+    },
+    "read_latency_ms": {
+      "n": 500,
+      "p50": 0.010374526027590036,
+      "p95": 0.1545622129924593,
+      "max": 1.2667499831877649
+    },
+    "fts": {
+      "build_seconds": 4.0296409130096436,
+      "fts_bytes": 45273088,
+      "fts_ratio_of_text": 0.08998624522774987,
+      "bm25_queries_return_hits": true,
+      "snippet_sample": "...a la [Declaraci\u00f3n] Especial de Ausencia para Personas..."
+    },
+    "vacuum": {
+      "before_bytes": 91344896,
+      "after_bytes": 91406336
+    }
+  },
+  "corpus_meta": {
+    "corpus_version": "poc-10k-seed42",
+    "source_manifest": "poc/data/manifest_10k.jsonl",
+    "compression_level": "3"
+  }
+}
