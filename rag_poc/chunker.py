@@ -106,10 +106,14 @@ def classify(text: str, size_bytes: int) -> DocPattern:
 def split_file(md_path: Path) -> list[Chunk]:
     """Classify a markdown file and split it into chunks."""
     text = md_path.read_text(encoding="utf-8", errors="replace")
-    text = _inline_image_descriptions(text)
     size = md_path.stat().st_size
-    doc_id = md_path.stem
-    pattern = classify(text, size)
+    return split_text(text, size, md_path.stem)
+
+
+def split_text(raw_text: str, size_bytes: int, doc_id: str) -> list[Chunk]:
+    """Split in-memory markdown text (same behavior as split_file)."""
+    text = _inline_image_descriptions(raw_text)
+    pattern = classify(text, size_bytes)
 
     match pattern:
         case DocPattern.SMALL:

@@ -1,0 +1,61 @@
+{
+  "full_scan": {
+    "recall@10_vs_numpy": 0.9918,
+    "recall@50_vs_numpy": 0.99688,
+    "latency_ms": {
+      "p50": 8.694624993950129,
+      "p95": 8.992167309042998,
+      "mean": 8.886413171305321
+    },
+    "recall@10_vs_full_scan": 1.0,
+    "recall@50_vs_full_scan": 1.0
+  },
+  "turbo2": {
+    "quantized_bytes": 2161420,
+    "recall@10_vs_numpy": 0.8658000000000002,
+    "recall@50_vs_numpy": 0.8895200000000001,
+    "latency_ms": {
+      "p50": 0.8067294838838279,
+      "p95": 0.8277413406176493,
+      "mean": 0.8088640875648707
+    },
+    "recall@10_vs_full_scan": 0.8656000000000001,
+    "recall@50_vs_full_scan": 0.88944
+  },
+  "turbo3": {
+    "quantized_bytes": 3193740,
+    "recall@10_vs_numpy": 0.9236000000000001,
+    "recall@50_vs_numpy": 0.939,
+    "latency_ms": {
+      "p50": 3.770666487980634,
+      "p95": 3.814114921260625,
+      "mean": 3.7754923378815874
+    },
+    "recall@10_vs_full_scan": 0.9240000000000002,
+    "recall@50_vs_full_scan": 0.93908,
+    "recall@10_all_queries": 0.9251736685411843,
+    "recall@50_all_queries": 0.9388752894475686
+  },
+  "turbo4": {
+    "quantized_bytes": 4226060,
+    "recall@10_vs_numpy": 0.9526000000000001,
+    "recall@50_vs_numpy": 0.96596,
+    "latency_ms": {
+      "p50": 2.0653544925153255,
+      "p95": 2.124231588095426,
+      "mean": 2.0687665262958035
+    },
+    "recall@10_vs_full_scan": 0.9532,
+    "recall@50_vs_full_scan": 0.9659200000000001,
+    "recall@10_all_queries": 0.9547800198478333,
+    "recall@50_all_queries": 0.9657757194839565
+  },
+  "_meta": {
+    "model": "jinaai_jina_embeddings_v5_text_small",
+    "n_chunks": 8065,
+    "n_queries": 3023,
+    "depth": 50,
+    "subset_size": 500,
+    "db_bytes": 41422848
+  }
+}
