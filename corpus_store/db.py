@@ -22,6 +22,19 @@ def connect(db_path: str | Path, *, vector: bool = False) -> sqlite3.Connection:
     return conn
 
 
+def fetch_document_text(conn: sqlite3.Connection, doc_id: int) -> str:
+    """Document text, reassembling segmented oversized documents."""
+    text = conn.execute(
+        "SELECT markdown FROM documents WHERE document_id = ?", (doc_id,)
+    ).fetchone()[0]
+    if text:
+        return text
+    segs = conn.execute(
+        "SELECT segment_text FROM document_segments WHERE document_id = ?"
+        " ORDER BY segment_index", (doc_id,)).fetchall()
+    return "".join(s[0] for s in segs)
+
+
 def init_fresh_db(conn: sqlite3.Connection) -> None:
     """Pragmas that must be set before any table is created."""
     conn.execute("PRAGMA auto_vacuum = FULL")  # must precede WAL and any table
