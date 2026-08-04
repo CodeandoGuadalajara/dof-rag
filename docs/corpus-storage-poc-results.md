@@ -187,12 +187,10 @@ with a mismatched config.
 
 ## Next steps
 
-1. Binary vector-store pilot (~100k chunks): real on-disk size, hamming
-   scan latency, spot MRR — gates the full build.
-2. Full-corpus build (657,867 docs): ~6 min/10k docs ingestion +
-  chunking pipeline; embeddings via llama.cpp GGUF f16 (~14 days at
-  5.42 chunks/s) with explicit "Document: "/"Query: " prefixes,
-  resumable by chunk_id ranges.
+1. ~~Binary vector-store pilot~~ — passed; see `docs/full-corpus-build.md`.
+2. Full-corpus build (657,867 docs): corpus store done (3.52 GiB),
+   chunk store and ~14-day embedding run tracked in
+   `docs/full-corpus-build.md`.
 3. Eval on the full corpus: the 499-doc / 3,023-query set becomes a much
    harder retrieval test (MRR will drop vs the 499-doc subset — that's
    signal, not regression); compare BM25 vs vectors vs hybrid α=0.5.
