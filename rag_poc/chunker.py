@@ -72,6 +72,27 @@ def _count_tokens(text: str) -> int:
     return len(_tokenizer.encode(text, add_special_tokens=False))
 
 
+def _count_tokens_batch(texts: list[str]) -> list[int]:
+    """Token counts for many strings in one Rust call.
+
+    Same values as _count_tokens per item (verified), without the per-call
+    Python overhead — hot loops (table rows, paragraphs) call this once
+    instead of tokenizing per iteration. Uses the inner tokenizers-lib
+    tokenizer directly: the model's custom wrapper does not expose
+    encode_batch at the Python level.
+    """
+    if _tokenizer is None:
+        return [_count_tokens(t) for t in texts]
+    inner = getattr(_tokenizer, "_tokenizer", None)
+    if inner is None or not hasattr(inner, "encode_batch"):
+        return [_count_tokens(t) for t in texts]
+    try:
+        return [len(e) for e in inner.encode_batch(
+            texts, add_special_tokens=False)]
+    except Exception:
+        return [_count_tokens(t) for t in texts]
+
+
 # ── Classifier ───────────────────────────────────────────────────────────
 def classify(text: str, size_bytes: int) -> DocPattern:
     # Size threshold tuned for the real tokenizer: 6 KB of markdown legal
@@ -356,19 +377,24 @@ def _split_by_heading(text: str, heading_re: re.Pattern) -> list[tuple[str, str]
 def _split_by_tokens(text: str, max_tokens: int, overlap: int) -> list[str]:
     """Split por párrafos respetando límite de tokens, con overlap."""
     paragraphs = re.split(r"\n{2,}", text)
-    # If a single paragraph is huge, split by single newlines first
+    # If a single paragraph is huge, split by single newlines first.
+    # Batch the counts (same values, one Rust call) and memoize them: the
+    # merge loop and the overlap recomputation recount the same strings.
+    para_counts = _count_tokens_batch(paragraphs)
     expanded: list[str] = []
-    for para in paragraphs:
-        if _count_tokens(para) > max_tokens:
+    for para, n in zip(paragraphs, para_counts):
+        if n > max_tokens:
             lines = para.splitlines()
             expanded.extend(lines)
         else:
             expanded.append(para)
     paragraphs = [p for p in expanded if p.strip()]
+    known: dict[str, int] = dict(zip(
+        paragraphs, _count_tokens_batch(paragraphs)))
 
     chunks, current, current_tokens = [], [], 0
     for para in paragraphs:
-        para_tokens = _count_tokens(para)
+        para_tokens = known[para]
         # If even a single line is too big, force-split by chars
         if para_tokens > max_tokens:
             forced = _force_split(para, max_tokens)
@@ -378,7 +404,7 @@ def _split_by_tokens(text: str, max_tokens: int, overlap: int) -> list[str]:
                     chunks.append("\n".join(current))
                     overlap_paras, overlap_count = [], 0
                     for p in reversed(current):
-                        t = _count_tokens(p)
+                        t = known.get(p) or _count_tokens(p)
                         if overlap_count + t > overlap:
                             break
                         overlap_paras.insert(0, p)
@@ -393,7 +419,7 @@ def _split_by_tokens(text: str, max_tokens: int, overlap: int) -> list[str]:
             chunks.append("\n\n".join(current))
             overlap_paras, overlap_count = [], 0
             for p in reversed(current):
-                t = _count_tokens(p)
+                t = known.get(p) or _count_tokens(p)
                 if overlap_count + t > overlap:
                     break
                 overlap_paras.insert(0, p)
@@ -445,12 +471,13 @@ def _merge_and_chunk(
     chunks: list[Chunk] = []
     current: list[str] = []
     current_tokens = 0
-    for part in parts:
-        part = part.strip()
+    stripped = [p.strip() for p in parts]
+    part_counts = dict(zip(stripped, _count_tokens_batch(stripped)))
+    for part in stripped:
         if not part:
             continue
         # If a single part is huge, flush current first, then split it
-        if _count_tokens(part) > MAX_TOKENS:
+        if part_counts[part] > MAX_TOKENS:
             if current:
                 text = "\n\n".join(current)
                 chunks.append(
@@ -475,7 +502,7 @@ def _merge_and_chunk(
                     )
                 )
             continue
-        t = _count_tokens(part)
+        t = part_counts[part]
         if current_tokens + t > MAX_TOKENS and current:
             text = "\n\n".join(current)
             chunks.append(
@@ -524,7 +551,32 @@ def _flush_table(
 
     header_text = "\n".join(header_lines) + "\n" if header_lines else ""
     header_tokens = _count_tokens(header_text) if header_lines else 0
+    if header_tokens >= MAX_TOKENS:
+        # Pathological "header" (e.g. giant ASCII-grid separator lines):
+        # it would consume the whole token budget, making max_row_tokens <= 0
+        # and force-splitting every row into 1-char pieces (chunk text
+        # amplification of thousands of x). Treat as no header instead.
+        header_lines = []
+        data_lines = list(lines)
+        header_text = ""
+        header_tokens = 0
     max_row_tokens = MAX_TOKENS - header_tokens
+
+    # One batched count for all rows instead of one tokenizer call per row.
+    row_counts = _count_tokens_batch(data_lines)
+
+    # Oversized rows are force-split independently of each other; run those
+    # in parallel (the tokenizer releases the GIL) and reassemble in row
+    # order. Outputs are identical to sequential per-row force-splits.
+    pieces_by_row: dict[int, list[str]] = {}
+    oversized = [i for i, t in enumerate(row_counts) if t > max_row_tokens]
+    if oversized:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(8, len(oversized))) as ex:
+            for i, pieces in zip(oversized, ex.map(
+                    lambda i: _force_split(data_lines[i], max_row_tokens),
+                    oversized)):
+                pieces_by_row[i] = pieces
 
     chunks: list[Chunk] = []
     batch: list[str] = []
@@ -544,12 +596,12 @@ def _flush_table(
         )
         batch.clear()
 
-    for row in data_lines:
-        row_tokens = _count_tokens(row)
+    for i, row in enumerate(data_lines):
+        row_tokens = row_counts[i]
         if row_tokens > max_row_tokens:
             _flush_batch()
             # Row alone exceeds the budget; force-split it.
-            for piece in _force_split(row, max_row_tokens):
+            for piece in pieces_by_row[i]:
                 chunks.append(
                     Chunk(
                         text=header_text + piece,

@@ -260,6 +260,7 @@ def main() -> None:
     stats_by_pattern: dict[str, int] = {}
     batch: list[tuple] = []
     for doc_id, path, raw in iter_documents(corpus):
+        doc_t0 = time.time()
         done = chunks.execute(
             "SELECT 1 FROM chunks WHERE document_id = ? AND chunker_version = ?"
             " LIMIT 1", (doc_id, CHUNKER_VERSION)).fetchone()
@@ -316,6 +317,10 @@ def main() -> None:
             n_chunks += 1
             stats_by_pattern[pat] = stats_by_pattern.get(pat, 0) + 1
         n_docs += 1
+        doc_dt = time.time() - doc_t0
+        if doc_dt > 60:
+            print(f"  SLOW doc {doc_id} ({doc_dt:.0f}s, {len(raw) / 2**20:.1f} MiB,"
+                  f" {len(doc_chunks)} chunks): {path}", flush=True)
         if len(batch) >= 5000:
             with chunks:
                 chunks.executemany(
