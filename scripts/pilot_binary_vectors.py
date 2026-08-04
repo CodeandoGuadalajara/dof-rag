@@ -213,6 +213,8 @@ def main() -> None:
         eval_queries = []
         for line in Path(args.queries).read_text().splitlines():
             rec = json.loads(line)
+            if rec.get("error") or not rec.get("queries"):
+                continue
             if rec["relpath"] in manifest_paths:
                 for q in rec["queries"]:
                     eval_queries.append((q["query"], path_doc[rec["relpath"]],
