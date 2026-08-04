@@ -1,6 +1,6 @@
 # Full-Corpus Build Log
 
-Status: in progress
+Status: embedding run in progress (ETA ~13.5 days from 2026-08-04)
 Date: 2026-08-03
 Branch: `feat/full-corpus-build`
 
@@ -72,18 +72,57 @@ scale, and `bit[1024]` vec0 needs no new dependencies. Decision confirmed:
 sqlite-vec for the binary store; sqlite-vector/TurboQuant4 stays the
 documented upgrade path.
 
-## Chunk store: in progress
+## Chunk store: done
 
-`dof_db/dof_chunks.sqlite` building at ~52 docs/s (span recipes,
-hash-verified; ETA ~3.5 h for 657,867 docs, expected ~6.6–6.7M chunks).
+`dof_db/dof_chunks.sqlite` — **2.68 GiB**, 657,867 docs -> **6,730,304
+chunks** (10.2 chunks/doc, matching the PoC's 10.1), built in 4.2 h
+(~44 docs/s with the batch tokenizer path).
+
+- 0.75% literal fallbacks (PoC: 1.31%); recipes average 91 B/chunk.
+- 500/500 random reconstructions hash-verified through the full query
+  path (p50 1.05 ms, p95 8.85 ms per chunk).
+- The 671.7 MiB monster doc chunks fine (583 s, 10,658 chunks).
+
+### Chunker fixes (exact-output-preserving, parity 799/799)
+
+Two pre-existing chunker bugs surfaced at full scale (doc 129,449, a
+6.2 MiB ASCII-grid table, stalled the build for hours):
+
+- `_flush_table`: a "header" larger than MAX_TOKENS made
+  `max_row_tokens <= 0`, so `_force_split` emitted 1-char pieces each
+  prepended with the giant header — 519k chunks / 21 GiB of chunk text
+  from one 6.2 MiB doc. Guard: oversized headers are treated as no
+  header. Only affects docs that previously could not finish at all.
+- Per-row/per-paragraph tokenizer calls now batch through the inner Rust
+  tokenizer's `encode_batch` (counts verified equal), recounts are
+  memoized, and oversized-row force-splits run in parallel (the Rust
+  tokenizer releases the GIL). The pathological doc now chunks in 4 s.
+
+Parity was verified against the HEAD implementation on all 499 eval docs
+plus 300 random docs (799/799 bit-identical), so `chunker_version` stays
+`dof-chunker-v1` and cached eval embeddings remain valid. A seeded
+binary-search variant of `_force_split` was tried and **reverted**: token
+counts are not monotone in prefix length (rare BPE merges), and seeding
+changed cut points in 7/799 docs.
+
+## Full embedding run: in progress
+
+`dof_db/dof_vectors_jina_binary.sqlite`, all 6,730,304 chunks,
+`corpus_store/embed` (resumable by contiguous chunk_id ranges, config in
+`vector_meta`). Measured 5.36–5.77 chunks/s -> ETA ~13.5 days;
+interruptions are expected and safe — reruns resume after
+`MAX(chunk_id)`. Monitor `logs/full_embed.log`.
 
 ## Remaining
 
-1. Full embedding run over ~6.67M chunks (~14 days continuous at
-   5.36 chunks/s; resumable, so interruptions are expected and safe).
-2. Doc-level FTS5 build on the full corpus (est. ~2.8 GiB).
+1. ~~Full embedding run~~ (in progress, see above).
+2. Doc-level FTS5 build on the full corpus (est. ~2.8 GiB):
+   `CREATE VIRTUAL TABLE documents_fts USING fts5(markdown,
+   content='documents', content_rowid='document_id')` + `rebuild`.
 3. Full-corpus eval: 499-doc / 3,023-query set over the real stores —
    BM25 vs vectors vs hybrid α=0.5. MRR will drop vs the 499-doc subset;
-   that's signal, not regression.
+   that's signal, not regression. Do not commit re-run noise to
+   `eval/cache/hybrid_doclevel_results.json` (harness is slightly
+   nondeterministic at the 4th decimal).
 4. License review before any production deployment (sqlite-vector
    modified Elastic 2.0, sqlite-zstd LGPL-3.0; sqlite-vec is MIT).
