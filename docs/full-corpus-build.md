@@ -137,9 +137,12 @@ Two gotchas hit and handled:
 1. ~~Full embedding run~~ (in progress, see above).
 2. ~~Doc-level FTS5 build~~ (done, see above).
 3. Build the sqlite-vec `bit[1024]` vec0 search store from
-   `chunk_vectors` once embeddings complete (pattern:
-   `scripts/pilot_binary_vectors.py::build_vec0`; expect ~1 GiB and
-   ~0.3 s/query k=50 hamming at 6.73M vectors).
+   `chunk_vectors` once embeddings complete — script ready:
+   `scripts/build_vec0_full.py` (resumable after MAX(rowid); re-run the
+   same command to top off). Dry-run on the first 311k partial vectors:
+   146k inserts/s (~50 s for 6.73M), 151 B/vec (~0.97 GiB full), k=50
+   hamming 16.5 ms -> extrapolates to ~0.36 s/query at 6.73M (expected
+   ~0.3 s).
 4. Full-corpus eval: 499-doc / 3,023-query set over the real stores —
    BM25 vs vectors vs hybrid α=0.5. MRR will drop vs the 499-doc subset;
    that's signal, not regression. Do not commit re-run noise to
