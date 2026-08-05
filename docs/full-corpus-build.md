@@ -132,6 +132,19 @@ Two gotchas hit and handled:
   "already indexed" rows in an empty index. Use a real `MATCH` query or
   the `docsize` shadow table to check index state.
 
+Rebuilt 2026-08-05 with `tokenize='unicode61 remove_diacritics 1'` to
+match the eval-harness baseline (so full-corpus vs subset deltas are
+corpus-size effects, not tokenizer effects); the first build used the
+default tokenizer (no diacritics folding). Also added
+`documents_fts_vocab` (fts5vocab, 2.35M terms) for df lookups.
+
+Full-corpus BM25 querying gotcha: the harness's OR-of-quoted-tokens MATCH
+is pathological at this scale — stopword-class tokens ('de' has df
+657,642/657,867) force 300k+ row doclist scans, 17-45 s/query (~21 h for
+the eval set). Tokens with df > N/2 have zero/negative IDF in FTS5 bm25
+and are pruned from MATCH (verified: identical top-50 doc sets, unchanged
+gold ranks): 0.3-0.8 s/query. See `scripts/eval_bm25_full.py`.
+
 ## Eval prep (while embeddings run)
 
 - **Queries pre-embedded** (2026-08-05): all 3,023 eval queries via the
@@ -149,10 +162,29 @@ Two gotchas hit and handled:
   among same-era/same-section docs + binary quantization). vec0 store
   topped off to 583,680 vectors (resumable, ~2 s per top-off).
 
+## Full-corpus eval: BM25 leg done (2026-08-05)
+
+`scripts/eval_bm25_full.py` over all 3,023 queries against
+documents_fts (657,867 docs, depth 50, df-pruned MATCH):
+
+| metric | 499-doc subset | full corpus |
+|---|---|---|
+| MRR | 0.589 | **0.170** |
+| R@1 | 0.530 | 0.119 |
+| R@5 | 0.668 | 0.224 |
+| R@10 | 0.713 | 0.269 |
+
+Per type (full): factual 0.282, first_words 0.227, paraphrase 0.118,
+article_specific 0.118, verbatim_title 0.082, thematic 0.025. The ~3.5x
+MRR drop vs the subset is the expected distractor effect (~1,319x more
+docs). Ranked lists saved to `eval/cache/full_corpus_bm25_lists.jsonl`
+for the hybrid fusion; 34 min wall time.
+
 ## Remaining
 
 1. ~~Full embedding run~~ (in progress, see above).
 2. ~~Doc-level FTS5 build~~ (done, see above).
+3. ~~BM25 leg of full-corpus eval~~ (done, see above).
 3. Build the sqlite-vec `bit[1024]` vec0 search store from
    `chunk_vectors` once embeddings complete — script ready:
    `scripts/build_vec0_full.py` (resumable after MAX(rowid); re-run the

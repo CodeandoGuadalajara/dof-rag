@@ -21,7 +21,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from corpus_store.db import connect, fetch_document_text  # noqa: E402
 
 FTS_DDL = """CREATE VIRTUAL TABLE documents_fts USING fts5(
-    markdown, content='documents', content_rowid='document_id'
+    markdown, content='documents', content_rowid='document_id',
+    tokenize='unicode61 remove_diacritics 1'
 )"""
 
 META_DDL = ("CREATE TABLE IF NOT EXISTS _fts_build_meta"
