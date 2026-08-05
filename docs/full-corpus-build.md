@@ -180,6 +180,30 @@ MRR drop vs the subset is the expected distractor effect (~1,319x more
 docs). Ranked lists saved to `eval/cache/full_corpus_bm25_lists.jsonl`
 for the hybrid fusion; 34 min wall time.
 
+## Eval harness ready; smoke-tested on partial vectors (2026-08-05)
+
+`scripts/eval_hybrid_full.py` — the full-corpus counterpart of
+`evaluate_hybrid_doclevel.py`: cached binary queries -> hamming k=50 over
+the vec0 store -> doc-collapse -> weighted (α=0.25/0.5/0.75) + RRF fusion
+with the cached BM25 lists -> MRR/R@k overall and per query type.
+`--eligible-only` restricts metrics to queries whose gold doc is fully
+embedded, for fair intermediate runs.
+
+Smoke test (768,000 vectors, 335 eligible queries, vector leg 40 ms/query
+-> ~18 min for the final 3,023-query run at full scale):
+
+| system | MRR | R@1 | R@10 |
+|---|---|---|---|
+| W0.5 hybrid | 0.269 | 0.203 | 0.394 |
+| RRF | 0.262 | 0.188 | 0.412 |
+| jina-binary (doc-collapsed) | 0.200 | 0.134 | 0.328 |
+| BM25-doc | 0.189 | 0.125 | 0.299 |
+
+Hybrid already beats both legs individually, reproducing the subset
+eval's pattern. Caveat: in eligible-only mode the vector leg retrieves
+from embedded docs only while BM25 searches the whole corpus, so these
+are mechanics-validating numbers, not final quality.
+
 ## Remaining
 
 1. ~~Full embedding run~~ (in progress, see above).
@@ -192,11 +216,13 @@ for the hybrid fusion; 34 min wall time.
    146k inserts/s (~50 s for 6.73M), 151 B/vec (~0.97 GiB full), k=50
    hamming 16.5 ms -> extrapolates to ~0.36 s/query at 6.73M (expected
    ~0.3 s).
-4. Full-corpus eval: 499-doc / 3,023-query set over the real stores —
-   BM25 vs vectors vs hybrid α=0.5. Queries already embedded (see Eval
-   prep). BM25 leg can run any time against documents_fts. MRR will drop
-   vs the 499-doc subset; that's signal, not regression. Do not commit
-   re-run noise to `eval/cache/hybrid_doclevel_results.json` (harness is
-   slightly nondeterministic at the 4th decimal).
+4. When embeddings complete: top off the vec0 store
+   (`scripts/build_vec0_full.py`, ~1 min), then run
+   `uv run python scripts/eval_hybrid_full.py` (no --eligible-only) —
+   that is the full quality gate (vectors + hybrid; BM25 lists already
+   cached). MRR will drop vs the 499-doc subset; that's signal, not
+   regression. Do not commit re-run noise to
+   `eval/cache/hybrid_doclevel_results.json` (harness is slightly
+   nondeterministic at the 4th decimal).
 5. License review before any production deployment (sqlite-vector
    modified Elastic 2.0, sqlite-zstd LGPL-3.0; sqlite-vec is MIT).
