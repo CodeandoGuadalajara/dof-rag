@@ -113,16 +113,37 @@ changed cut points in 7/799 docs.
 interruptions are expected and safe — reruns resume after
 `MAX(chunk_id)`. Monitor `logs/full_embed.log`.
 
+## Doc-level FTS5: done
+
+Built 2026-08-04 in ~5 min (~2,400 docs/s) via `scripts/build_fts_full.py`
+(batched by `document_id` ranges, sidecar `_fts_build_meta` progress table
+for resumability). Final db size 6.2 GiB => FTS index ~2.7 GiB, matching
+the ~2.8 GiB estimate. Sanity: 657,867 rows in `documents_fts_docsize`,
+`'de'` matches 99.97% of docs, `bm25` + `snippet` queries return sane
+results.
+
+Two gotchas hit and handled:
+
+- The 32 segmented oversized docs have `markdown = ''` in `documents`;
+  they are reassembled from `document_segments` and indexed separately
+  (the `'rebuild'` path would have indexed them as empty).
+- On an external-content FTS5 table, `COUNT(*)` / `MAX(rowid)` scan the
+  CONTENT table, not the index — a naive resume check saw 657,867
+  "already indexed" rows in an empty index. Use a real `MATCH` query or
+  the `docsize` shadow table to check index state.
+
 ## Remaining
 
 1. ~~Full embedding run~~ (in progress, see above).
-2. Doc-level FTS5 build on the full corpus (est. ~2.8 GiB):
-   `CREATE VIRTUAL TABLE documents_fts USING fts5(markdown,
-   content='documents', content_rowid='document_id')` + `rebuild`.
-3. Full-corpus eval: 499-doc / 3,023-query set over the real stores —
+2. ~~Doc-level FTS5 build~~ (done, see above).
+3. Build the sqlite-vec `bit[1024]` vec0 search store from
+   `chunk_vectors` once embeddings complete (pattern:
+   `scripts/pilot_binary_vectors.py::build_vec0`; expect ~1 GiB and
+   ~0.3 s/query k=50 hamming at 6.73M vectors).
+4. Full-corpus eval: 499-doc / 3,023-query set over the real stores —
    BM25 vs vectors vs hybrid α=0.5. MRR will drop vs the 499-doc subset;
    that's signal, not regression. Do not commit re-run noise to
    `eval/cache/hybrid_doclevel_results.json` (harness is slightly
    nondeterministic at the 4th decimal).
-4. License review before any production deployment (sqlite-vector
+5. License review before any production deployment (sqlite-vector
    modified Elastic 2.0, sqlite-zstd LGPL-3.0; sqlite-vec is MIT).
