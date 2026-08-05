@@ -132,6 +132,23 @@ Two gotchas hit and handled:
   "already indexed" rows in an empty index. Use a real `MATCH` query or
   the `docsize` shadow table to check index state.
 
+## Eval prep (while embeddings run)
+
+- **Queries pre-embedded** (2026-08-05): all 3,023 eval queries via the
+  same GGUF/llama-server with `Query: ` prefix
+  (`scripts/embed_eval_queries.py`, 582 s). Cached in `eval/cache/` as
+  `gguf_jina_v5_small_queries_{float.npy,bin.npy,meta.jsonl}`
+  (gitignored, deterministic from model + queries).
+- **Partial spot check** (`scripts/spot_check_partial.py`, rerunnable as
+  the run progresses): 245 eligible queries (expected doc fully embedded)
+  against 73,719 docs / 583,680 chunks, hamming k=50 doc-collapsed:
+  **MRR 0.218** (first_words 0.403, paraphrase 0.336, factual 0.214,
+  thematic 0.110, verbatim_title 0.054) at 31 ms/query. Distractor set is
+  ~148x the 499-doc subset, so a large drop from the 0.545 anchor is
+  expected; watch verbatim_title in the full eval (near-identical titles
+  among same-era/same-section docs + binary quantization). vec0 store
+  topped off to 583,680 vectors (resumable, ~2 s per top-off).
+
 ## Remaining
 
 1. ~~Full embedding run~~ (in progress, see above).
@@ -144,9 +161,10 @@ Two gotchas hit and handled:
    hamming 16.5 ms -> extrapolates to ~0.36 s/query at 6.73M (expected
    ~0.3 s).
 4. Full-corpus eval: 499-doc / 3,023-query set over the real stores —
-   BM25 vs vectors vs hybrid α=0.5. MRR will drop vs the 499-doc subset;
-   that's signal, not regression. Do not commit re-run noise to
-   `eval/cache/hybrid_doclevel_results.json` (harness is slightly
-   nondeterministic at the 4th decimal).
+   BM25 vs vectors vs hybrid α=0.5. Queries already embedded (see Eval
+   prep). BM25 leg can run any time against documents_fts. MRR will drop
+   vs the 499-doc subset; that's signal, not regression. Do not commit
+   re-run noise to `eval/cache/hybrid_doclevel_results.json` (harness is
+   slightly nondeterministic at the 4th decimal).
 5. License review before any production deployment (sqlite-vector
    modified Elastic 2.0, sqlite-zstd LGPL-3.0; sqlite-vec is MIT).
