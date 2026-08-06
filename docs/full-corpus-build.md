@@ -235,6 +235,24 @@ Follow-up findings (2026-08-05):
   (title search, path lookup, date/section filters, per-query fusion
   weight).
 
+**Eval set v3 built (2026-08-06)** — `eval/dof_queries_v3.jsonl`,
+`scripts/build_eval_v3.py` (resumable, kimi-for-coding with
+`thinking: disabled` — thinking tokens bill as output):
+
+- Titles fixed programmatically for all 271 slug docs
+  (`scripts/extract_title.py`: markdown heading lines / bold spans /
+  first-lines fallback, 271/271).
+- 896 thematic+paraphrase queries regenerated with identifying anchors
+  (482 thematic, 414 paraphrase), each validated to carry a rare token
+  (df < 0.1% of corpus via documents_fts_vocab, or a 4+ digit number)
+  present in the document. factual/article_specific kept from v2
+  (1,119). Total 2,015 queries over the same 499 docs.
+- Cost: ~0.95M input / ~30k output tokens, 6.5 min, 0 errors, no 429s.
+  The Kimi API exposes no usage endpoint (only /v1/me); quota lives in
+  the kimi.com console.
+- TODO before evaluating v3: re-embed the new query texts (the cached
+  gguf query embeddings/meta are v2-derived).
+
 ## Remaining
 
 1. ~~Full embedding run~~ (in progress, see above).
