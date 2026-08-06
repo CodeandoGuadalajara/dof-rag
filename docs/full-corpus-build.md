@@ -204,6 +204,22 @@ eval's pattern. Caveat: in eligible-only mode the vector leg retrieves
 from embedded docs only while BM25 searches the whole corpus, so these
 are mechanics-validating numbers, not final quality.
 
+Follow-up findings (2026-08-05):
+
+- Per-type breakdown confirms the expected division of labor: BM25 wins
+  factual (0.317 vs 0.208), vectors win paraphrase (0.340 vs 0.135) and
+  thematic (0.106 vs 0.058); W0.5 tops both almost everywhere.
+- Vector-leg depth is NOT the bottleneck: k=200 moved vector MRR from
+  0.200 to 0.201. Missed gold docs are missed on chunk rank, not cutoff.
+- **Eval-set defect found**: 271/499 verbatim_title queries (54%) are
+  filename slugs (`093_AVISO_20180227_MAT_5514595`), used when a doc has
+  no extractable title; the string does not occur in the document text,
+  so these queries are near-guaranteed zeros for any text retriever.
+  They depressed the subset numbers too (comparison stays fair), but the
+  final eval should report both cuts. Excluding the 40 slug queries in
+  the eligible set: W0.5 MRR 0.265 -> 0.301. Fix candidates: regenerate
+  titles from the first Markdown heading, or exclude slug queries.
+
 ## Remaining
 
 1. ~~Full embedding run~~ (in progress, see above).
