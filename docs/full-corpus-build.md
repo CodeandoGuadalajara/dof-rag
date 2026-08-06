@@ -219,6 +219,21 @@ Follow-up findings (2026-08-05):
   final eval should report both cuts. Excluding the 40 slug queries in
   the eligible set: W0.5 MRR 0.265 -> 0.301. Fix candidates: regenerate
   titles from the first Markdown heading, or exclude slug queries.
+- **Thematic queries measure task ambiguity, not retrieval quality**:
+  their gold doc is one of hundreds-to-thousands of equivalent answers
+  (quantified via AND-match of the gold title's rarest tokens: tipo de
+  cambio = 7,592 equivalent docs, a convenio = 197, a municipal
+  convocatoria = 19,037). The queries DO contain rare anchors (median
+  rarest-token df 0.085%, lowest of all types) — the problem is
+  non-unique gold, not vague vocabulary. Options: regenerate with
+  identifying anchors, or treat as QA eval with any-valid-answer credit.
+- Title extraction feasibility for a future title-search tool: only
+  40/200 random docs have markdown headings, but ~80% open with bold
+  header blocks (institution + title) — a bold-block rule covers the
+  majority. Combined with the existing metadata columns (year,
+  publication_date, section) this enables the multi-tool agent plan
+  (title search, path lookup, date/section filters, per-query fusion
+  weight).
 
 ## Remaining
 
