@@ -112,13 +112,18 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--k", type=int, default=50)
     ap.add_argument("--eligible-only", action="store_true")
+    ap.add_argument("--meta", default=str(CACHE / "gguf_jina_v5_small_queries_meta.jsonl"))
+    ap.add_argument("--bin", dest="bin_npy",
+                    default=str(CACHE / "gguf_jina_v5_small_queries_bin.npy"))
+    ap.add_argument("--bm25-lists", default=str(CACHE / "full_corpus_bm25_lists.jsonl"))
+    ap.add_argument("--queries", default="eval/dof_queries_v2.jsonl")
+    ap.add_argument("--out-prefix", default="full_corpus_hybrid")
     args = ap.parse_args()
 
-    meta = [json.loads(l) for l in
-            open(CACHE / "gguf_jina_v5_small_queries_meta.jsonl")]
-    qbin = np.load(CACHE / "gguf_jina_v5_small_queries_bin.npy")
+    meta = [json.loads(l) for l in open(args.meta)]
+    qbin = np.load(args.bin_npy)
     bm25 = {}
-    for l in open(CACHE / "full_corpus_bm25_lists.jsonl"):
+    for l in open(args.bm25_lists):
         r = json.loads(l)
         bm25[r["idx"]] = r["ranked"]
 
@@ -126,7 +131,7 @@ def main() -> None:
     rel2doc = {p: d for d, p in corpus.execute(
         "SELECT document_id, path FROM documents")}
     slug2rel = {}
-    for line in open("eval/dof_queries_v2.jsonl"):
+    for line in open(args.queries):
         r = json.loads(line)
         if not r.get("error"):
             slug2rel[r["doc_id"]] = r["relpath"]
@@ -159,7 +164,7 @@ def main() -> None:
             dt = time.time() - t0
             print(f"  {i + 1}/{len(meta)} ({dt / (i + 1) * 1000:.0f} ms/query)",
                   flush=True)
-    with open(CACHE / "full_corpus_vector_lists.jsonl", "w") as f:
+    with open(CACHE / f"{args.out_prefix}_vector_lists.jsonl", "w") as f:
         for q, ranked in zip(meta, vec_lists):
             f.write(json.dumps({"idx": q["idx"], "ranked": ranked}) + "\n")
 
@@ -195,7 +200,7 @@ def main() -> None:
         results["systems"][f"W{a}(BM25doc, jina-binary)"] = metrics(
             fuse_weighted(bm25_lists, vec_lists, a), queries)
 
-    (CACHE / "full_corpus_hybrid_results.json").write_text(
+    (CACHE / f"{args.out_prefix}_results.json").write_text(
         json.dumps(results, indent=2))
 
     print(f"\n{'system':34s} {'MRR':>6s} {'R@1':>6s} {'R@5':>6s} {'R@10':>6s}")
