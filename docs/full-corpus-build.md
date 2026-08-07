@@ -253,6 +253,18 @@ Follow-up findings (2026-08-05):
 - TODO before evaluating v3: re-embed the new query texts (the cached
   gguf query embeddings/meta are v2-derived).
 
+**v3 BM25 eval done (2026-08-06)**: MRR **0.366** vs v2's 0.170 — the
+system was never as bad as v2 suggested; the eval set was. Per type
+(v2 -> v3): thematic 0.025 -> **0.641**, paraphrase 0.118 -> **0.611**,
+verbatim_title 0.082 -> 0.260; unchanged (same queries): factual 0.282,
+first_words 0.227, article_specific 0.118. Anchored queries play to
+BM25's strengths (rare tokens) — watch whether vectors still add hybrid
+value on thematic/paraphrase at the final eval. Two bugs fixed on the
+way: the harness derived verbatim_title queries from the chunker heading
+path, ignoring the dataset's title field (fixed in
+evaluate_retrieval.py — record title wins); slug queries were thus still
+slugs in the first v3 run (0.082) and became real titles (0.260).
+
 ## Remaining
 
 1. ~~Full embedding run~~ (in progress, see above).
