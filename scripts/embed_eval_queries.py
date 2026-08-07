@@ -36,10 +36,14 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8085)
     ap.add_argument("--batch", type=int, default=64)
+    ap.add_argument("--queries", default="eval/dof_queries_v2.jsonl")
+    ap.add_argument("--slug", default=SLUG,
+                    help="output name prefix inside eval/cache/")
     args = ap.parse_args()
+    slug = args.slug
 
     docs, generated = _load_query_dataset(
-        Path("../dof_md"), Path("eval/dof_queries_v2.jsonl"))
+        Path("../dof_md"), Path(args.queries))
     queries = _create_queries(docs, generated)
     print(f"{len(docs)} docs, {len(queries)} queries", flush=True)
 
@@ -60,9 +64,9 @@ def main() -> None:
                        for row in emb])
 
     CACHE.mkdir(exist_ok=True)
-    np.save(CACHE / f"{SLUG}_queries_float.npy", emb)
-    np.save(CACHE / f"{SLUG}_queries_bin.npy", packed)
-    with open(CACHE / f"{SLUG}_queries_meta.jsonl", "w") as f:
+    np.save(CACHE / f"{slug}_queries_float.npy", emb)
+    np.save(CACHE / f"{slug}_queries_bin.npy", packed)
+    with open(CACHE / f"{slug}_queries_meta.jsonl", "w") as f:
         for i, q in enumerate(queries):
             f.write(json.dumps({
                 "idx": i, "query": q["query"], "query_type": q["query_type"],

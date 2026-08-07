@@ -70,15 +70,19 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--depth", type=int, default=50)
     ap.add_argument("--limit", type=int, default=0, help="debug: first N queries")
+    ap.add_argument("--meta", default=str(CACHE / "gguf_jina_v5_small_queries_meta.jsonl"))
+    ap.add_argument("--queries", default="eval/dof_queries_v2.jsonl",
+                    help="query dataset jsonl (doc_id -> relpath mapping)")
+    ap.add_argument("--out-prefix", default="full_corpus_bm25",
+                    help="output file prefix inside eval/cache/")
     args = ap.parse_args()
 
-    meta = [json.loads(l) for l in
-            open(CACHE / "gguf_jina_v5_small_queries_meta.jsonl")]
+    meta = [json.loads(l) for l in open(args.meta)]
     if args.limit:
         meta = meta[: args.limit]
 
     slug2rel = {}
-    for line in open("eval/dof_queries_v2.jsonl"):
+    for line in open(args.queries):
         r = json.loads(line)
         if not r.get("error"):
             slug2rel[r["doc_id"]] = r["relpath"]
@@ -119,7 +123,7 @@ def main() -> None:
             print(f"  {i + 1}/{len(meta)} ({dt / (i + 1) * 1000:.0f} ms/query,"
                   f" ETA {eta:.0f} min)", flush=True)
 
-    with open(CACHE / "full_corpus_bm25_lists.jsonl", "w") as f:
+    with open(CACHE / f"{args.out_prefix}_lists.jsonl", "w") as f:
         for q, ranked in zip(meta, lists):
             f.write(json.dumps({"idx": q["idx"], "ranked": ranked}) + "\n")
 
@@ -154,7 +158,7 @@ def main() -> None:
             for qt, m in sorted(per_type.items())},
         "seconds": time.time() - t0,
     }
-    (CACHE / "full_corpus_bm25_results.json").write_text(
+    (CACHE / f"{args.out_prefix}_results.json").write_text(
         json.dumps(results, indent=2))
 
     print(f"\nBM25 over 657,867 docs (depth {args.depth}, n={n}, "

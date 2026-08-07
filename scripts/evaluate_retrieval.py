@@ -162,7 +162,11 @@ def _load_query_dataset(corpus: Path, queries_path: Path) -> tuple[list[dict], d
             skipped += 1
             continue
         doc_id = path.stem
-        title = chunks[0].heading_path[0] if chunks[0].heading_path else doc_id
+        # The dataset record's title wins when present (v3 fixes slug
+        # titles there); fall back to the chunker's heading path.
+        title = (record.get("title")
+                 or (chunks[0].heading_path[0] if chunks[0].heading_path
+                     else doc_id))
         docs_by_rel[record["relpath"]] = {
             "doc_id": doc_id,
             "title": title,
