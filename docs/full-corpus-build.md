@@ -265,6 +265,15 @@ path, ignoring the dataset's title field (fixed in
 evaluate_retrieval.py — record title wins); slug queries were thus still
 slugs in the first v3 run (0.082) and became real titles (0.260).
 
+**v3 hybrid smoke test (2026-08-07)**: 665 eligible queries, 1,386,496
+vectors (73 ms/query): **W0.5 0.402** > W0.75 0.399 > RRF 0.382 > BM25
+0.362 > W0.25 0.309 > vectors 0.252. Anchored queries flip the leg
+ranking (BM25 now beats vectors overall); vectors' stronghold is
+article_specific (0.208 vs 0.104); paraphrase is the one type where W0.5
+(0.614) loses to BM25 alone (0.637) — adaptive-alpha argument. Hybrid
+wins the total by not collapsing on any single type. Final eval will
+report both v2 and v3 cuts for historical comparability.
+
 ## Remaining
 
 1. ~~Full embedding run~~ (in progress, see above).
