@@ -113,16 +113,186 @@ changed cut points in 7/799 docs.
 interruptions are expected and safe — reruns resume after
 `MAX(chunk_id)`. Monitor `logs/full_embed.log`.
 
+## Doc-level FTS5: done
+
+Built 2026-08-04 in ~5 min (~2,400 docs/s) via `scripts/build_fts_full.py`
+(batched by `document_id` ranges, sidecar `_fts_build_meta` progress table
+for resumability). Final db size 6.2 GiB => FTS index ~2.7 GiB, matching
+the ~2.8 GiB estimate. Sanity: 657,867 rows in `documents_fts_docsize`,
+`'de'` matches 99.97% of docs, `bm25` + `snippet` queries return sane
+results.
+
+Two gotchas hit and handled:
+
+- The 32 segmented oversized docs have `markdown = ''` in `documents`;
+  they are reassembled from `document_segments` and indexed separately
+  (the `'rebuild'` path would have indexed them as empty).
+- On an external-content FTS5 table, `COUNT(*)` / `MAX(rowid)` scan the
+  CONTENT table, not the index — a naive resume check saw 657,867
+  "already indexed" rows in an empty index. Use a real `MATCH` query or
+  the `docsize` shadow table to check index state.
+
+Rebuilt 2026-08-05 with `tokenize='unicode61 remove_diacritics 1'` to
+match the eval-harness baseline (so full-corpus vs subset deltas are
+corpus-size effects, not tokenizer effects); the first build used the
+default tokenizer (no diacritics folding). Also added
+`documents_fts_vocab` (fts5vocab, 2.35M terms) for df lookups.
+
+Full-corpus BM25 querying gotcha: the harness's OR-of-quoted-tokens MATCH
+is pathological at this scale — stopword-class tokens ('de' has df
+657,642/657,867) force 300k+ row doclist scans, 17-45 s/query (~21 h for
+the eval set). Tokens with df > N/2 have zero/negative IDF in FTS5 bm25
+and are pruned from MATCH (verified: identical top-50 doc sets, unchanged
+gold ranks): 0.3-0.8 s/query. See `scripts/eval_bm25_full.py`.
+
+## Eval prep (while embeddings run)
+
+- **Queries pre-embedded** (2026-08-05): all 3,023 eval queries via the
+  same GGUF/llama-server with `Query: ` prefix
+  (`scripts/embed_eval_queries.py`, 582 s). Cached in `eval/cache/` as
+  `gguf_jina_v5_small_queries_{float.npy,bin.npy,meta.jsonl}`
+  (gitignored, deterministic from model + queries).
+- **Partial spot check** (`scripts/spot_check_partial.py`, rerunnable as
+  the run progresses): 245 eligible queries (expected doc fully embedded)
+  against 73,719 docs / 583,680 chunks, hamming k=50 doc-collapsed:
+  **MRR 0.218** (first_words 0.403, paraphrase 0.336, factual 0.214,
+  thematic 0.110, verbatim_title 0.054) at 31 ms/query. Distractor set is
+  ~148x the 499-doc subset, so a large drop from the 0.545 anchor is
+  expected; watch verbatim_title in the full eval (near-identical titles
+  among same-era/same-section docs + binary quantization). vec0 store
+  topped off to 583,680 vectors (resumable, ~2 s per top-off).
+
+## Full-corpus eval: BM25 leg done (2026-08-05)
+
+`scripts/eval_bm25_full.py` over all 3,023 queries against
+documents_fts (657,867 docs, depth 50, df-pruned MATCH):
+
+| metric | 499-doc subset | full corpus |
+|---|---|---|
+| MRR | 0.589 | **0.170** |
+| R@1 | 0.530 | 0.119 |
+| R@5 | 0.668 | 0.224 |
+| R@10 | 0.713 | 0.269 |
+
+Per type (full): factual 0.282, first_words 0.227, paraphrase 0.118,
+article_specific 0.118, verbatim_title 0.082, thematic 0.025. The ~3.5x
+MRR drop vs the subset is the expected distractor effect (~1,319x more
+docs). Ranked lists saved to `eval/cache/full_corpus_bm25_lists.jsonl`
+for the hybrid fusion; 34 min wall time.
+
+## Eval harness ready; smoke-tested on partial vectors (2026-08-05)
+
+`scripts/eval_hybrid_full.py` — the full-corpus counterpart of
+`evaluate_hybrid_doclevel.py`: cached binary queries -> hamming k=50 over
+the vec0 store -> doc-collapse -> weighted (α=0.25/0.5/0.75) + RRF fusion
+with the cached BM25 lists -> MRR/R@k overall and per query type.
+`--eligible-only` restricts metrics to queries whose gold doc is fully
+embedded, for fair intermediate runs.
+
+Smoke test (768,000 vectors, 335 eligible queries, vector leg 40 ms/query
+-> ~18 min for the final 3,023-query run at full scale):
+
+| system | MRR | R@1 | R@10 |
+|---|---|---|---|
+| W0.5 hybrid | 0.269 | 0.203 | 0.394 |
+| RRF | 0.262 | 0.188 | 0.412 |
+| jina-binary (doc-collapsed) | 0.200 | 0.134 | 0.328 |
+| BM25-doc | 0.189 | 0.125 | 0.299 |
+
+Hybrid already beats both legs individually, reproducing the subset
+eval's pattern. Caveat: in eligible-only mode the vector leg retrieves
+from embedded docs only while BM25 searches the whole corpus, so these
+are mechanics-validating numbers, not final quality.
+
+Follow-up findings (2026-08-05):
+
+- Per-type breakdown confirms the expected division of labor: BM25 wins
+  factual (0.317 vs 0.208), vectors win paraphrase (0.340 vs 0.135) and
+  thematic (0.106 vs 0.058); W0.5 tops both almost everywhere.
+- Vector-leg depth is NOT the bottleneck: k=200 moved vector MRR from
+  0.200 to 0.201. Missed gold docs are missed on chunk rank, not cutoff.
+- **Eval-set defect found**: 271/499 verbatim_title queries (54%) are
+  filename slugs (`093_AVISO_20180227_MAT_5514595`), used when a doc has
+  no extractable title; the string does not occur in the document text,
+  so these queries are near-guaranteed zeros for any text retriever.
+  They depressed the subset numbers too (comparison stays fair), but the
+  final eval should report both cuts. Excluding the 40 slug queries in
+  the eligible set: W0.5 MRR 0.265 -> 0.301. Fix candidates: regenerate
+  titles from the first Markdown heading, or exclude slug queries.
+- **Thematic queries measure task ambiguity, not retrieval quality**:
+  their gold doc is one of hundreds-to-thousands of equivalent answers
+  (quantified via AND-match of the gold title's rarest tokens: tipo de
+  cambio = 7,592 equivalent docs, a convenio = 197, a municipal
+  convocatoria = 19,037). The queries DO contain rare anchors (median
+  rarest-token df 0.085%, lowest of all types) — the problem is
+  non-unique gold, not vague vocabulary. Options: regenerate with
+  identifying anchors, or treat as QA eval with any-valid-answer credit.
+- Title extraction feasibility for a future title-search tool: only
+  40/200 random docs have markdown headings, but ~80% open with bold
+  header blocks (institution + title) — a bold-block rule covers the
+  majority. Combined with the existing metadata columns (year,
+  publication_date, section) this enables the multi-tool agent plan
+  (title search, path lookup, date/section filters, per-query fusion
+  weight).
+
+**Eval set v3 built (2026-08-06)** — `eval/dof_queries_v3.jsonl`,
+`scripts/build_eval_v3.py` (resumable, kimi-for-coding with
+`thinking: disabled` — thinking tokens bill as output):
+
+- Titles fixed programmatically for all 271 slug docs
+  (`scripts/extract_title.py`: markdown heading lines / bold spans /
+  first-lines fallback, 271/271).
+- 896 thematic+paraphrase queries regenerated with identifying anchors
+  (482 thematic, 414 paraphrase), each validated to carry a rare token
+  (df < 0.1% of corpus via documents_fts_vocab, or a 4+ digit number)
+  present in the document. factual/article_specific kept from v2
+  (1,119). Total 2,015 queries over the same 499 docs.
+- Cost: ~0.95M input / ~30k output tokens, 6.5 min, 0 errors, no 429s.
+  The Kimi API exposes no usage endpoint (only /v1/me); quota lives in
+  the kimi.com console.
+- TODO before evaluating v3: re-embed the new query texts (the cached
+  gguf query embeddings/meta are v2-derived).
+
+**v3 BM25 eval done (2026-08-06)**: MRR **0.366** vs v2's 0.170 — the
+system was never as bad as v2 suggested; the eval set was. Per type
+(v2 -> v3): thematic 0.025 -> **0.641**, paraphrase 0.118 -> **0.611**,
+verbatim_title 0.082 -> 0.260; unchanged (same queries): factual 0.282,
+first_words 0.227, article_specific 0.118. Anchored queries play to
+BM25's strengths (rare tokens) — watch whether vectors still add hybrid
+value on thematic/paraphrase at the final eval. Two bugs fixed on the
+way: the harness derived verbatim_title queries from the chunker heading
+path, ignoring the dataset's title field (fixed in
+evaluate_retrieval.py — record title wins); slug queries were thus still
+slugs in the first v3 run (0.082) and became real titles (0.260).
+
+**v3 hybrid smoke test (2026-08-07)**: 665 eligible queries, 1,386,496
+vectors (73 ms/query): **W0.5 0.402** > W0.75 0.399 > RRF 0.382 > BM25
+0.362 > W0.25 0.309 > vectors 0.252. Anchored queries flip the leg
+ranking (BM25 now beats vectors overall); vectors' stronghold is
+article_specific (0.208 vs 0.104); paraphrase is the one type where W0.5
+(0.614) loses to BM25 alone (0.637) — adaptive-alpha argument. Hybrid
+wins the total by not collapsing on any single type. Final eval will
+report both v2 and v3 cuts for historical comparability.
+
 ## Remaining
 
 1. ~~Full embedding run~~ (in progress, see above).
-2. Doc-level FTS5 build on the full corpus (est. ~2.8 GiB):
-   `CREATE VIRTUAL TABLE documents_fts USING fts5(markdown,
-   content='documents', content_rowid='document_id')` + `rebuild`.
-3. Full-corpus eval: 499-doc / 3,023-query set over the real stores —
-   BM25 vs vectors vs hybrid α=0.5. MRR will drop vs the 499-doc subset;
-   that's signal, not regression. Do not commit re-run noise to
+2. ~~Doc-level FTS5 build~~ (done, see above).
+3. ~~BM25 leg of full-corpus eval~~ (done, see above).
+3. Build the sqlite-vec `bit[1024]` vec0 search store from
+   `chunk_vectors` once embeddings complete — script ready:
+   `scripts/build_vec0_full.py` (resumable after MAX(rowid); re-run the
+   same command to top off). Dry-run on the first 311k partial vectors:
+   146k inserts/s (~50 s for 6.73M), 151 B/vec (~0.97 GiB full), k=50
+   hamming 16.5 ms -> extrapolates to ~0.36 s/query at 6.73M (expected
+   ~0.3 s).
+4. When embeddings complete: top off the vec0 store
+   (`scripts/build_vec0_full.py`, ~1 min), then run
+   `uv run python scripts/eval_hybrid_full.py` (no --eligible-only) —
+   that is the full quality gate (vectors + hybrid; BM25 lists already
+   cached). MRR will drop vs the 499-doc subset; that's signal, not
+   regression. Do not commit re-run noise to
    `eval/cache/hybrid_doclevel_results.json` (harness is slightly
    nondeterministic at the 4th decimal).
-4. License review before any production deployment (sqlite-vector
+5. License review before any production deployment (sqlite-vector
    modified Elastic 2.0, sqlite-zstd LGPL-3.0; sqlite-vec is MIT).
