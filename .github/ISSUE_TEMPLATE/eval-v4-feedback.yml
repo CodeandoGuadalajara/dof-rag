@@ -1,0 +1,68 @@
+name: Revisión de Eval v4
+description: Señala una pregunta ambigua, una respuesta incorrecta o una fuente que conviene añadir.
+title: "[Eval v4]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gracias por revisar Eval v4. No hace falta revisar las 42 preguntas: una observación concreta también ayuda.
+
+        Puedes consultar la [edición de revisión](https://codeandoguadalajara.github.io/dof-rag-website/es/evals/v4) antes de enviar el reporte.
+
+  - type: input
+    id: question_id
+    attributes:
+      label: ID de la pregunta
+      description: Aparece al principio de cada ficha, por ejemplo SP-004 o MD-003.
+      placeholder: SP-004
+    validations:
+      required: true
+
+  - type: dropdown
+    id: finding
+    attributes:
+      label: Tipo de observación
+      options:
+        - La pregunta es ambigua o contiene una premisa problemática
+        - La respuesta de referencia es incorrecta
+        - La respuesta de referencia está incompleta
+        - La evidencia no respalda suficientemente la respuesta
+        - Existe otra fuente válida que debería aceptarse
+        - La fecha de corte o vigencia necesita revisión
+        - Otro
+    validations:
+      required: true
+
+  - type: textarea
+    id: explanation
+    attributes:
+      label: Explicación
+      description: Indica qué cambiarías y por qué. Cita el fragmento relevante cuando sea posible.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_change
+    attributes:
+      label: Corrección propuesta
+      description: Puedes proponer una redacción, respuesta o evidencia alternativa.
+
+  - type: input
+    id: supporting_source
+    attributes:
+      label: Fuente adicional
+      description: Enlace, fecha y nombre de la publicación, si aplica.
+      placeholder: https://www.dof.gob.mx/...
+
+  - type: dropdown
+    id: reviewer_context
+    attributes:
+      label: Contexto de quien revisa
+      description: Opcional; ayuda a interpretar la observación, no a decidir si es válida.
+      options:
+        - Derecho o investigación jurídica
+        - Administración pública
+        - Recuperación de información o sistemas RAG
+        - Uso profesional del DOF
+        - Interés general
+        - Prefiero no indicarlo
