@@ -1,0 +1,51 @@
+{
+  "name": "DOF-RAG Evidence Evaluation v4",
+  "version": "4.0.0-pilot",
+  "created": "2026-08-09",
+  "language": "es-MX",
+  "total_questions": 42,
+  "corpus_version": "dof-full-v1",
+  "corpus_documents": 657867,
+  "corpus_date_min": "1999-01-04",
+  "corpus_date_max": "2026-04-24",
+  "chunker_version": "dof-chunker-v1",
+  "questions_per_category": 6,
+  "categories": [
+    "single_passage",
+    "list_enumeration",
+    "temporal_transitorio",
+    "cross_reference",
+    "multi_document",
+    "monitoring",
+    "negative_false_premise"
+  ],
+  "authoring": {
+    "method": "manual corpus-backed pilot",
+    "gold_granularity": "document plus chunk plus quoted span",
+    "synthetic_generation": false,
+    "validator": "scripts/validate_eval_v4.py"
+  },
+  "intended_metrics": {
+    "retrieval": [
+      "document_recall_at_k",
+      "evidence_chunk_recall_at_k",
+      "all_hop_recall_at_k",
+      "mrr_at_k",
+      "context_precision"
+    ],
+    "generation": [
+      "answer_correctness",
+      "answer_completeness",
+      "citation_precision",
+      "citation_recall",
+      "false_premise_correction_accuracy"
+    ]
+  },
+  "limitations": [
+    "Pilot set: 42 questions are not enough for narrow confidence intervals.",
+    "Several source documents are deliberately reused to isolate task-type behavior.",
+    "Gold answers and legal interpretations should receive independent domain-expert adjudication before becoming release gates.",
+    "Cross-reference questions are resolvable from quoted or reproduced target provisions in the same DOF publication; future versions should add more cross-document citation resolution.",
+    "Monitoring questions are frozen to dates present in the corpus snapshot and are not live templates."
+  ]
+}
