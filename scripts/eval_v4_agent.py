@@ -4,6 +4,11 @@ By default this selects one frozen question per category (seven total):
 
     .venv/bin/python scripts/eval_v4_agent.py --model MODEL
 
+With a Kimi Code membership key:
+
+    .venv/bin/python scripts/eval_v4_agent.py \
+        --provider kimi-code --model kimi-for-coding
+
 Use ``--ids SP-001,NE-001`` for a smaller smoke test or ``--all`` for all 42.
 The output contains the complete tool trace, token usage, latency, and citation
 metrics. API credentials are read by the OpenAI SDK and are never written out.
@@ -20,7 +25,12 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from agent_tools.agent import AgentRunner, DofToolbox, OpenAIResponsesBackend
+from agent_tools.agent import (
+    AgentRunner,
+    DofToolbox,
+    OpenAIChatCompletionsBackend,
+    OpenAIResponsesBackend,
+)
 from agent_tools.retrieval import DofRetriever, LlamaQueryEmbedder
 
 
@@ -46,9 +56,15 @@ def select_queries(
 
 
 def calculate_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
-    completed = [item for item in results if "run" in item]
+    runs = [item for item in results if "run" in item]
+    completed = [item for item in runs if item["run"].get("stop_reason") == "completed"]
     if not completed:
-        return {"n": len(results), "completed": 0}
+        return {
+            "n": len(results),
+            "runs": len(runs),
+            "completed": 0,
+            "completion_rate": 0.0,
+        }
     precisions: list[float] = []
     recalls: list[float] = []
     false_premise: list[bool] = []
@@ -73,6 +89,7 @@ def calculate_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
     n = len(completed)
     return {
         "n": len(results),
+        "runs": len(runs),
         "completed": n,
         "completion_rate": n / len(results),
         "citation_precision": sum(precisions) / n,
@@ -108,6 +125,8 @@ def fatal_provider_error(exc: Exception) -> bool:
             "insufficient_quota",
             "credit_balance_exhausted",
             "invalid_api_key",
+            "reached your usage limit",
+            "reached kimi monthly usage limit",
         )
     )
 
@@ -115,13 +134,18 @@ def fatal_provider_error(exc: Exception) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--queries", default="eval/dof_queries_v4.jsonl")
+    parser.add_argument(
+        "--provider",
+        choices=["openai-responses", "kimi-code"],
+        default="openai-responses",
+    )
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument("--ids", help="Comma-separated v4 question IDs")
     selection.add_argument("--all", action="store_true")
     parser.add_argument("--model", default=os.environ.get("OPENAI_MODEL", ""))
-    parser.add_argument("--base-url", default=os.environ.get("OPENAI_BASE_URL"))
+    parser.add_argument("--base-url")
     parser.add_argument("--reasoning-effort", default="low")
-    parser.add_argument("--max-model-turns", type=int, default=4)
+    parser.add_argument("--max-model-turns", type=int, default=6)
     parser.add_argument("--max-tool-calls", type=int, default=8)
     parser.add_argument("--corpus-db", default="dof_db/dof_corpus_l3.sqlite")
     parser.add_argument("--chunks-db", default="dof_db/dof_chunks.sqlite")
@@ -143,11 +167,21 @@ def main() -> int:
     if args.no_vector:
         args.vec0_db = None
 
-    backend = OpenAIResponsesBackend(
-        model=args.model,
-        base_url=args.base_url,
-        reasoning_effort=args.reasoning_effort or None,
-    )
+    if args.provider == "kimi-code":
+        api_key = os.environ.get("KIMI_API_KEY", "")
+        if not api_key:
+            parser.error("kimi-code provider requires KIMI_API_KEY")
+        backend = OpenAIChatCompletionsBackend(
+            model=args.model,
+            api_key=api_key,
+            base_url=args.base_url or "https://api.kimi.com/coding/v1",
+        )
+    else:
+        backend = OpenAIResponsesBackend(
+            model=args.model,
+            base_url=args.base_url or os.environ.get("OPENAI_BASE_URL"),
+            reasoning_effort=args.reasoning_effort or None,
+        )
     results: list[dict[str, Any]] = []
     with DofRetriever(
         corpus_db=args.corpus_db,
@@ -207,6 +241,7 @@ def main() -> int:
 
     settings = {
         "queries": args.queries,
+        "provider": args.provider,
         "selection": "ids" if ids else "all" if args.all else "one_per_category",
         "ids": sorted(ids) if ids else None,
         "model": args.model,

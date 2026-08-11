@@ -5,6 +5,7 @@ from agent_tools.agent import (
     AgentRunner,
     DofToolbox,
     ModelTurn,
+    OpenAIChatCompletionsBackend,
     OpenAIResponsesBackend,
     ToolCall,
 )
@@ -19,7 +20,7 @@ from agent_tools.models import (
     SearchResult,
 )
 from agent_tools.retrieval import _bm25_chunk_scores, _fuse_documents, _rrf
-from scripts.eval_v4_agent import fatal_provider_error
+from scripts.eval_v4_agent import calculate_metrics, fatal_provider_error
 
 
 class FakeClient:
@@ -66,8 +67,10 @@ class ScriptedBackend:
 
     def __init__(self, turns):
         self.turns = iter(turns)
+        self.calls = []
 
     def create_turn(self, **kwargs):
+        self.calls.append(kwargs)
         return next(self.turns)
 
 
@@ -87,11 +90,29 @@ class ResponsesClient:
         return self.response
 
 
+class ChatCompletionsClient:
+    def __init__(self, response):
+        self.response = response
+        self.chat = SimpleNamespace(completions=self)
+        self.kwargs = None
+
+    def create(self, **kwargs):
+        self.kwargs = kwargs
+        return self.response
+
+
 class QuotaError(Exception):
     code = "credit_balance_exhausted"
 
 
 class AgentToolsTests(unittest.TestCase):
+    def test_metrics_do_not_count_limited_run_as_completed(self):
+        metrics = calculate_metrics(
+            [{"run": {"stop_reason": "model_turn_limit: no final answer"}}]
+        )
+        self.assertEqual(metrics["runs"], 1)
+        self.assertEqual(metrics["completed"], 0)
+
     def test_fatal_provider_error_distinguishes_quota_from_transient_rate_limit(self):
         self.assertTrue(fatal_provider_error(QuotaError("insufficient_quota")))
         self.assertFalse(fatal_provider_error(Exception("temporary rate limit")))
@@ -227,20 +248,29 @@ class AgentToolsTests(unittest.TestCase):
                     response_id="four",
                     output_items=[],
                     final_text=(
-                        '{"answer":"ok","citations":[4,999],'
-                        '"premise_status":"supported"}'
+                        '```json\n{"answer":"ok","citations":[4,999],'
+                        '"premise_status":"supported"}\n```'
                     ),
                     usage={"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
                 ),
             ]
         )
         run = AgentRunner(backend, DofToolbox(FakeRetriever())).run(
-            "pregunta", as_of="2026-01-01"
+            "pregunta",
+            as_of="2026-01-01",
         )
         self.assertEqual(run.answer.citations, [4])
         self.assertEqual(run.answer.invalid_citations, [999])
         self.assertEqual(run.tool_calls, 3)
         self.assertEqual(run.stop_reason, "completed")
+        self.assertEqual(backend.calls[-1]["tools"], [])
+        self.assertEqual(
+            {tool["name"] for tool in backend.calls[0]["tools"]},
+            {"list_publications", "search_documents"},
+        )
+        self.assertEqual(
+            [tool["name"] for tool in backend.calls[2]["tools"]], ["read_chunks"]
+        )
 
     def test_unknown_tool_is_returned_as_structured_error(self):
         toolbox = DofToolbox(FakeRetriever())
@@ -266,5 +296,60 @@ class AgentToolsTests(unittest.TestCase):
         turn = backend.create_turn(input_items=[], tools=[], instructions="test")
         self.assertEqual(turn.tool_calls[0].arguments["chunk_ids"], [4])
         self.assertFalse(client.kwargs["store"])
+        self.assertNotIn("tools", client.kwargs)
         self.assertIn("reasoning.encrypted_content", client.kwargs["include"])
         self.assertTrue(client.kwargs["text"]["format"]["strict"])
+
+    def test_chat_adapter_preserves_reasoning_and_translates_tool_outputs(self):
+        function = SimpleNamespace(
+            name="read_chunks",
+            arguments='{"chunk_ids":[4],"neighbor_window":0}',
+        )
+        call = SimpleNamespace(type="function", id="call-1", function=function)
+        message = DumpableItem(
+            role="assistant",
+            content=None,
+            reasoning_content="reasoning",
+            tool_calls=[call],
+        )
+        usage = DumpableItem(prompt_tokens=10, completion_tokens=4, total_tokens=14)
+        response = SimpleNamespace(
+            id="chat-1",
+            choices=[SimpleNamespace(message=message)],
+            usage=usage,
+        )
+        client = ChatCompletionsClient(response)
+        backend = OpenAIChatCompletionsBackend(
+            model="kimi-for-coding",
+            api_key="test",
+            base_url="https://example.test/v1",
+            client=client,
+        )
+        turn = backend.create_turn(
+            input_items=[
+                {"role": "user", "content": "question"},
+                {
+                    "type": "function_call_output",
+                    "call_id": "earlier-call",
+                    "output": "result",
+                },
+            ],
+            tools=[
+                {
+                    "type": "function",
+                    "name": "read_chunks",
+                    "description": "read",
+                    "parameters": {"type": "object"},
+                    "strict": True,
+                }
+            ],
+            instructions="system",
+        )
+        self.assertEqual(turn.tool_calls[0].name, "read_chunks")
+        self.assertEqual(turn.usage["input_tokens"], 10)
+        self.assertEqual(turn.output_items[0]["reasoning_content"], "reasoning")
+        self.assertEqual(client.kwargs["messages"][-1]["role"], "tool")
+        self.assertEqual(client.kwargs["tools"][0]["function"]["name"], "read_chunks")
+        backend.create_turn(input_items=[], tools=[], instructions="final")
+        self.assertEqual(client.kwargs["tool_choice"], "none")
+        self.assertNotIn("tools", client.kwargs)

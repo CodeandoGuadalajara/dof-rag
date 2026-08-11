@@ -39,6 +39,19 @@ Una coincidencia de búsqueda no es una cita: sólo puedes citar IDs devueltos p
 read_chunks. Si la evidencia es insuficiente, dilo. Si la pregunta contiene una
 premisa falsa, márcala como false y explica la corrección con evidencia cuando sea
 posible. Mantén la respuesta concreta.
+Al terminar devuelve SOLO JSON con la forma
+{"answer":"...","citations":[123],"premise_status":"supported|false|unclear"}.
+
+Política de herramientas:
+- Haz una sola llamada por turno y usa la ruta más corta: search_documents,
+  search_evidence, read_chunks y respuesta.
+- No repitas la misma búsqueda con variaciones menores.
+- Usa get_document_outline sólo para estructura o referencias cruzadas, y
+  list_publications cuando la fecha de publicación sea el dato de entrada.
+- El año sobre el que rige una norma o cantidad no implica que se publicara ese
+  año. No fijes date_from sólo a partir del año mencionado en la pregunta.
+- Conserva todas las partes de la pregunta desde la primera búsqueda. En una
+  comparación entre años, busca evidencia para ambos años antes de responder.
 """
 
 
@@ -196,7 +209,7 @@ class DofToolbox:
                     "query": {"type": "string", "minLength": 1, "maxLength": 1000},
                     "strategy": strategy,
                     **filters,
-                    "top_k": {"type": "integer", "minimum": 1, "maximum": 20},
+                    "top_k": {"type": "integer", "minimum": 1, "maximum": 10},
                 }
             ),
             "search_evidence": _object_schema(
@@ -209,7 +222,7 @@ class DofToolbox:
                         "maxItems": 10,
                     },
                     "strategy": strategy,
-                    "top_k": {"type": "integer", "minimum": 1, "maximum": 20},
+                    "top_k": {"type": "integer", "minimum": 1, "maximum": 10},
                 }
             ),
             "get_document_outline": _object_schema(
@@ -412,8 +425,6 @@ class OpenAIResponsesBackend:
             "model": self.model,
             "instructions": instructions,
             "input": input_items,
-            "tools": tools,
-            "tool_choice": "auto",
             "parallel_tool_calls": False,
             "store": False,
             "include": ["reasoning.encrypted_content"],
@@ -428,6 +439,9 @@ class OpenAIResponsesBackend:
                 "verbosity": "low",
             },
         }
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
         if self.reasoning_effort:
             kwargs["reasoning"] = {"effort": self.reasoning_effort}
         response = self.client.responses.create(**kwargs)
@@ -466,9 +480,148 @@ class OpenAIResponsesBackend:
         )
 
 
+class OpenAIChatCompletionsBackend:
+    """Adapter for OpenAI-compatible Chat Completions providers such as Kimi."""
+
+    def __init__(
+        self,
+        *,
+        model: str,
+        api_key: str,
+        base_url: str,
+        max_output_tokens: int = 2400,
+        client: Any = None,
+    ):
+        if client is None:
+            from openai import OpenAI
+
+            client = OpenAI(api_key=api_key, base_url=base_url)
+        self.client = client
+        self.model = model
+        self.max_output_tokens = max_output_tokens
+
+    @staticmethod
+    def _messages(
+        input_items: list[dict[str, Any]], instructions: str
+    ) -> list[dict[str, Any]]:
+        messages: list[dict[str, Any]] = [{"role": "system", "content": instructions}]
+        for item in input_items:
+            if item.get("type") == "function_call_output":
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": item["call_id"],
+                        "content": item["output"],
+                    }
+                )
+                continue
+            if item.get("role") not in {"user", "assistant"}:
+                continue
+            message = {
+                key: value
+                for key, value in item.items()
+                if key
+                in {
+                    "role",
+                    "content",
+                    "tool_calls",
+                    "reasoning_content",
+                    "refusal",
+                }
+            }
+            messages.append(message)
+        return messages
+
+    @staticmethod
+    def _chat_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool["name"],
+                    "description": tool["description"],
+                    "parameters": tool["parameters"],
+                    "strict": tool["strict"],
+                },
+            }
+            for tool in tools
+        ]
+
+    def create_turn(
+        self,
+        *,
+        input_items: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        instructions: str,
+    ) -> ModelTurn:
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "messages": self._messages(input_items, instructions),
+            "parallel_tool_calls": False,
+            "max_tokens": self.max_output_tokens,
+        }
+        if tools:
+            kwargs["tools"] = self._chat_tools(tools)
+            kwargs["tool_choice"] = "auto"
+        else:
+            kwargs["tool_choice"] = "none"
+        response = self.client.chat.completions.create(**kwargs)
+        if not response.choices:
+            raise RuntimeError("chat completion returned no choices")
+        message = response.choices[0].message
+        message_data = message.model_dump(mode="json", exclude_none=True)
+        message_data["type"] = "chat_message"
+        calls: list[ToolCall] = []
+        for call in message.tool_calls or []:
+            if call.type != "function":
+                continue
+            try:
+                arguments = json.loads(call.function.arguments)
+            except (TypeError, json.JSONDecodeError):
+                arguments = None
+            calls.append(
+                ToolCall(
+                    call_id=call.id,
+                    name=call.function.name,
+                    arguments=arguments,
+                    raw_arguments=call.function.arguments,
+                )
+            )
+        raw_usage = (
+            response.usage.model_dump(mode="json", exclude_none=True)
+            if response.usage
+            else {}
+        )
+        usage = {
+            "input_tokens": int(raw_usage.get("prompt_tokens", 0)),
+            "output_tokens": int(raw_usage.get("completion_tokens", 0)),
+            "total_tokens": int(raw_usage.get("total_tokens", 0)),
+        }
+        return ModelTurn(
+            response_id=response.id,
+            output_items=[message_data],
+            tool_calls=calls,
+            final_text=message.content or "",
+            usage=usage,
+        )
+
+
 def _parse_final_answer(text: str, allowed: set[int]) -> AgentAnswer:
     try:
-        data = json.loads(text)
+        decoder = json.JSONDecoder()
+        data = None
+        for index, character in enumerate(text):
+            if character != "{":
+                continue
+            try:
+                candidate, _ = decoder.raw_decode(text[index:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(candidate, dict):
+                data = candidate
+                break
+        if data is None:
+            raise ValueError("response did not contain a JSON object")
         Draft202012Validator(FINAL_ANSWER_SCHEMA).validate(data)
     except Exception as exc:  # The concrete parse/validation error is useful in traces.
         raise ValueError(f"invalid final answer: {exc}") from exc
@@ -498,7 +651,7 @@ class AgentRunner:
         backend: AgentBackend,
         toolbox: DofToolbox,
         *,
-        max_model_turns: int = 4,
+        max_model_turns: int = 6,
         max_tool_calls: int = 8,
         instructions: str = AGENT_INSTRUCTIONS,
     ):
@@ -509,6 +662,23 @@ class AgentRunner:
         self.max_model_turns = max_model_turns
         self.max_tool_calls = max_tool_calls
         self.instructions = instructions
+
+    def _available_tools(self) -> list[dict[str, Any]]:
+        definitions = {tool["name"]: tool for tool in self.toolbox.tool_definitions()}
+        if self.toolbox.read_chunk_ids:
+            return []
+        if self.toolbox.visible_chunk_ids:
+            return [definitions["read_chunks"]]
+        if self.toolbox.visible_document_ids:
+            return [
+                definitions[name]
+                for name in (
+                    "search_documents",
+                    "search_evidence",
+                    "get_document_outline",
+                )
+            ]
+        return [definitions[name] for name in ("list_publications", "search_documents")]
 
     def run(self, question: str, *, as_of: str | None = None) -> AgentRun:
         started = perf_counter()
@@ -521,12 +691,33 @@ class AgentRunner:
         traces: list[ToolTrace] = []
         turns: list[ModelTurnTrace] = []
         usage: dict[str, int] = {}
-        last_parse_error = ""
+        last_parse_error = "no final answer"
         for turn_number in range(1, self.max_model_turns + 1):
+            final_turn = turn_number == self.max_model_turns
+            available_tools = [] if final_turn else self._available_tools()
+            force_final = not available_tools
+            turn_input = input_items
+            if force_final:
+                turn_input = [
+                    *input_items,
+                    {
+                        "role": "user",
+                        "content": (
+                            "No solicites más herramientas. Responde ahora únicamente con "
+                            "el objeto JSON final requerido, usando sólo los chunks leídos."
+                        ),
+                    },
+                ]
             turn = self.backend.create_turn(
-                input_items=input_items,
-                tools=self.toolbox.tool_definitions(),
-                instructions=self.instructions,
+                input_items=turn_input,
+                tools=available_tools,
+                instructions=(
+                    self.instructions
+                    + "\nNo quedan más turnos de herramientas. Entrega ahora el JSON final "
+                    "usando sólo los chunks ya leídos."
+                    if not available_tools
+                    else self.instructions
+                ),
             )
             _add_usage(usage, turn.usage)
             turns.append(
@@ -541,6 +732,9 @@ class AgentRunner:
                     usage=turn.usage,
                 )
             )
+            if force_final and turn.tool_calls:
+                last_parse_error = "model requested a tool during forced finalization"
+                continue
             input_items.extend(turn.output_items)
             if turn.tool_calls:
                 for call in turn.tool_calls:
