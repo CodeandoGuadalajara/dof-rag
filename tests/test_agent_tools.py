@@ -1,13 +1,89 @@
 import unittest
+from types import SimpleNamespace
 
+from agent_tools.agent import (
+    AgentRunner,
+    DofToolbox,
+    ModelTurn,
+    OpenAIResponsesBackend,
+    ToolCall,
+)
 from agent_tools.llm import _parse_json, answer_with_context
-from agent_tools.models import EvidenceHit, SearchFilters, SearchResult
+from agent_tools.models import (
+    DocumentOutline,
+    EvidenceHit,
+    IndexVersions,
+    OutlineChunk,
+    PublicationHit,
+    SearchFilters,
+    SearchResult,
+)
 from agent_tools.retrieval import _bm25_chunk_scores, _fuse_documents, _rrf
 
 
 class FakeClient:
     def complete(self, system, user, *, max_tokens=1200):
         return '{"answer":"ok","citations":[4,999],"premise_status":"supported"}'
+
+
+class FakeRetriever:
+    versions = IndexVersions("corpus", "chunks", True)
+
+    def list_publications(self, filters, *, limit=50):
+        return [PublicationHit(2, "doc.md", "2025-01-01", "MAT")]
+
+    def get_document_outline(self, document_id):
+        return DocumentOutline(
+            document_id=document_id,
+            path="doc.md",
+            publication_date="2025-01-01",
+            section="MAT",
+            chunks=[OutlineChunk(4, 0, [], 10)],
+        )
+
+    def read_chunks(self, chunk_ids, *, neighbor_window=0):
+        return [
+            EvidenceHit(
+                chunk_id=chunk_id,
+                document_id=2,
+                path="doc.md",
+                publication_date="2025-01-01",
+                section="MAT",
+                chunk_index=0,
+                heading_path=[],
+                text="evidencia",
+                score=0.0,
+                source="read",
+                rank=1,
+            )
+            for chunk_id in chunk_ids
+        ]
+
+
+class ScriptedBackend:
+    model = "scripted"
+
+    def __init__(self, turns):
+        self.turns = iter(turns)
+
+    def create_turn(self, **kwargs):
+        return next(self.turns)
+
+
+class DumpableItem(SimpleNamespace):
+    def model_dump(self, **kwargs):
+        return vars(self)
+
+
+class ResponsesClient:
+    def __init__(self, response):
+        self.response = response
+        self.responses = self
+        self.kwargs = None
+
+    def create(self, **kwargs):
+        self.kwargs = kwargs
+        return self.response
 
 
 class AgentToolsTests(unittest.TestCase):
@@ -63,3 +139,123 @@ class AgentToolsTests(unittest.TestCase):
         answer = answer_with_context(FakeClient(), "pregunta", result)
         self.assertEqual(answer.citations, [4])
         self.assertEqual(answer.invalid_citations, [999])
+
+    def test_tool_schemas_are_strict_and_hide_unavailable_vector_search(self):
+        toolbox = DofToolbox(FakeRetriever())
+        for tool in toolbox.tool_definitions():
+            schema = tool["parameters"]
+            self.assertTrue(tool["strict"])
+            self.assertFalse(schema["additionalProperties"])
+            self.assertEqual(set(schema["properties"]), set(schema["required"]))
+        search = next(
+            tool
+            for tool in toolbox.tool_definitions()
+            if tool["name"] == "search_documents"
+        )
+        self.assertEqual(
+            search["parameters"]["properties"]["strategy"]["enum"], ["lexical"]
+        )
+
+    def test_toolbox_enforces_evaluation_cutoff(self):
+        toolbox = DofToolbox(FakeRetriever())
+        toolbox.begin(as_of="2026-01-01")
+        output = toolbox.call(
+            "list_publications",
+            {
+                "as_of": "2026-02-01",
+                "date_from": None,
+                "date_to": None,
+                "section": None,
+                "limit": 5,
+            },
+        )
+        self.assertFalse(output["ok"])
+        self.assertIn("exceeds the run cutoff", output["error"]["message"])
+
+    def test_agent_only_accepts_citations_from_read_chunks(self):
+        backend = ScriptedBackend(
+            [
+                ModelTurn(
+                    response_id="one",
+                    output_items=[],
+                    tool_calls=[
+                        ToolCall(
+                            call_id="call-list",
+                            name="list_publications",
+                            arguments={
+                                "as_of": None,
+                                "date_from": "2025-01-01",
+                                "date_to": "2025-01-01",
+                                "section": "MAT",
+                                "limit": 5,
+                            },
+                        )
+                    ],
+                ),
+                ModelTurn(
+                    response_id="two",
+                    output_items=[],
+                    tool_calls=[
+                        ToolCall(
+                            call_id="call-0",
+                            name="get_document_outline",
+                            arguments={"document_id": 2},
+                        )
+                    ],
+                ),
+                ModelTurn(
+                    response_id="three",
+                    output_items=[],
+                    tool_calls=[
+                        ToolCall(
+                            call_id="call-1",
+                            name="read_chunks",
+                            arguments={"chunk_ids": [4], "neighbor_window": 0},
+                        )
+                    ],
+                ),
+                ModelTurn(
+                    response_id="four",
+                    output_items=[],
+                    final_text=(
+                        '{"answer":"ok","citations":[4,999],'
+                        '"premise_status":"supported"}'
+                    ),
+                    usage={"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+                ),
+            ]
+        )
+        run = AgentRunner(backend, DofToolbox(FakeRetriever())).run(
+            "pregunta", as_of="2026-01-01"
+        )
+        self.assertEqual(run.answer.citations, [4])
+        self.assertEqual(run.answer.invalid_citations, [999])
+        self.assertEqual(run.tool_calls, 3)
+        self.assertEqual(run.stop_reason, "completed")
+
+    def test_unknown_tool_is_returned_as_structured_error(self):
+        toolbox = DofToolbox(FakeRetriever())
+        self.assertEqual(toolbox.call("missing", {})["error"]["type"], "unknown_tool")
+
+    def test_openai_adapter_serializes_function_calls_and_strict_output(self):
+        item = DumpableItem(
+            type="function_call",
+            call_id="call-1",
+            name="read_chunks",
+            arguments='{"chunk_ids":[4],"neighbor_window":0}',
+        )
+        usage = DumpableItem(input_tokens=3, output_tokens=2, total_tokens=5)
+        response = SimpleNamespace(
+            id="response-1",
+            output=[item],
+            output_text="",
+            usage=usage,
+            error=None,
+        )
+        client = ResponsesClient(response)
+        backend = OpenAIResponsesBackend(model="test", client=client)
+        turn = backend.create_turn(input_items=[], tools=[], instructions="test")
+        self.assertEqual(turn.tool_calls[0].arguments["chunk_ids"], [4])
+        self.assertFalse(client.kwargs["store"])
+        self.assertIn("reasoning.encrypted_content", client.kwargs["include"])
+        self.assertTrue(client.kwargs["text"]["format"]["strict"])
