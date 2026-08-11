@@ -90,6 +90,28 @@ def calculate_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def fatal_provider_error(exc: Exception) -> bool:
+    """Return true for session-wide failures that retries cannot repair."""
+    if type(exc).__name__ in {"AuthenticationError", "PermissionDeniedError"}:
+        return True
+    details = " ".join(
+        str(value)
+        for value in (
+            getattr(exc, "code", ""),
+            getattr(exc, "body", ""),
+            str(exc),
+        )
+    ).casefold()
+    return any(
+        marker in details
+        for marker in (
+            "insufficient_quota",
+            "credit_balance_exhausted",
+            "invalid_api_key",
+        )
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--queries", default="eval/dof_queries_v4.jsonl")
@@ -143,6 +165,8 @@ def main() -> int:
             )
             for index, query in enumerate(queries, 1):
                 item = dict(query)
+                abort = False
+                error_type = ""
                 try:
                     run = runner.run(query["question"], as_of=query["as_of"])
                     item["run"] = run.to_dict()
@@ -154,12 +178,29 @@ def main() -> int:
                         flush=True,
                     )
                 except Exception as exc:
-                    item["error"] = {"type": type(exc).__name__, "message": str(exc)}
+                    error_type = type(exc).__name__
+                    item["error"] = {"type": error_type, "message": str(exc)}
+                    abort = fatal_provider_error(exc)
                     print(
                         f"[{index}/{len(queries)}] {query['id']} ERROR {type(exc).__name__}: {exc}",
                         flush=True,
                     )
                 results.append(item)
+                if abort:
+                    for skipped in queries[index:]:
+                        skipped_item = dict(skipped)
+                        skipped_item["error"] = {
+                            "type": "NotRunAfterFatalProviderError",
+                            "message": (
+                                f"not run after {query['id']} failed with {error_type}"
+                            ),
+                        }
+                        results.append(skipped_item)
+                    print(
+                        f"aborted remaining questions after fatal provider error on {query['id']}",
+                        flush=True,
+                    )
+                    break
         finally:
             if embedder:
                 embedder.close()

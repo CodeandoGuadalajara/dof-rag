@@ -19,6 +19,7 @@ from agent_tools.models import (
     SearchResult,
 )
 from agent_tools.retrieval import _bm25_chunk_scores, _fuse_documents, _rrf
+from scripts.eval_v4_agent import fatal_provider_error
 
 
 class FakeClient:
@@ -86,7 +87,15 @@ class ResponsesClient:
         return self.response
 
 
+class QuotaError(Exception):
+    code = "credit_balance_exhausted"
+
+
 class AgentToolsTests(unittest.TestCase):
+    def test_fatal_provider_error_distinguishes_quota_from_transient_rate_limit(self):
+        self.assertTrue(fatal_provider_error(QuotaError("insufficient_quota")))
+        self.assertFalse(fatal_provider_error(Exception("temporary rate limit")))
+
     def test_weighted_fusion_prefers_lexical_when_weight_is_high(self):
         fused = _fuse_documents([(1, 10.0), (2, 1.0)], [(2, 0.9), (1, 0.1)], 0.75)
         self.assertEqual(fused[0][0], 1)
