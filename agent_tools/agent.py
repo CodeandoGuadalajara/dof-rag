@@ -8,6 +8,7 @@ without network access or model nondeterminism.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from time import perf_counter
 from typing import Any, Protocol
@@ -16,6 +17,27 @@ from jsonschema import Draft202012Validator
 
 from .models import RetrievalStrategy, SearchFilters
 from .retrieval import DofRetriever, QueryEmbedder
+
+YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
+PROVISION_RE = re.compile(r"\b(?:numeral|art[ií]culo)\s+(\d+(?:\.\d+)*)", re.I)
+
+
+def _comparison_years(question: str) -> list[str]:
+    """Return explicit years only when the question asks across multiple years."""
+    years = list(dict.fromkeys(YEAR_RE.findall(question)))
+    return years if len(years) > 1 else []
+
+
+def _coverage_requirements(question: str) -> list[str]:
+    requirements = _comparison_years(question)
+    if "transitorio" not in question.casefold():
+        return requirements
+    requirements.append("transitorio")
+    requirements.extend(
+        f"numeral {number}" for number in PROVISION_RE.findall(question)
+    )
+    return list(dict.fromkeys(requirements))
+
 
 FINAL_ANSWER_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -133,6 +155,7 @@ class AgentRun:
     stop_reason: str
     usage: dict[str, int]
     elapsed_ms: float
+    coverage: dict[str, bool] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -170,7 +193,10 @@ class DofToolbox:
         self.as_of: str | None = None
         self.read_chunk_ids: set[int] = set()
         self.visible_document_ids: set[int] = set()
+        self.visible_document_titles: dict[int, str] = {}
         self.visible_chunk_ids: set[int] = set()
+        self.coverage_requirements: set[str] = set()
+        self.covered_requirements: set[str] = set()
         self._vector_cache: dict[str, bytes] = {}
         self._schemas = self._build_schemas()
 
@@ -180,12 +206,53 @@ class DofToolbox:
             return [strategy.value for strategy in RetrievalStrategy]
         return [RetrievalStrategy.LEXICAL.value]
 
-    def begin(self, *, as_of: str | None) -> None:
+    def begin(
+        self, *, as_of: str | None, coverage_requirements: list[str] | None = None
+    ) -> None:
         self.as_of = as_of
         self.read_chunk_ids.clear()
         self.visible_document_ids.clear()
+        self.visible_document_titles.clear()
         self.visible_chunk_ids.clear()
+        self.coverage_requirements = set(coverage_requirements or [])
+        self.covered_requirements.clear()
         self._vector_cache.clear()
+
+    @property
+    def missing_coverage(self) -> list[str]:
+        return sorted(self.coverage_requirements - self.covered_requirements)
+
+    @property
+    def coverage(self) -> dict[str, bool]:
+        return {
+            requirement: requirement in self.covered_requirements
+            for requirement in sorted(self.coverage_requirements)
+        }
+
+    def _remember_documents(self, hits: Any) -> None:
+        for hit in hits:
+            self.visible_document_ids.add(hit.document_id)
+            if hit.title:
+                self.visible_document_titles[hit.document_id] = hit.title
+
+    @staticmethod
+    def _hit_covers(requirement: str, hit: Any, title: str) -> bool:
+        if requirement.isdigit():
+            return requirement in title
+        if requirement == "transitorio":
+            headings = " ".join(hit.heading_path).casefold()
+            return "transitorio" in headings or bool(
+                re.search(r"(?im)^\s*(?:\*\*)?(?:primero|segundo)\.?\**\s", hit.text)
+            )
+        if requirement.startswith("numeral "):
+            number = re.escape(requirement.removeprefix("numeral "))
+            return bool(
+                re.search(
+                    rf"(?im)^\s*(?:>\s*)?(?:\*\*)?{number}(?:\*\*)?(?:\s|$)",
+                    hit.text,
+                )
+            )
+        return False
 
     def _build_schemas(self) -> dict[str, dict[str, Any]]:
         strategy = {"type": "string", "enum": self.strategies}
@@ -324,7 +391,7 @@ class DofToolbox:
     def _call_list_publications(self, arguments: dict[str, Any]) -> dict[str, Any]:
         filters = self._filters(arguments)
         hits = self.retriever.list_publications(filters, limit=arguments["limit"])
-        self.visible_document_ids.update(hit.document_id for hit in hits)
+        self._remember_documents(hits)
         return {
             "filters": filters.to_dict(),
             "publications": [asdict(hit) for hit in hits],
@@ -342,7 +409,7 @@ class DofToolbox:
             vector_k=300,
             top_k=arguments["top_k"],
         )
-        self.visible_document_ids.update(result.document_ids)
+        self._remember_documents(result.documents)
         return result.to_dict()
 
     def _call_search_evidence(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -373,6 +440,8 @@ class DofToolbox:
         if arguments["document_id"] not in self.visible_document_ids:
             raise ValueError("document_id was not returned by an earlier tool")
         outline = self.retriever.get_document_outline(arguments["document_id"])
+        if outline.title:
+            self.visible_document_titles[outline.document_id] = outline.title
         self.visible_chunk_ids.update(chunk.chunk_id for chunk in outline.chunks)
         data = asdict(outline)
         data["chunks"] = data["chunks"][:200]
@@ -389,7 +458,17 @@ class DofToolbox:
             arguments["chunk_ids"], neighbor_window=arguments["neighbor_window"]
         )
         self.read_chunk_ids.update(hit.chunk_id for hit in hits)
-        return {"chunks": [asdict(hit) for hit in hits]}
+        for requirement in self.coverage_requirements:
+            if any(
+                self._hit_covers(
+                    requirement,
+                    hit,
+                    self.visible_document_titles.get(hit.document_id, ""),
+                )
+                for hit in hits
+            ):
+                self.covered_requirements.add(requirement)
+        return {"chunks": [asdict(hit) for hit in hits], "coverage": self.coverage}
 
 
 class OpenAIResponsesBackend:
@@ -651,7 +730,7 @@ class AgentRunner:
         backend: AgentBackend,
         toolbox: DofToolbox,
         *,
-        max_model_turns: int = 6,
+        max_model_turns: int = 7,
         max_tool_calls: int = 8,
         instructions: str = AGENT_INSTRUCTIONS,
     ):
@@ -665,8 +744,13 @@ class AgentRunner:
 
     def _available_tools(self) -> list[dict[str, Any]]:
         definitions = {tool["name"]: tool for tool in self.toolbox.tool_definitions()}
-        if self.toolbox.read_chunk_ids:
+        if self.toolbox.read_chunk_ids and not self.toolbox.missing_coverage:
             return []
+        if self.toolbox.read_chunk_ids:
+            return [
+                definitions[name]
+                for name in ("search_documents", "search_evidence", "read_chunks")
+            ]
         if self.toolbox.visible_chunk_ids:
             return [definitions["read_chunks"]]
         if self.toolbox.visible_document_ids:
@@ -682,10 +766,17 @@ class AgentRunner:
 
     def run(self, question: str, *, as_of: str | None = None) -> AgentRun:
         started = perf_counter()
-        self.toolbox.begin(as_of=as_of)
+        coverage_requirements = _coverage_requirements(question)
+        self.toolbox.begin(as_of=as_of, coverage_requirements=coverage_requirements)
+        coverage_prompt = (
+            "\nCobertura obligatoria antes de responder: "
+            + ", ".join(coverage_requirements)
+            if coverage_requirements
+            else ""
+        )
         prompt = (
             f"Fecha de corte obligatoria: {as_of or 'no indicada'}\n"
-            f"Pregunta: {question}"
+            f"Pregunta: {question}{coverage_prompt}"
         )
         input_items: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
         traces: list[ToolTrace] = []
@@ -771,6 +862,21 @@ class AgentRunner:
                     )
                 continue
             if turn.final_text:
+                if self.toolbox.missing_coverage and not final_turn:
+                    last_parse_error = "faltan requisitos de cobertura: " + ", ".join(
+                        self.toolbox.missing_coverage
+                    )
+                    input_items.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Aún no puedes cerrar. Lee evidencia de documentos cuyo "
+                                "título cubra: "
+                                + ", ".join(self.toolbox.missing_coverage)
+                            ),
+                        }
+                    )
+                    continue
                 try:
                     answer = _parse_final_answer(
                         turn.final_text, self.toolbox.read_chunk_ids
@@ -793,9 +899,15 @@ class AgentRunner:
                     turns=turns,
                     model_turns=turn_number,
                     tool_calls=len(traces),
-                    stop_reason="completed",
+                    stop_reason=(
+                        "completed"
+                        if not self.toolbox.missing_coverage
+                        else "coverage_incomplete: "
+                        + ",".join(self.toolbox.missing_coverage)
+                    ),
                     usage=usage,
                     elapsed_ms=(perf_counter() - started) * 1000.0,
+                    coverage=self.toolbox.coverage,
                 )
             last_parse_error = "model returned neither tool calls nor a final answer"
         answer = AgentAnswer(
@@ -816,4 +928,5 @@ class AgentRunner:
             stop_reason=f"model_turn_limit: {last_parse_error}",
             usage=usage,
             elapsed_ms=(perf_counter() - started) * 1000.0,
+            coverage=self.toolbox.coverage,
         )

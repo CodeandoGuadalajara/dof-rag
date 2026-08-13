@@ -71,6 +71,8 @@ class PublicationHit:
     path: str
     publication_date: str | None
     section: str | None
+    title: str | None = None
+    institution: str | None = None
 
 
 @dataclass(frozen=True)
@@ -83,6 +85,9 @@ class DocumentHit:
     bm25_score: float | None = None
     vector_score: float | None = None
     rank: int = 0
+    title: str | None = None
+    institution: str | None = None
+    title_boost: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -115,6 +120,8 @@ class DocumentOutline:
     publication_date: str | None
     section: str | None
     chunks: list[OutlineChunk]
+    title: str | None = None
+    institution: str | None = None
 
 
 @dataclass

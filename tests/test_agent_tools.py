@@ -8,7 +8,10 @@ from agent_tools.agent import (
     OpenAIChatCompletionsBackend,
     OpenAIResponsesBackend,
     ToolCall,
+    _comparison_years,
+    _coverage_requirements,
 )
+from agent_tools.headers import extract_document_header
 from agent_tools.llm import _parse_json, answer_with_context
 from agent_tools.models import (
     DocumentOutline,
@@ -19,7 +22,12 @@ from agent_tools.models import (
     SearchFilters,
     SearchResult,
 )
-from agent_tools.retrieval import _bm25_chunk_scores, _fuse_documents, _rrf
+from agent_tools.retrieval import (
+    _bm25_chunk_scores,
+    _fuse_documents,
+    _normative_title_boost,
+    _rrf,
+)
 from scripts.eval_v4_agent import calculate_metrics, fatal_provider_error
 
 
@@ -32,7 +40,16 @@ class FakeRetriever:
     versions = IndexVersions("corpus", "chunks", True)
 
     def list_publications(self, filters, *, limit=50):
-        return [PublicationHit(2, "doc.md", "2025-01-01", "MAT")]
+        return [
+            PublicationHit(
+                2,
+                "doc.md",
+                "2025-01-01",
+                "MAT",
+                title="Resolución aplicable en 2025",
+                institution="Institución",
+            )
+        ]
 
     def get_document_outline(self, document_id):
         return DocumentOutline(
@@ -106,12 +123,96 @@ class QuotaError(Exception):
 
 
 class AgentToolsTests(unittest.TestCase):
+    def test_header_extraction_separates_institution_and_title(self):
+        header = extract_document_header(
+            "# SECRETARIA DEL TRABAJO\n\n"
+            "## NORMA Oficial Mexicana NOM-035-STPS-2018.\n\nTexto"
+        )
+        self.assertEqual(header.institution, "SECRETARIA DEL TRABAJO")
+        self.assertEqual(header.title, "NORMA Oficial Mexicana NOM-035-STPS-2018")
+
+    def test_normative_title_boost_prefers_the_issuing_norm(self):
+        query = "NOM-035 segundo transitorio numeral 5.2 centros de trabajo"
+        source = _normative_title_boost(
+            query,
+            "NORMA Oficial Mexicana NOM-035-STPS-2018, Factores de riesgo "
+            "psicosocial en el trabajo",
+        )
+        reference = _normative_title_boost(
+            query,
+            "CONVOCATORIA sobre normas oficiales mexicanas de seguridad",
+        )
+        self.assertGreater(source, reference)
+
+    def test_comparison_years_are_explicit_coverage_requirements(self):
+        self.assertEqual(
+            _comparison_years("¿Cómo cambiaron los salarios de 2025 a 2026?"),
+            ["2025", "2026"],
+        )
+        self.assertEqual(_comparison_years("¿Qué rige en 2026?"), [])
+        self.assertEqual(
+            _coverage_requirements(
+                "¿Qué dice el segundo transitorio sobre el numeral 5.2?"
+            ),
+            ["transitorio", "numeral 5.2"],
+        )
+
+    def test_exact_provision_heading_beats_a_reference_to_it(self):
+        scores = _bm25_chunk_scores(
+            "5.2",
+            [
+                "El segundo transitorio menciona los numerales 5.2 y 5.3.",
+                "**5.2** Identificar y analizar los factores de riesgo.",
+            ],
+        )
+        self.assertGreater(scores[1], scores[0])
+
+    def test_read_chunks_reports_missing_comparison_coverage(self):
+        toolbox = DofToolbox(FakeRetriever())
+        toolbox.begin(as_of="2026-01-01", coverage_requirements=["2025", "2026"])
+        listed = toolbox.call(
+            "list_publications",
+            {
+                "as_of": "2026-01-01",
+                "date_from": None,
+                "date_to": None,
+                "section": None,
+                "limit": 5,
+            },
+        )
+        self.assertTrue(listed["ok"])
+        toolbox.visible_chunk_ids.add(4)
+        read = toolbox.call("read_chunks", {"chunk_ids": [4], "neighbor_window": 0})
+        self.assertEqual(read["data"]["coverage"], {"2025": True, "2026": False})
+        self.assertEqual(toolbox.missing_coverage, ["2026"])
+
     def test_metrics_do_not_count_limited_run_as_completed(self):
         metrics = calculate_metrics(
             [{"run": {"stop_reason": "model_turn_limit: no final answer"}}]
         )
         self.assertEqual(metrics["runs"], 1)
         self.assertEqual(metrics["completed"], 0)
+
+    def test_metrics_report_explicit_comparison_coverage(self):
+        metrics = calculate_metrics(
+            [
+                {
+                    "category": "multi_document",
+                    "gold_documents": [{"evidence": [{"chunk_id": 4}]}],
+                    "run": {
+                        "stop_reason": "completed",
+                        "answer": {"citations": []},
+                        "traces": [],
+                        "usage": {},
+                        "tool_calls": 2,
+                        "model_turns": 3,
+                        "elapsed_ms": 1.0,
+                        "coverage": {"2025": True, "2026": True},
+                    },
+                }
+            ]
+        )
+        self.assertEqual(metrics["coverage_completion_rate"], 1.0)
 
     def test_fatal_provider_error_distinguishes_quota_from_transient_rate_limit(self):
         self.assertTrue(fatal_provider_error(QuotaError("insufficient_quota")))

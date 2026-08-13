@@ -25,6 +25,7 @@ from corpus_store.chunk_index import normalized_text, reconstruct
 from corpus_store.db import connect, fetch_document_text
 from rag_poc.chunker import DocPattern
 
+from .headers import DocumentHeader, extract_document_header
 from .models import (
     DocumentHit,
     DocumentOutline,
@@ -40,6 +41,12 @@ from .models import (
 )
 
 TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+NORM_IDENTIFIER_RE = re.compile(r"\b(?:NOM|NMX)-\d{3}(?:-[A-Z]+)*(?:-\d{4})?\b", re.I)
+QUERY_ALIASES = {
+    "inegi": ["instituto", "nacional", "estadistica", "geografia"],
+    "inpc": ["indice", "nacional", "precios", "consumidor"],
+    "uma": ["unidad", "medida", "actualizacion"],
+}
 
 
 def _fold(text: str) -> str:
@@ -53,7 +60,31 @@ def _tokens(text: str) -> list[str]:
 
 def _match_query(query: str) -> list[str]:
     """Return FTS terms, dropping high-document-frequency terms."""
-    return _tokens(query)
+    terms = _tokens(query)
+    expanded = list(terms)
+    for term in terms:
+        expanded.extend(QUERY_ALIASES.get(term, []))
+    return list(dict.fromkeys(expanded))
+
+
+def _normative_title_boost(query: str, title: str | None) -> float:
+    """Prefer the issuing norm over documents that merely cite its identifier."""
+    if not title:
+        return 0.0
+    query_ids = {match.group(0).upper() for match in NORM_IDENTIFIER_RE.finditer(query)}
+    if not query_ids:
+        return 0.0
+    folded_title = _fold(title)
+    boost = 0.0
+    for identifier in query_ids:
+        if _fold(identifier) in folded_title:
+            boost = max(boost, 100.0 if identifier.count("-") >= 3 else 40.0)
+    if boost and folded_title.startswith("norma oficial mexicana"):
+        boost += 40.0
+    if boost:
+        overlap = set(_tokens(query)) & set(_tokens(title))
+        boost += min(len(overlap), 4) * 12.0
+    return boost
 
 
 class QueryEmbedder(Protocol):
@@ -211,6 +242,7 @@ def _bm25_chunk_scores(query: str, texts: list[str]) -> list[float]:
     k1 = 1.2
     b = 0.75
     phrase = " ".join(terms)
+    provisions = re.findall(r"\b\d+\.\d+\b", query)
     scores: list[float] = []
     for text, counts, length in zip(texts, frequencies, lengths, strict=True):
         score = 0.0
@@ -224,6 +256,13 @@ def _bm25_chunk_scores(query: str, texts: list[str]) -> list[float]:
             score += inverse_document_frequency * tf * (k1 + 1.0) / denominator
         if phrase and phrase in _fold(text):
             score += 0.25
+        for provision in provisions:
+            if re.search(
+                rf"(?im)^\s*(?:>\s*)?(?:\*\*)?{re.escape(provision)}"
+                r"(?:\*\*)?(?:\s|$)",
+                text,
+            ):
+                score += 20.0
         scores.append(score)
     return scores
 
@@ -266,6 +305,8 @@ class DofRetriever:
             sqlite_vec.load(self.vec0)
         n_docs = self.corpus.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
         self.pruner = DfPruner(self.corpus, n_docs)
+        self._header_cache: dict[int, DocumentHeader] = {}
+        self._fast_header_cache: dict[int, DocumentHeader] = {}
         corpus_meta = dict(self.corpus.execute("SELECT key, value FROM corpus_meta"))
         chunk_meta = self.chunks.execute(
             "SELECT chunker_version, corpus_version FROM chunks LIMIT 1"
@@ -304,15 +345,90 @@ class DofRetriever:
             f"{where} ORDER BY d.publication_date DESC, d.document_id DESC LIMIT ?",
             [*params, limit],
         ).fetchall()
-        return [
-            PublicationHit(
-                document_id=int(row[0]),
-                path=row[1],
-                publication_date=row[2],
-                section=row[3],
+        hits = []
+        for row in rows:
+            document_id = int(row[0])
+            header = self._document_header(document_id, full=True)
+            hits.append(
+                PublicationHit(
+                    document_id=document_id,
+                    path=row[1],
+                    publication_date=row[2],
+                    section=row[3],
+                    title=header.title,
+                    institution=header.institution,
+                )
             )
-            for row in rows
+        return hits
+
+    def _document_header(
+        self, document_id: int, *, full: bool = False
+    ) -> DocumentHeader:
+        if full:
+            if document_id not in self._header_cache:
+                text = fetch_document_text(self.corpus, document_id)
+                self._header_cache[document_id] = extract_document_header(text)
+            return self._header_cache[document_id]
+        if document_id not in self._fast_header_cache:
+            self._document_headers([document_id])
+        return self._fast_header_cache[document_id]
+
+    def _document_headers(self, document_ids: list[int]) -> dict[int, DocumentHeader]:
+        missing = [
+            document_id
+            for document_id in document_ids
+            if document_id not in self._fast_header_cache
         ]
+        if missing:
+            placeholders = ",".join("?" for _ in missing)
+            rows = self.chunks.execute(
+                "SELECT document_id, heading_path FROM chunks "
+                f"WHERE document_id IN ({placeholders}) "
+                "AND heading_path NOT IN ('', '[]') ORDER BY document_id, chunk_index",
+                missing,
+            ).fetchall()
+            for document_id, raw_headings in rows:
+                document_id = int(document_id)
+                if document_id in self._fast_header_cache:
+                    continue
+                headings = _parse_heading_path(raw_headings)
+                if headings:
+                    self._fast_header_cache[document_id] = DocumentHeader(
+                        institution=None, title=headings[0]
+                    )
+            for document_id in missing:
+                self._fast_header_cache.setdefault(
+                    document_id, DocumentHeader(institution=None, title=None)
+                )
+        return {
+            document_id: self._fast_header_cache[document_id]
+            for document_id in document_ids
+        }
+
+    def _identifier_documents(
+        self, query: str, depth: int, filters: SearchFilters
+    ) -> list[tuple[int, float, str, str | None, str | None]]:
+        identifiers = list(dict.fromkeys(NORM_IDENTIFIER_RE.findall(query)))
+        if not identifiers:
+            return []
+        filter_clauses, filter_params = _filter_clauses(filters)
+        results: dict[int, tuple[int, float, str, str | None, str | None]] = {}
+        for identifier in identifiers:
+            phrase = " ".join(_tokens(identifier))
+            clauses = ["documents_fts MATCH ?", *filter_clauses]
+            rows = self.corpus.execute(
+                "SELECT d.document_id, bm25(documents_fts), d.path, "
+                "d.publication_date, d.section "
+                "FROM documents_fts JOIN _documents_zstd d "
+                "ON d.document_id = documents_fts.rowid "
+                f"WHERE {' AND '.join(clauses)} "
+                "ORDER BY bm25(documents_fts) LIMIT ?",
+                [f'"{phrase}"', *filter_params, depth],
+            ).fetchall()
+            for row in rows:
+                result = (int(row[0]), -float(row[1]), row[2], row[3], row[4])
+                results.setdefault(result[0], result)
+        return list(results.values())
 
     def _bm25_documents(
         self, query: str, depth: int, filters: SearchFilters
@@ -478,6 +594,7 @@ class DofRetriever:
             "WHERE document_id = ? ORDER BY chunk_index",
             (document_id,),
         ).fetchall()
+        header = self._document_header(document_id)
         return DocumentOutline(
             document_id=int(row[0]),
             path=row[1],
@@ -492,6 +609,8 @@ class DofRetriever:
                 )
                 for chunk in chunks
             ],
+            title=header.title,
+            institution=header.institution,
         )
 
     def read_chunks(
@@ -574,6 +693,12 @@ class DofRetriever:
         lexical = []
         if strategy is not RetrievalStrategy.VECTOR:
             lexical = self._bm25_documents(query, bm25_depth, filters)
+            known = {row[0] for row in lexical}
+            lexical.extend(
+                row
+                for row in self._identifier_documents(query, bm25_depth, filters)
+                if row[0] not in known
+            )
         vector_chunks: list[tuple[int, float]] = []
         vector_count = 0
         if strategy is not RetrievalStrategy.LEXICAL and query_vector is not None:
@@ -612,22 +737,45 @@ class DofRetriever:
                 ids,
             ):
                 doc_info[int(row[0])] = (row[1], row[2], row[3])
-        documents = [
-            DocumentHit(
-                document_id=doc_id,
-                path=doc_info[doc_id][0],
-                publication_date=doc_info[doc_id][1],
-                section=doc_info[doc_id][2],
-                score=score,
-                bm25_score=bm25_score,
-                vector_score=vector_score,
-                rank=rank,
+        candidate_limit = len(fused)
+        reranked = []
+        headers = self._document_headers([row[0] for row in fused[:candidate_limit]])
+        for fused_rank, row in enumerate(fused[:candidate_limit]):
+            document_id = row[0]
+            header = headers[document_id]
+            reranked.append(
+                (*row, _normative_title_boost(query, header.title), fused_rank)
             )
-            for rank, (doc_id, score, bm25_score, vector_score) in enumerate(
-                fused[:top_k], 1
+        reranked.sort(key=lambda row: (-(row[1] + row[4]), row[5], row[0]))
+        documents = []
+        for rank, (
+            doc_id,
+            score,
+            bm25_score,
+            vector_score,
+            title_boost,
+            _,
+        ) in enumerate(reranked[:top_k], 1):
+            if doc_id not in doc_info:
+                continue
+            header = headers[doc_id]
+            if header.title is None:
+                header = self._document_header(doc_id, full=True)
+            documents.append(
+                DocumentHit(
+                    document_id=doc_id,
+                    path=doc_info[doc_id][0],
+                    publication_date=doc_info[doc_id][1],
+                    section=doc_info[doc_id][2],
+                    score=score + title_boost,
+                    bm25_score=bm25_score,
+                    vector_score=vector_score,
+                    rank=rank,
+                    title=header.title or headers[doc_id].title,
+                    institution=header.institution,
+                    title_boost=title_boost,
+                )
             )
-            if doc_id in doc_info
-        ]
         return DocumentSearchResult(
             query=query,
             strategy=strategy,
@@ -642,6 +790,7 @@ class DofRetriever:
                 "top_k": top_k,
                 "bm25_weight": bm25_weight,
                 "vector_filtering": "post_filter",
+                "normative_title_rerank": True,
             },
         )
 

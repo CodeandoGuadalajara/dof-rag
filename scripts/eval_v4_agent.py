@@ -68,6 +68,7 @@ def calculate_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
     precisions: list[float] = []
     recalls: list[float] = []
     false_premise: list[bool] = []
+    comparison_coverage: list[bool] = []
     tool_errors = 0
     totals = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
     for item in completed:
@@ -84,6 +85,9 @@ def calculate_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
         )
         for key in totals:
             totals[key] += item["run"]["usage"].get(key, 0)
+        coverage = item["run"].get("coverage", {})
+        if coverage:
+            comparison_coverage.append(all(coverage.values()))
         if item["category"] == "negative_false_premise":
             false_premise.append(item["run"]["answer"]["premise_status"] == "false")
     n = len(completed)
@@ -96,6 +100,11 @@ def calculate_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
         "citation_recall": sum(recalls) / n,
         "false_premise_correction_accuracy": (
             sum(false_premise) / len(false_premise) if false_premise else None
+        ),
+        "coverage_completion_rate": (
+            sum(comparison_coverage) / len(comparison_coverage)
+            if comparison_coverage
+            else None
         ),
         "tool_error_count": tool_errors,
         "average_tool_calls": sum(item["run"]["tool_calls"] for item in completed) / n,
@@ -145,7 +154,7 @@ def main() -> int:
     parser.add_argument("--model", default=os.environ.get("OPENAI_MODEL", ""))
     parser.add_argument("--base-url")
     parser.add_argument("--reasoning-effort", default="low")
-    parser.add_argument("--max-model-turns", type=int, default=6)
+    parser.add_argument("--max-model-turns", type=int, default=7)
     parser.add_argument("--max-tool-calls", type=int, default=8)
     parser.add_argument("--corpus-db", default="dof_db/dof_corpus_l3.sqlite")
     parser.add_argument("--chunks-db", default="dof_db/dof_chunks.sqlite")
