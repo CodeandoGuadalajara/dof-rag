@@ -10,6 +10,8 @@ from agent_tools.agent import (
     ToolCall,
     _comparison_years,
     _coverage_requirements,
+    _enumeration_requirements,
+    _query_snippet,
 )
 from agent_tools.headers import extract_document_header
 from agent_tools.llm import _parse_json, answer_with_context
@@ -24,11 +26,16 @@ from agent_tools.models import (
 )
 from agent_tools.retrieval import (
     _bm25_chunk_scores,
+    _document_name_phrases,
     _fuse_documents,
     _normative_title_boost,
     _rrf,
 )
-from scripts.eval_v4_agent import calculate_metrics, fatal_provider_error
+from scripts.eval_v4_agent import (
+    calculate_metrics,
+    calculate_metrics_by_category,
+    fatal_provider_error,
+)
 
 
 class FakeClient:
@@ -144,17 +151,56 @@ class AgentToolsTests(unittest.TestCase):
         )
         self.assertGreater(source, reference)
 
+    def test_document_name_phrase_stops_before_question_qualifiers(self):
+        self.assertEqual(
+            _document_name_phrases(
+                "¿Qué derecho desarrolla la Ley General de Aguas al declararse "
+                "reglamentaria del artículo 4o.?"
+            ),
+            ["Ley General de Aguas"],
+        )
+
     def test_comparison_years_are_explicit_coverage_requirements(self):
         self.assertEqual(
             _comparison_years("¿Cómo cambiaron los salarios de 2025 a 2026?"),
             ["2025", "2026"],
         )
         self.assertEqual(_comparison_years("¿Qué rige en 2026?"), [])
+        self.assertEqual(_comparison_years("Plan Nacional 2025-2030"), [])
+        self.assertEqual(
+            _comparison_years("¿Qué fundamento usaron los PND 2019-2024 y 2025-2030?"),
+            [],
+        )
         self.assertEqual(
             _coverage_requirements(
                 "¿Qué dice el segundo transitorio sobre el numeral 5.2?"
             ),
             ["transitorio", "numeral 5.2"],
+        )
+        self.assertEqual(
+            _coverage_requirements(
+                "Los numerales 8.3, 8.4 y 8.5 citados por el segundo transitorio, "
+                "¿qué exigen?"
+            ),
+            ["transitorio", "numeral 8.3", "numeral 8.4", "numeral 8.5"],
+        )
+
+    def test_enumeration_requirements_use_only_explicit_question_anchors(self):
+        self.assertEqual(
+            _enumeration_requirements(
+                "¿Qué aplica hasta 15, entre 16 y 50, y con más de 50 trabajadores?"
+            ),
+            ["rango hasta 15", "rango entre 16 y 50", "rango más de 50"],
+        )
+        self.assertEqual(
+            _enumeration_requirements(
+                "¿Cuáles son los valores diario, mensual y anual?"
+            ),
+            ["término diario", "término mensual", "término anual"],
+        )
+        self.assertEqual(
+            _enumeration_requirements("¿Cuáles son los siete objetos de la ley?"),
+            [],
         )
 
     def test_exact_provision_heading_beats_a_reference_to_it(self):
@@ -166,6 +212,24 @@ class AgentToolsTests(unittest.TestCase):
             ],
         )
         self.assertGreater(scores[1], scores[0])
+
+    def test_definition_heading_beats_discussion_of_the_same_term(self):
+        scores = _bm25_chunk_scores(
+            "factores de riesgo psicosocial definición",
+            [
+                "Los factores de riesgo psicosocial deben analizarse.",
+                "**4.7 Factores de Riesgo Psicosocial:** Aquellos que pueden provocar...",
+            ],
+        )
+        self.assertGreater(scores[1], scores[0])
+
+    def test_query_snippet_centers_an_explicit_article(self):
+        text = "inicio " * 200 + "Artículo 3. Es objeto de esta Ley: I. Uno; II. Dos."
+        snippet, truncated = _query_snippet(
+            text, "Ley General de Aguas artículo 3", 200
+        )
+        self.assertTrue(truncated)
+        self.assertIn("Artículo 3", snippet)
 
     def test_read_chunks_reports_missing_comparison_coverage(self):
         toolbox = DofToolbox(FakeRetriever())
@@ -213,6 +277,30 @@ class AgentToolsTests(unittest.TestCase):
             ]
         )
         self.assertEqual(metrics["coverage_completion_rate"], 1.0)
+
+    def test_coverage_metric_includes_incomplete_runs(self):
+        metrics = calculate_metrics(
+            [
+                {
+                    "run": {
+                        "stop_reason": "coverage_incomplete: 2026",
+                        "coverage": {"2025": True, "2026": False},
+                    }
+                }
+            ]
+        )
+        self.assertEqual(metrics["coverage_completion_rate"], 0.0)
+
+    def test_metrics_are_grouped_by_category(self):
+        grouped = calculate_metrics_by_category(
+            [
+                {"category": "one"},
+                {"category": "one"},
+                {"category": "two"},
+            ]
+        )
+        self.assertEqual(grouped["one"]["n"], 2)
+        self.assertEqual(grouped["two"]["n"], 1)
 
     def test_fatal_provider_error_distinguishes_quota_from_transient_rate_limit(self):
         self.assertTrue(fatal_provider_error(QuotaError("insufficient_quota")))
@@ -372,6 +460,26 @@ class AgentToolsTests(unittest.TestCase):
         self.assertEqual(
             [tool["name"] for tool in backend.calls[2]["tools"]], ["read_chunks"]
         )
+
+    def test_agent_does_not_mark_a_final_answer_without_reading_as_completed(self):
+        backend = ScriptedBackend(
+            [
+                ModelTurn(
+                    response_id="final",
+                    output_items=[],
+                    final_text=(
+                        '{"answer":"sin fuente","citations":[],'
+                        '"premise_status":"unclear"}'
+                    ),
+                )
+            ]
+        )
+        run = AgentRunner(
+            backend,
+            DofToolbox(FakeRetriever()),
+            max_model_turns=1,
+        ).run("pregunta")
+        self.assertEqual(run.stop_reason, "evidence_not_read")
 
     def test_unknown_tool_is_returned_as_structured_error(self):
         toolbox = DofToolbox(FakeRetriever())

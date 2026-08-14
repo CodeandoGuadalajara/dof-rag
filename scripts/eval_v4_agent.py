@@ -11,7 +11,8 @@ With a Kimi Code membership key:
 
 Use ``--ids SP-001,NE-001`` for a smaller smoke test or ``--all`` for all 42.
 The output contains the complete tool trace, token usage, latency, and citation
-metrics. API credentials are read by the OpenAI SDK and are never written out.
+metrics. It is checkpointed after every question so a long run retains partial
+progress. API credentials are read by the OpenAI SDK and are never written out.
 """
 
 from __future__ import annotations
@@ -58,17 +59,27 @@ def select_queries(
 def calculate_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
     runs = [item for item in results if "run" in item]
     completed = [item for item in runs if item["run"].get("stop_reason") == "completed"]
+    coverage_states = [
+        item["run"].get("coverage", {})
+        for item in runs
+        if item["run"].get("coverage", {})
+    ]
+    coverage_completion_rate = (
+        sum(all(state.values()) for state in coverage_states) / len(coverage_states)
+        if coverage_states
+        else None
+    )
     if not completed:
         return {
             "n": len(results),
             "runs": len(runs),
             "completed": 0,
             "completion_rate": 0.0,
+            "coverage_completion_rate": coverage_completion_rate,
         }
     precisions: list[float] = []
     recalls: list[float] = []
     false_premise: list[bool] = []
-    comparison_coverage: list[bool] = []
     tool_errors = 0
     totals = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
     for item in completed:
@@ -85,9 +96,6 @@ def calculate_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
         )
         for key in totals:
             totals[key] += item["run"]["usage"].get(key, 0)
-        coverage = item["run"].get("coverage", {})
-        if coverage:
-            comparison_coverage.append(all(coverage.values()))
         if item["category"] == "negative_false_premise":
             false_premise.append(item["run"]["answer"]["premise_status"] == "false")
     n = len(completed)
@@ -101,11 +109,7 @@ def calculate_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
         "false_premise_correction_accuracy": (
             sum(false_premise) / len(false_premise) if false_premise else None
         ),
-        "coverage_completion_rate": (
-            sum(comparison_coverage) / len(comparison_coverage)
-            if comparison_coverage
-            else None
-        ),
+        "coverage_completion_rate": coverage_completion_rate,
         "tool_error_count": tool_errors,
         "average_tool_calls": sum(item["run"]["tool_calls"] for item in completed) / n,
         "average_model_turns": sum(item["run"]["model_turns"] for item in completed)
@@ -114,6 +118,15 @@ def calculate_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
         "usage": totals,
         "answer_correctness": "pending human or judge-model adjudication",
     }
+
+
+def calculate_metrics_by_category(
+    results: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in results:
+        grouped.setdefault(item.get("category", "unknown"), []).append(item)
+    return {category: calculate_metrics(items) for category, items in grouped.items()}
 
 
 def fatal_provider_error(exc: Exception) -> bool:
@@ -154,7 +167,7 @@ def main() -> int:
     parser.add_argument("--model", default=os.environ.get("OPENAI_MODEL", ""))
     parser.add_argument("--base-url")
     parser.add_argument("--reasoning-effort", default="low")
-    parser.add_argument("--max-model-turns", type=int, default=7)
+    parser.add_argument("--max-model-turns", type=int, default=8)
     parser.add_argument("--max-tool-calls", type=int, default=8)
     parser.add_argument("--corpus-db", default="dof_db/dof_corpus_l3.sqlite")
     parser.add_argument("--chunks-db", default="dof_db/dof_chunks.sqlite")
@@ -176,6 +189,37 @@ def main() -> int:
     if args.no_vector:
         args.vec0_db = None
 
+    settings = {
+        "queries": args.queries,
+        "provider": args.provider,
+        "selection": "ids" if ids else "all" if args.all else "one_per_category",
+        "ids": sorted(ids) if ids else None,
+        "model": args.model,
+        "base_url": args.base_url,
+        "reasoning_effort": args.reasoning_effort,
+        "max_model_turns": args.max_model_turns,
+        "max_tool_calls": args.max_tool_calls,
+        "corpus_db": args.corpus_db,
+        "chunks_db": args.chunks_db,
+        "vec0_db": args.vec0_db,
+        "gguf": str(args.gguf) if args.gguf else None,
+    }
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    results: list[dict[str, Any]] = []
+
+    def checkpoint() -> dict[str, Any]:
+        payload = {
+            "settings": settings,
+            "metrics": calculate_metrics(results),
+            "metrics_by_category": calculate_metrics_by_category(results),
+            "results": results,
+        }
+        output.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        return payload
+
     if args.provider == "kimi-code":
         api_key = os.environ.get("KIMI_API_KEY", "")
         if not api_key:
@@ -191,7 +235,6 @@ def main() -> int:
             base_url=args.base_url or os.environ.get("OPENAI_BASE_URL"),
             reasoning_effort=args.reasoning_effort or None,
         )
-    results: list[dict[str, Any]] = []
     with DofRetriever(
         corpus_db=args.corpus_db,
         chunks_db=args.chunks_db,
@@ -239,38 +282,18 @@ def main() -> int:
                             ),
                         }
                         results.append(skipped_item)
+                    checkpoint()
                     print(
                         f"aborted remaining questions after fatal provider error on {query['id']}",
                         flush=True,
                     )
                     break
+                checkpoint()
         finally:
             if embedder:
                 embedder.close()
 
-    settings = {
-        "queries": args.queries,
-        "provider": args.provider,
-        "selection": "ids" if ids else "all" if args.all else "one_per_category",
-        "ids": sorted(ids) if ids else None,
-        "model": args.model,
-        "base_url": args.base_url,
-        "reasoning_effort": args.reasoning_effort,
-        "max_model_turns": args.max_model_turns,
-        "max_tool_calls": args.max_tool_calls,
-        "corpus_db": args.corpus_db,
-        "chunks_db": args.chunks_db,
-        "vec0_db": args.vec0_db,
-        "gguf": str(args.gguf) if args.gguf else None,
-    }
-    payload = {
-        "settings": settings,
-        "metrics": calculate_metrics(results),
-        "results": results,
-    }
-    output = Path(args.output)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+    payload = checkpoint()
     print(json.dumps(payload["metrics"], ensure_ascii=False, indent=2))
     print(f"wrote {output}")
     return 0 if payload["metrics"]["completed"] == len(results) else 1

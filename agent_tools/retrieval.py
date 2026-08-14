@@ -42,6 +42,27 @@ from .models import (
 
 TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 NORM_IDENTIFIER_RE = re.compile(r"\b(?:NOM|NMX)-\d{3}(?:-[A-Z]+)*(?:-\d{4})?\b", re.I)
+DATED_DOCUMENT_RE = re.compile(
+    r"\b(Plan Nacional de Desarrollo\s+(?:19|20)\d{2}-(?:19|20)\d{2})\b",
+    re.I,
+)
+DOCUMENT_NAME_START_RE = re.compile(r"\b(?:ley|c[oó]digo|reglamento)\b", re.I)
+DOCUMENT_NAME_STOP_WORDS = {
+    "al",
+    "articulo",
+    "conforme",
+    "declararse",
+    "es",
+    "fue",
+    "publicada",
+    "publicado",
+    "que",
+    "reglamentaria",
+    "reglamentario",
+    "segun",
+    "se",
+    "son",
+}
 QUERY_ALIASES = {
     "inegi": ["instituto", "nacional", "estadistica", "geografia"],
     "inpc": ["indice", "nacional", "precios", "consumidor"],
@@ -85,6 +106,22 @@ def _normative_title_boost(query: str, title: str | None) -> float:
         overlap = set(_tokens(query)) & set(_tokens(title))
         boost += min(len(overlap), 4) * 12.0
     return boost
+
+
+def _document_name_phrases(query: str) -> list[str]:
+    """Extract explicit legal-instrument names for an exact-phrase lookup."""
+    phrases: list[str] = []
+    for match in DOCUMENT_NAME_START_RE.finditer(query):
+        tail = query[match.start() :]
+        tokens = TOKEN_RE.findall(tail)
+        selected: list[str] = []
+        for token in tokens[:12]:
+            if len(selected) >= 3 and _fold(token) in DOCUMENT_NAME_STOP_WORDS:
+                break
+            selected.append(token)
+        if len(selected) >= 3:
+            phrases.append(" ".join(selected))
+    return list(dict.fromkeys(phrases))
 
 
 class QueryEmbedder(Protocol):
@@ -243,6 +280,7 @@ def _bm25_chunk_scores(query: str, texts: list[str]) -> list[float]:
     b = 0.75
     phrase = " ".join(terms)
     provisions = re.findall(r"\b\d+\.\d+\b", query)
+    definition_query = "defin" in _fold(query)
     scores: list[float] = []
     for text, counts, length in zip(texts, frequencies, lengths, strict=True):
         score = 0.0
@@ -263,6 +301,14 @@ def _bm25_chunk_scores(query: str, texts: list[str]) -> list[float]:
                 text,
             ):
                 score += 20.0
+        if definition_query:
+            for heading in re.findall(
+                r"(?im)^\s*\*\*\d+(?:\.\d+)+\s+([^*:\n]+):?\*\*", text
+            ):
+                overlap = set(terms) & set(_tokens(heading))
+                if len(overlap) >= 2:
+                    score += 20.0
+                    break
         scores.append(score)
     return scores
 
@@ -429,6 +475,92 @@ class DofRetriever:
                 result = (int(row[0]), -float(row[1]), row[2], row[3], row[4])
                 results.setdefault(result[0], result)
         return list(results.values())
+
+    def _heading_phrase_documents(
+        self, query: str, filters: SearchFilters
+    ) -> tuple[list[tuple[int, float, str, str | None, str | None]], dict[int, str]]:
+        phrases = list(dict.fromkeys(DATED_DOCUMENT_RE.findall(query)))
+        if not phrases:
+            return [], {}
+        matched_headings: dict[int, str] = {}
+        for phrase in phrases:
+            rows = self.chunks.execute(
+                "SELECT document_id, heading_path FROM chunks "
+                "WHERE heading_path LIKE ? LIMIT 200",
+                (f"%{phrase}%",),
+            ).fetchall()
+            for document_id, raw_headings in rows:
+                headings = _parse_heading_path(raw_headings)
+                exact = next(
+                    (
+                        heading
+                        for heading in headings
+                        if _fold(phrase) in _fold(heading)
+                    ),
+                    None,
+                )
+                if exact:
+                    matched_headings.setdefault(int(document_id), exact)
+        if not matched_headings:
+            return [], {}
+        ids = list(matched_headings)
+        placeholders = ",".join("?" for _ in ids)
+        clauses, params = _filter_clauses(filters)
+        where = [f"d.document_id IN ({placeholders})", *clauses]
+        rows = self.corpus.execute(
+            "SELECT d.document_id, d.path, d.publication_date, d.section "
+            "FROM _documents_zstd d "
+            f"WHERE {' AND '.join(where)}",
+            [*ids, *params],
+        ).fetchall()
+        hits = [(int(row[0]), 0.0, row[1], row[2], row[3]) for row in rows]
+        kept = {row[0] for row in hits}
+        return hits, {
+            document_id: heading
+            for document_id, heading in matched_headings.items()
+            if document_id in kept
+        }
+
+    def _exact_title_documents(
+        self, query: str, filters: SearchFilters
+    ) -> tuple[list[tuple[int, float, str, str | None, str | None]], dict[int, str]]:
+        """Find issuing documents whose extracted title contains a named instrument.
+
+        Ordinary BM25 often ranks documents that repeatedly cite a law above the
+        decree that issued it. Exact-phrase candidates let the title reranker see
+        the source document without assuming a publication date.
+        """
+        phrases = _document_name_phrases(query)
+        if not phrases:
+            return [], {}
+        filter_clauses, filter_params = _filter_clauses(filters)
+        candidates: dict[int, tuple[int, float, str, str | None, str | None]] = {}
+        for phrase in phrases:
+            match = '"' + " ".join(_tokens(phrase)).replace('"', '""') + '"'
+            clauses = ["documents_fts MATCH ?", *filter_clauses]
+            rows = self.corpus.execute(
+                "SELECT d.document_id, bm25(documents_fts), d.path, "
+                "d.publication_date, d.section "
+                "FROM documents_fts JOIN _documents_zstd d "
+                "ON d.document_id = documents_fts.rowid "
+                f"WHERE {' AND '.join(clauses)} "
+                "ORDER BY bm25(documents_fts) LIMIT 100",
+                [match, *filter_params],
+            ).fetchall()
+            folded_phrase = _fold(phrase)
+            for row in rows:
+                document_id = int(row[0])
+                header = self._document_header(document_id, full=True)
+                if header.title and folded_phrase in _fold(header.title):
+                    candidates.setdefault(
+                        document_id,
+                        (document_id, -float(row[1]), row[2], row[3], row[4]),
+                    )
+        titles = {
+            document_id: self._document_header(document_id, full=True).title or ""
+            for document_id in candidates
+        }
+        return list(candidates.values()), titles
 
     def _bm25_documents(
         self, query: str, depth: int, filters: SearchFilters
@@ -691,6 +823,8 @@ class DofRetriever:
             raise ValueError("vector strategy requires a vector index and query_vector")
 
         lexical = []
+        heading_titles: dict[int, str] = {}
+        exact_titles: dict[int, str] = {}
         if strategy is not RetrievalStrategy.VECTOR:
             lexical = self._bm25_documents(query, bm25_depth, filters)
             known = {row[0] for row in lexical}
@@ -699,6 +833,14 @@ class DofRetriever:
                 for row in self._identifier_documents(query, bm25_depth, filters)
                 if row[0] not in known
             )
+            known = {row[0] for row in lexical}
+            title_hits, exact_titles = self._exact_title_documents(query, filters)
+            lexical.extend(row for row in title_hits if row[0] not in known)
+            known = {row[0] for row in lexical}
+            heading_hits, heading_titles = self._heading_phrase_documents(
+                query, filters
+            )
+            lexical.extend(row for row in heading_hits if row[0] not in known)
         vector_chunks: list[tuple[int, float]] = []
         vector_count = 0
         if strategy is not RetrievalStrategy.LEXICAL and query_vector is not None:
@@ -740,11 +882,26 @@ class DofRetriever:
         candidate_limit = len(fused)
         reranked = []
         headers = self._document_headers([row[0] for row in fused[:candidate_limit]])
+        for document_id, heading in heading_titles.items():
+            if document_id in headers:
+                headers[document_id] = DocumentHeader(institution=None, title=heading)
+        for document_id, title in exact_titles.items():
+            if document_id in headers:
+                headers[document_id] = DocumentHeader(institution=None, title=title)
         for fused_rank, row in enumerate(fused[:candidate_limit]):
             document_id = row[0]
             header = headers[document_id]
             reranked.append(
-                (*row, _normative_title_boost(query, header.title), fused_rank)
+                (
+                    *row,
+                    _normative_title_boost(query, header.title)
+                    + (
+                        200.0
+                        if document_id in heading_titles or document_id in exact_titles
+                        else 0.0
+                    ),
+                    fused_rank,
+                )
             )
         reranked.sort(key=lambda row: (-(row[1] + row[4]), row[5], row[0]))
         documents = []
@@ -791,6 +948,8 @@ class DofRetriever:
                 "bm25_weight": bm25_weight,
                 "vector_filtering": "post_filter",
                 "normative_title_rerank": True,
+                "dated_heading_candidates": bool(heading_titles),
+                "exact_title_candidates": bool(exact_titles),
             },
         )
 

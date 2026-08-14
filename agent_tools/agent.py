@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from dataclasses import asdict, dataclass, field
 from time import perf_counter
 from typing import Any, Protocol
@@ -19,23 +20,72 @@ from .models import RetrievalStrategy, SearchFilters
 from .retrieval import DofRetriever, QueryEmbedder
 
 YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
-PROVISION_RE = re.compile(r"\b(?:numeral|art[ií]culo)\s+(\d+(?:\.\d+)*)", re.I)
+YEAR_COMPARISON_RE = re.compile(
+    r"\b(?:de\s+((?:19|20)\d{2})\s+a|entre\s+((?:19|20)\d{2})\s+y)\s+"
+    r"((?:19|20)\d{2})\b",
+    re.I,
+)
+PROVISION_LIST_RE = re.compile(r"\bnumeral(?:es)?\s+([^:;?]+)", re.I)
+RANGE_PATTERNS = (
+    (re.compile(r"\bhasta\s+(\d+)\b", re.I), "rango hasta {0}"),
+    (
+        re.compile(r"\bentre\s+(\d+)\s+y\s+(\d+)\b", re.I),
+        "rango entre {0} y {1}",
+    ),
+    (re.compile(r"\bm[aá]s\s+de\s+(\d+)\b", re.I), "rango más de {0}"),
+)
+EXPLICIT_TERMS = ("diario", "mensual", "anual")
+NUMBER_WORDS = {
+    "quince": "15",
+    "dieciseis": "16",
+    "cincuenta": "50",
+}
 
 
 def _comparison_years(question: str) -> list[str]:
     """Return explicit years only when the question asks across multiple years."""
-    years = list(dict.fromkeys(YEAR_RE.findall(question)))
-    return years if len(years) > 1 else []
+    years: list[str] = []
+    for match in YEAR_COMPARISON_RE.finditer(question):
+        years.extend(value for value in match.groups() if value)
+    return list(dict.fromkeys(years))
+
+
+def _fold_for_coverage(text: str) -> str:
+    folded = unicodedata.normalize("NFKD", text.casefold())
+    folded = "".join(char for char in folded if not unicodedata.combining(char))
+    for word, number in NUMBER_WORDS.items():
+        folded = re.sub(rf"\b{word}\b", number, folded)
+    return re.sub(r"\s+", " ", folded)
+
+
+def _enumeration_requirements(question: str) -> list[str]:
+    requirements: list[str] = []
+    for pattern, label in RANGE_PATTERNS:
+        requirements.extend(
+            label.format(*match.groups()) for match in pattern.finditer(question)
+        )
+    folded = _fold_for_coverage(question)
+    explicit_terms = [term for term in EXPLICIT_TERMS if term in folded]
+    if len(explicit_terms) > 1:
+        requirements.extend(f"término {term}" for term in explicit_terms)
+    return requirements
+
+
+def _transitory_provisions(question: str) -> list[str]:
+    if "transitorio" not in question.casefold():
+        return []
+    numbers: list[str] = []
+    for match in PROVISION_LIST_RE.finditer(question):
+        numbers.extend(re.findall(r"\b\d+\.\d+\b", match.group(1)))
+    return list(dict.fromkeys(numbers))
 
 
 def _coverage_requirements(question: str) -> list[str]:
-    requirements = _comparison_years(question)
-    if "transitorio" not in question.casefold():
-        return requirements
-    requirements.append("transitorio")
-    requirements.extend(
-        f"numeral {number}" for number in PROVISION_RE.findall(question)
-    )
+    requirements = [*_comparison_years(question), *_enumeration_requirements(question)]
+    provisions = _transitory_provisions(question)
+    if provisions:
+        requirements.append("transitorio")
+        requirements.extend(f"numeral {number}" for number in provisions)
     return list(dict.fromkeys(requirements))
 
 
@@ -177,6 +227,36 @@ def _object_schema(properties: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _query_snippet(text: str, query: str, max_chars: int) -> tuple[str, bool]:
+    if len(text) <= max_chars:
+        return text, False
+    folded_text = _fold_for_coverage(text)
+    folded_query = _fold_for_coverage(query)
+    anchors = [
+        *re.findall(r"\barticulo\s+\d+(?:\.\d+)*\b", folded_query),
+        *re.findall(r"\bnumeral\s+\d+(?:\.\d+)*\b", folded_query),
+        *re.findall(r"\b\d+\.\d+\b", folded_query),
+    ]
+    position = -1
+    for anchor in anchors:
+        position = folded_text.find(anchor)
+        if position >= 0:
+            break
+    if position < 0:
+        terms = {term for term in re.findall(r"\w+", folded_query) if len(term) >= 4}
+        candidates = [folded_text.find(term) for term in terms]
+        position = min((value for value in candidates if value >= 0), default=0)
+    start = max(0, position - max_chars // 4)
+    end = min(len(text), start + max_chars)
+    start = max(0, end - max_chars)
+    snippet = text[start:end]
+    if start:
+        snippet = "…" + snippet[1:]
+    if end < len(text):
+        snippet = snippet[:-1] + "…"
+    return snippet, True
+
+
 class DofToolbox:
     """Validate and execute the five retrieval tools exposed to the model."""
 
@@ -194,6 +274,7 @@ class DofToolbox:
         self.read_chunk_ids: set[int] = set()
         self.visible_document_ids: set[int] = set()
         self.visible_document_titles: dict[int, str] = {}
+        self.visible_document_years: dict[int, set[str]] = {}
         self.visible_chunk_ids: set[int] = set()
         self.coverage_requirements: set[str] = set()
         self.covered_requirements: set[str] = set()
@@ -213,6 +294,7 @@ class DofToolbox:
         self.read_chunk_ids.clear()
         self.visible_document_ids.clear()
         self.visible_document_titles.clear()
+        self.visible_document_years.clear()
         self.visible_chunk_ids.clear()
         self.coverage_requirements = set(coverage_requirements or [])
         self.covered_requirements.clear()
@@ -234,11 +316,32 @@ class DofToolbox:
             self.visible_document_ids.add(hit.document_id)
             if hit.title:
                 self.visible_document_titles[hit.document_id] = hit.title
+            year_hints = set(YEAR_RE.findall(hit.title or ""))
+            if hit.publication_date:
+                year_hints.add(hit.publication_date[:4])
+            self.visible_document_years[hit.document_id] = year_hints
 
     @staticmethod
-    def _hit_covers(requirement: str, hit: Any, title: str) -> bool:
+    def _hit_covers(requirement: str, hit: Any, year_hints: set[str]) -> bool:
         if requirement.isdigit():
-            return requirement in title
+            return requirement in year_hints
+        folded_text = _fold_for_coverage(hit.text)
+        if requirement.startswith("término "):
+            return requirement.removeprefix("término ") in folded_text
+        if requirement.startswith("rango hasta "):
+            limit = re.escape(requirement.removeprefix("rango hasta "))
+            return bool(re.search(rf"\bhasta\s+{limit}\b", folded_text))
+        if requirement.startswith("rango entre "):
+            bounds = re.findall(r"\d+", requirement)
+            return len(bounds) == 2 and bool(
+                re.search(
+                    rf"\bentre\s+{re.escape(bounds[0])}\s+y\s+{re.escape(bounds[1])}\b",
+                    folded_text,
+                )
+            )
+        if requirement.startswith("rango más de "):
+            limit = re.escape(requirement.removeprefix("rango más de "))
+            return bool(re.search(rf"\bmas\s+de\s+{limit}\b", folded_text))
         if requirement == "transitorio":
             headings = " ".join(hit.heading_path).casefold()
             return "transitorio" in headings or bool(
@@ -432,8 +535,11 @@ class DofToolbox:
         data = result.to_dict()
         for hit in data["evidence"]:
             text = hit.pop("text")
-            hit["snippet"] = text[: self.snippet_chars]
-            hit["snippet_truncated"] = len(text) > self.snippet_chars
+            snippet, truncated = _query_snippet(
+                text, arguments["query"], self.snippet_chars
+            )
+            hit["snippet"] = snippet
+            hit["snippet_truncated"] = truncated
         return data
 
     def _call_get_document_outline(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -463,7 +569,7 @@ class DofToolbox:
                 self._hit_covers(
                     requirement,
                     hit,
-                    self.visible_document_titles.get(hit.document_id, ""),
+                    self.visible_document_years.get(hit.document_id, set()),
                 )
                 for hit in hits
             ):
@@ -730,7 +836,7 @@ class AgentRunner:
         backend: AgentBackend,
         toolbox: DofToolbox,
         *,
-        max_model_turns: int = 7,
+        max_model_turns: int = 8,
         max_tool_calls: int = 8,
         instructions: str = AGENT_INSTRUCTIONS,
     ):
@@ -862,6 +968,18 @@ class AgentRunner:
                     )
                 continue
             if turn.final_text:
+                if not self.toolbox.read_chunk_ids and not final_turn:
+                    last_parse_error = "no se ha leído evidencia"
+                    input_items.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Aún no puedes cerrar. Usa read_chunks para leer al menos "
+                                "un pasaje verificable antes de responder."
+                            ),
+                        }
+                    )
+                    continue
                 if self.toolbox.missing_coverage and not final_turn:
                     last_parse_error = "faltan requisitos de cobertura: " + ", ".join(
                         self.toolbox.missing_coverage
@@ -901,9 +1019,14 @@ class AgentRunner:
                     tool_calls=len(traces),
                     stop_reason=(
                         "completed"
-                        if not self.toolbox.missing_coverage
-                        else "coverage_incomplete: "
-                        + ",".join(self.toolbox.missing_coverage)
+                        if self.toolbox.read_chunk_ids
+                        and not self.toolbox.missing_coverage
+                        else (
+                            "evidence_not_read"
+                            if not self.toolbox.read_chunk_ids
+                            else "coverage_incomplete: "
+                            + ",".join(self.toolbox.missing_coverage)
+                        )
                     ),
                     usage=usage,
                     elapsed_ms=(perf_counter() - started) * 1000.0,
