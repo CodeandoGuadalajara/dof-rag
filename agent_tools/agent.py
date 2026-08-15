@@ -93,7 +93,11 @@ FINAL_ANSWER_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "answer": {"type": "string"},
-        "citations": {"type": "array", "items": {"type": "integer"}},
+        "citations": {
+            "type": "array",
+            "items": {"type": "integer"},
+            "minItems": 1,
+        },
         "premise_status": {
             "type": "string",
             "enum": ["supported", "false", "unclear"],
@@ -190,6 +194,10 @@ class AgentAnswer:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+class CitationRequiredError(ValueError):
+    """A nominal final answer has no valid citation from a read chunk."""
 
 
 @dataclass
@@ -807,13 +815,24 @@ def _parse_final_answer(text: str, allowed: set[int]) -> AgentAnswer:
                 break
         if data is None:
             raise ValueError("response did not contain a JSON object")
+        if not data.get("citations"):
+            raise CitationRequiredError(
+                "final answer requires at least one citation from a read chunk"
+            )
         Draft202012Validator(FINAL_ANSWER_SCHEMA).validate(data)
+    except CitationRequiredError:
+        raise
     except Exception as exc:  # The concrete parse/validation error is useful in traces.
         raise ValueError(f"invalid final answer: {exc}") from exc
     proposed = list(dict.fromkeys(int(value) for value in data["citations"]))
+    citations = [citation for citation in proposed if citation in allowed]
+    if not citations:
+        raise CitationRequiredError(
+            "final answer requires at least one valid citation from a read chunk"
+        )
     return AgentAnswer(
         answer=data["answer"].strip(),
-        citations=[citation for citation in proposed if citation in allowed],
+        citations=citations,
         invalid_citations=[
             citation for citation in proposed if citation not in allowed
         ],
@@ -889,6 +908,7 @@ class AgentRunner:
         turns: list[ModelTurnTrace] = []
         usage: dict[str, int] = {}
         last_parse_error = "no final answer"
+        terminal_stop_reason = "model_turn_limit"
         for turn_number in range(1, self.max_model_turns + 1):
             final_turn = turn_number == self.max_model_turns
             available_tools = [] if final_turn else self._available_tools()
@@ -968,8 +988,11 @@ class AgentRunner:
                     )
                 continue
             if turn.final_text:
-                if not self.toolbox.read_chunk_ids and not final_turn:
+                if not self.toolbox.read_chunk_ids:
                     last_parse_error = "no se ha leído evidencia"
+                    terminal_stop_reason = "evidence_not_read"
+                    if final_turn:
+                        break
                     input_items.append(
                         {
                             "role": "user",
@@ -999,6 +1022,19 @@ class AgentRunner:
                     answer = _parse_final_answer(
                         turn.final_text, self.toolbox.read_chunk_ids
                     )
+                except CitationRequiredError as exc:
+                    last_parse_error = str(exc)
+                    terminal_stop_reason = "citation_required"
+                    input_items.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Corrige la respuesta final: incluye al menos una cita "
+                                "válida de los chunks leídos que sostenga la respuesta."
+                            ),
+                        }
+                    )
+                    continue
                 except ValueError as exc:
                     last_parse_error = str(exc)
                     input_items.append(
@@ -1048,7 +1084,11 @@ class AgentRunner:
             turns=turns,
             model_turns=self.max_model_turns,
             tool_calls=len(traces),
-            stop_reason=f"model_turn_limit: {last_parse_error}",
+            stop_reason=(
+                terminal_stop_reason
+                if terminal_stop_reason != "model_turn_limit"
+                else f"model_turn_limit: {last_parse_error}"
+            ),
             usage=usage,
             elapsed_ms=(perf_counter() - started) * 1000.0,
             coverage=self.toolbox.coverage,

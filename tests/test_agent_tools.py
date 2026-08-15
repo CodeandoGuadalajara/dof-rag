@@ -2,6 +2,7 @@ import unittest
 from types import SimpleNamespace
 
 from agent_tools.agent import (
+    FINAL_ANSWER_SCHEMA,
     AgentRunner,
     DofToolbox,
     ModelTurn,
@@ -480,6 +481,139 @@ class AgentToolsTests(unittest.TestCase):
             max_model_turns=1,
         ).run("pregunta")
         self.assertEqual(run.stop_reason, "evidence_not_read")
+
+    def test_final_answer_schema_requires_at_least_one_citation(self):
+        citations = FINAL_ANSWER_SCHEMA["properties"]["citations"]
+        self.assertEqual(citations["minItems"], 1)
+
+    def test_agent_retries_a_final_answer_without_a_valid_citation(self):
+        backend = ScriptedBackend(
+            [
+                ModelTurn(
+                    response_id="one",
+                    output_items=[],
+                    tool_calls=[
+                        ToolCall(
+                            call_id="call-list",
+                            name="list_publications",
+                            arguments={
+                                "as_of": None,
+                                "date_from": "2025-01-01",
+                                "date_to": "2025-01-01",
+                                "section": "MAT",
+                                "limit": 5,
+                            },
+                        )
+                    ],
+                ),
+                ModelTurn(
+                    response_id="two",
+                    output_items=[],
+                    tool_calls=[
+                        ToolCall(
+                            call_id="call-outline",
+                            name="get_document_outline",
+                            arguments={"document_id": 2},
+                        )
+                    ],
+                ),
+                ModelTurn(
+                    response_id="three",
+                    output_items=[],
+                    tool_calls=[
+                        ToolCall(
+                            call_id="call-read",
+                            name="read_chunks",
+                            arguments={"chunk_ids": [4], "neighbor_window": 0},
+                        )
+                    ],
+                ),
+                ModelTurn(
+                    response_id="four",
+                    output_items=[],
+                    final_text=(
+                        '{"answer":"sin cita","citations":[],'
+                        '"premise_status":"unclear"}'
+                    ),
+                ),
+                ModelTurn(
+                    response_id="five",
+                    output_items=[],
+                    final_text=(
+                        '{"answer":"con cita","citations":[4],'
+                        '"premise_status":"supported"}'
+                    ),
+                ),
+            ]
+        )
+        run = AgentRunner(
+            backend,
+            DofToolbox(FakeRetriever()),
+            max_model_turns=5,
+        ).run("pregunta")
+        self.assertEqual(run.stop_reason, "completed")
+        self.assertEqual(run.answer.citations, [4])
+        self.assertEqual(run.model_turns, 5)
+
+    def test_agent_reports_citation_required_when_the_limit_is_exhausted(self):
+        backend = ScriptedBackend(
+            [
+                ModelTurn(
+                    response_id="one",
+                    output_items=[],
+                    tool_calls=[
+                        ToolCall(
+                            call_id="call-list",
+                            name="list_publications",
+                            arguments={
+                                "as_of": None,
+                                "date_from": "2025-01-01",
+                                "date_to": "2025-01-01",
+                                "section": "MAT",
+                                "limit": 5,
+                            },
+                        )
+                    ],
+                ),
+                ModelTurn(
+                    response_id="two",
+                    output_items=[],
+                    tool_calls=[
+                        ToolCall(
+                            call_id="call-outline",
+                            name="get_document_outline",
+                            arguments={"document_id": 2},
+                        )
+                    ],
+                ),
+                ModelTurn(
+                    response_id="three",
+                    output_items=[],
+                    tool_calls=[
+                        ToolCall(
+                            call_id="call-read",
+                            name="read_chunks",
+                            arguments={"chunk_ids": [4], "neighbor_window": 0},
+                        )
+                    ],
+                ),
+                ModelTurn(
+                    response_id="four",
+                    output_items=[],
+                    final_text=(
+                        '{"answer":"cita inventada","citations":[999],'
+                        '"premise_status":"unclear"}'
+                    ),
+                ),
+            ]
+        )
+        run = AgentRunner(
+            backend,
+            DofToolbox(FakeRetriever()),
+            max_model_turns=4,
+        ).run("pregunta")
+        self.assertEqual(run.stop_reason, "citation_required")
+        self.assertEqual(run.answer.citations, [])
 
     def test_unknown_tool_is_returned_as_structured_error(self):
         toolbox = DofToolbox(FakeRetriever())
