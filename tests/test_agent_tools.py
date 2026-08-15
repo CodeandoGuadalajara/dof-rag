@@ -12,6 +12,7 @@ from agent_tools.agent import (
     _comparison_years,
     _coverage_requirements,
     _enumeration_requirements,
+    _explicit_question_requirements,
     _query_snippet,
 )
 from agent_tools.headers import extract_document_header
@@ -19,9 +20,11 @@ from agent_tools.llm import _parse_json, answer_with_context
 from agent_tools.models import (
     DocumentOutline,
     EvidenceHit,
+    EvidenceSearchResult,
     IndexVersions,
     OutlineChunk,
     PublicationHit,
+    RetrievalStrategy,
     SearchFilters,
     SearchResult,
 )
@@ -84,6 +87,83 @@ class FakeRetriever:
                 rank=1,
             )
             for chunk_id in chunk_ids
+        ]
+
+
+class MultiDocumentFakeRetriever(FakeRetriever):
+    def list_publications(self, filters, *, limit=50):
+        return [
+            PublicationHit(2, "first.md", "2025-01-01", "MAT", title="Primero"),
+            PublicationHit(3, "second.md", "2025-01-02", "MAT", title="Segundo"),
+        ]
+
+    def search_evidence(
+        self,
+        query,
+        document_ids,
+        *,
+        strategy,
+        query_vector=None,
+        top_k=10,
+        candidate_depth=300,
+        vector_k=300,
+    ):
+        hits = [
+            EvidenceHit(
+                chunk_id=4,
+                document_id=2,
+                path="first.md",
+                publication_date="2025-01-01",
+                section="MAT",
+                chunk_index=0,
+                heading_path=[],
+                text="primera evidencia",
+                score=1.0,
+                source="test",
+                rank=1,
+            ),
+            EvidenceHit(
+                chunk_id=5,
+                document_id=3,
+                path="second.md",
+                publication_date="2025-01-02",
+                section="MAT",
+                chunk_index=0,
+                heading_path=[],
+                text="segunda evidencia",
+                score=0.9,
+                source="test",
+                rank=2,
+            ),
+        ]
+        return EvidenceSearchResult(
+            query=query,
+            strategy=RetrievalStrategy(strategy),
+            document_ids=document_ids,
+            evidence=hits,
+            versions=self.versions,
+        )
+
+    def read_chunks(self, chunk_ids, *, neighbor_window=0):
+        by_chunk = {
+            4: (2, "first.md", "2025-01-01", "primera evidencia"),
+            5: (3, "second.md", "2025-01-02", "segunda evidencia"),
+        }
+        return [
+            EvidenceHit(
+                chunk_id=chunk_id,
+                document_id=by_chunk[chunk_id][0],
+                path=by_chunk[chunk_id][1],
+                publication_date=by_chunk[chunk_id][2],
+                section="MAT",
+                chunk_index=0,
+                heading_path=[],
+                text=by_chunk[chunk_id][3],
+                score=0.0,
+                source="read",
+                rank=rank,
+            )
+            for rank, chunk_id in enumerate(chunk_ids, 1)
         ]
 
 
@@ -204,6 +284,45 @@ class AgentToolsTests(unittest.TestCase):
             [],
         )
 
+    def test_explicit_question_parts_become_verifiable_requirements(self):
+        self.assertEqual(
+            _explicit_question_requirements(
+                "¿Qué fundamento usaron los PND 2019-2024 y 2025-2030?"
+            ),
+            ["tema PND 2019-2024", "tema PND 2025-2030"],
+        )
+        self.assertEqual(
+            _explicit_question_requirements(
+                "¿Qué ordenó la reforma constitucional de abril de 2025?"
+            ),
+            ["publicación 2025-04"],
+        )
+        self.assertEqual(
+            _explicit_question_requirements(
+                "¿Qué dispuso el decreto del 11 de diciembre de 2025?"
+            ),
+            ["publicación 2025-12-11"],
+        )
+        self.assertEqual(
+            _explicit_question_requirements(
+                "¿Cómo se relacionan la NOM-035 y la reforma de vacaciones dignas?"
+            ),
+            ["tema NOM-035", "tema reforma: vacaciones dignas"],
+        )
+        self.assertEqual(
+            _explicit_question_requirements(
+                "¿Qué pasó desde la declaratoria de utilidad pública hasta el "
+                "decreto de expropiación?"
+            ),
+            ["tema declaratoria de utilidad pública", "tema decreto de expropiación"],
+        )
+
+    def test_a_conjunction_does_not_imply_multiple_documents(self):
+        self.assertEqual(
+            _coverage_requirements("¿Qué objetivo y alcance tiene este decreto?"),
+            [],
+        )
+
     def test_exact_provision_heading_beats_a_reference_to_it(self):
         scores = _bm25_chunk_scores(
             "5.2",
@@ -250,6 +369,22 @@ class AgentToolsTests(unittest.TestCase):
         read = toolbox.call("read_chunks", {"chunk_ids": [4], "neighbor_window": 0})
         self.assertEqual(read["data"]["coverage"], {"2025": True, "2026": False})
         self.assertEqual(toolbox.missing_coverage, ["2026"])
+
+    def test_required_hops_count_distinct_read_documents(self):
+        toolbox = DofToolbox(MultiDocumentFakeRetriever())
+        toolbox.begin(as_of="2026-01-01", required_hops=2)
+        toolbox.visible_chunk_ids.update({4, 5})
+        first = toolbox.call("read_chunks", {"chunk_ids": [4], "neighbor_window": 0})
+        self.assertEqual(
+            first["data"]["coverage"],
+            {"documentos distintos (mínimo 2)": False},
+        )
+        second = toolbox.call("read_chunks", {"chunk_ids": [5], "neighbor_window": 0})
+        self.assertEqual(
+            second["data"]["coverage"],
+            {"documentos distintos (mínimo 2)": True},
+        )
+        self.assertEqual(toolbox.read_document_ids, {2, 3})
 
     def test_metrics_do_not_count_limited_run_as_completed(self):
         metrics = calculate_metrics(
@@ -614,6 +749,80 @@ class AgentToolsTests(unittest.TestCase):
         ).run("pregunta")
         self.assertEqual(run.stop_reason, "citation_required")
         self.assertEqual(run.answer.citations, [])
+
+    def test_agent_requires_citations_from_each_required_document(self):
+        backend = ScriptedBackend(
+            [
+                ModelTurn(
+                    response_id="one",
+                    output_items=[],
+                    tool_calls=[
+                        ToolCall(
+                            call_id="call-list",
+                            name="list_publications",
+                            arguments={
+                                "as_of": None,
+                                "date_from": "2025-01-01",
+                                "date_to": "2025-01-02",
+                                "section": "MAT",
+                                "limit": 5,
+                            },
+                        )
+                    ],
+                ),
+                ModelTurn(
+                    response_id="two",
+                    output_items=[],
+                    tool_calls=[
+                        ToolCall(
+                            call_id="call-search",
+                            name="search_evidence",
+                            arguments={
+                                "query": "evidencia",
+                                "document_ids": [2, 3],
+                                "strategy": "lexical",
+                                "top_k": 5,
+                            },
+                        )
+                    ],
+                ),
+                ModelTurn(
+                    response_id="three",
+                    output_items=[],
+                    tool_calls=[
+                        ToolCall(
+                            call_id="call-read",
+                            name="read_chunks",
+                            arguments={"chunk_ids": [4, 5], "neighbor_window": 0},
+                        )
+                    ],
+                ),
+                ModelTurn(
+                    response_id="four",
+                    output_items=[],
+                    final_text=(
+                        '{"answer":"incompleta","citations":[4],'
+                        '"premise_status":"supported"}'
+                    ),
+                ),
+                ModelTurn(
+                    response_id="five",
+                    output_items=[],
+                    final_text=(
+                        '{"answer":"completa","citations":[4,5],'
+                        '"premise_status":"supported"}'
+                    ),
+                ),
+            ]
+        )
+        run = AgentRunner(
+            backend,
+            DofToolbox(MultiDocumentFakeRetriever()),
+            max_model_turns=5,
+        ).run("compara dos fuentes", required_hops=2)
+        self.assertEqual(run.stop_reason, "completed")
+        self.assertEqual(run.answer.citations, [4, 5])
+        self.assertEqual(run.required_hops, 2)
 
     def test_unknown_tool_is_returned_as_structured_error(self):
         toolbox = DofToolbox(FakeRetriever())

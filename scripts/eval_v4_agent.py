@@ -254,7 +254,11 @@ def main() -> int:
                 abort = False
                 error_type = ""
                 try:
-                    run = runner.run(query["question"], as_of=query["as_of"])
+                    run = runner.run(
+                        query["question"],
+                        as_of=query["as_of"],
+                        required_hops=query["required_hops"],
+                    )
                     item["run"] = run.to_dict()
                     answer = run.answer
                     print(

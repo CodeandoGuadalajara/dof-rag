@@ -40,6 +40,62 @@ NUMBER_WORDS = {
     "dieciseis": "16",
     "cincuenta": "50",
 }
+SPANISH_MONTHS = {
+    "enero": "01",
+    "febrero": "02",
+    "marzo": "03",
+    "abril": "04",
+    "mayo": "05",
+    "junio": "06",
+    "julio": "07",
+    "agosto": "08",
+    "septiembre": "09",
+    "octubre": "10",
+    "noviembre": "11",
+    "diciembre": "12",
+}
+MONTH_NAMES_RE = "|".join(SPANISH_MONTHS)
+DATED_PLAN_RE = re.compile(
+    r"\b(?:Plan\s+Nacional\s+de\s+Desarrollo|PND)\s+"
+    r"((?:19|20)\d{2}-(?:19|20)\d{2}"
+    r"(?:\s*(?:,|y)\s*(?:19|20)\d{2}-(?:19|20)\d{2})*)\b",
+    re.I,
+)
+NORM_ID_RE = re.compile(r"\b(?:NOM|NMX)-\d{3}(?:-[A-Z]+)*(?:-\d{4})?\b", re.I)
+SOURCE_DATE_RE = re.compile(
+    rf"\b(?:publicad[oa](?:\s+en\s+el\s+DOF)?(?:\s+el)?|"
+    rf"(?:decreto|acuerdo|resoluci[oó]n|reforma)\s+del)\s+"
+    rf"(\d{{1,2}})\s+de\s+({MONTH_NAMES_RE})\s+de\s+((?:19|20)\d{{2}})\b",
+    re.I,
+)
+SOURCE_MONTH_RE = re.compile(
+    rf"\b(?:reforma|decreto|acuerdo|resoluci[oó]n)"
+    rf"(?:\s+[\wáéíóúüñ-]+){{0,6}}?\s+de\s+"
+    rf"({MONTH_NAMES_RE})\s+de\s+((?:19|20)\d{{2}})\b",
+    re.I,
+)
+REFORM_TOPIC_RE = re.compile(
+    rf"\breforma(?:\s+constitucional)?\s+de\s+(.+?)"
+    rf"(?=\s+de\s+(?:{MONTH_NAMES_RE})\s+de\s+(?:19|20)\d{{2}}"
+    r"|\s+y\s+(?:la|el)\b|[?;,]|$)",
+    re.I,
+)
+EXPLICIT_LEGAL_ACTIONS = (
+    "declaratoria de utilidad pública",
+    "decreto de expropiación",
+)
+TOPIC_STOP_WORDS = {
+    "al",
+    "de",
+    "del",
+    "digna",
+    "dignas",
+    "el",
+    "en",
+    "la",
+    "las",
+    "los",
+}
 
 
 def _comparison_years(question: str) -> list[str]:
@@ -80,8 +136,52 @@ def _transitory_provisions(question: str) -> list[str]:
     return list(dict.fromkeys(numbers))
 
 
+def _explicit_question_requirements(question: str) -> list[str]:
+    """Extract source and subject anchors stated by the question itself."""
+    requirements: list[str] = []
+    for match in DATED_PLAN_RE.finditer(question):
+        requirements.extend(
+            f"tema PND {period}"
+            for period in re.findall(r"(?:19|20)\d{2}-(?:19|20)\d{2}", match.group(1))
+        )
+    requirements.extend(
+        f"tema {match.group(0).upper()}" for match in NORM_ID_RE.finditer(question)
+    )
+
+    folded_question = _fold_for_coverage(question)
+    for action in EXPLICIT_LEGAL_ACTIONS:
+        if _fold_for_coverage(action) in folded_question:
+            requirements.append(f"tema {action}")
+
+    for match in REFORM_TOPIC_RE.finditer(question):
+        topic = re.sub(r"\s+", " ", match.group(1)).strip(" .")
+        folded_topic = _fold_for_coverage(topic)
+        if topic and not re.fullmatch(
+            rf"(?:{MONTH_NAMES_RE})(?:\s+de\s+(?:19|20)\d{{2}})?",
+            folded_topic,
+        ):
+            requirements.append(f"tema reforma: {topic}")
+
+    for match in SOURCE_DATE_RE.finditer(question):
+        day, month, year = match.groups()
+        requirements.append(
+            f"publicación {year}-{SPANISH_MONTHS[month.casefold()]}-{int(day):02d}"
+        )
+    full_dates = {item for item in requirements if item.startswith("publicación ")}
+    for match in SOURCE_MONTH_RE.finditer(question):
+        month, year = match.groups()
+        prefix = f"publicación {year}-{SPANISH_MONTHS[month.casefold()]}"
+        if not any(item.startswith(prefix + "-") for item in full_dates):
+            requirements.append(prefix)
+    return list(dict.fromkeys(requirements))
+
+
 def _coverage_requirements(question: str) -> list[str]:
-    requirements = [*_comparison_years(question), *_enumeration_requirements(question)]
+    requirements = [
+        *_comparison_years(question),
+        *_enumeration_requirements(question),
+        *_explicit_question_requirements(question),
+    ]
     provisions = _transitory_provisions(question)
     if provisions:
         requirements.append("transitorio")
@@ -200,6 +300,10 @@ class CitationRequiredError(ValueError):
     """A nominal final answer has no valid citation from a read chunk."""
 
 
+class CitationCoverageError(ValueError):
+    """Citations do not span the document count required by the question."""
+
+
 @dataclass
 class AgentRun:
     question: str
@@ -213,6 +317,7 @@ class AgentRun:
     stop_reason: str
     usage: dict[str, int]
     elapsed_ms: float
+    required_hops: int = 1
     coverage: dict[str, bool] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -280,12 +385,15 @@ class DofToolbox:
         self.snippet_chars = snippet_chars
         self.as_of: str | None = None
         self.read_chunk_ids: set[int] = set()
+        self.read_chunk_documents: dict[int, int] = {}
+        self.read_document_ids: set[int] = set()
         self.visible_document_ids: set[int] = set()
         self.visible_document_titles: dict[int, str] = {}
         self.visible_document_years: dict[int, set[str]] = {}
         self.visible_chunk_ids: set[int] = set()
         self.coverage_requirements: set[str] = set()
         self.covered_requirements: set[str] = set()
+        self.required_hops = 1
         self._vector_cache: dict[str, bytes] = {}
         self._schemas = self._build_schemas()
 
@@ -296,28 +404,49 @@ class DofToolbox:
         return [RetrievalStrategy.LEXICAL.value]
 
     def begin(
-        self, *, as_of: str | None, coverage_requirements: list[str] | None = None
+        self,
+        *,
+        as_of: str | None,
+        coverage_requirements: list[str] | None = None,
+        required_hops: int = 1,
     ) -> None:
+        if required_hops < 1:
+            raise ValueError("required_hops must be positive")
         self.as_of = as_of
         self.read_chunk_ids.clear()
+        self.read_chunk_documents.clear()
+        self.read_document_ids.clear()
         self.visible_document_ids.clear()
         self.visible_document_titles.clear()
         self.visible_document_years.clear()
         self.visible_chunk_ids.clear()
         self.coverage_requirements = set(coverage_requirements or [])
         self.covered_requirements.clear()
+        self.required_hops = required_hops
         self._vector_cache.clear()
 
     @property
     def missing_coverage(self) -> list[str]:
-        return sorted(self.coverage_requirements - self.covered_requirements)
+        missing = sorted(self.coverage_requirements - self.covered_requirements)
+        if len(self.read_document_ids) < self.required_hops:
+            missing.append(self.document_coverage_label)
+        return missing
+
+    @property
+    def document_coverage_label(self) -> str:
+        return f"documentos distintos (mínimo {self.required_hops})"
 
     @property
     def coverage(self) -> dict[str, bool]:
-        return {
+        coverage = {
             requirement: requirement in self.covered_requirements
             for requirement in sorted(self.coverage_requirements)
         }
+        if self.required_hops > 1:
+            coverage[self.document_coverage_label] = (
+                len(self.read_document_ids) >= self.required_hops
+            )
+        return coverage
 
     def _remember_documents(self, hits: Any) -> None:
         for hit in hits:
@@ -330,10 +459,60 @@ class DofToolbox:
             self.visible_document_years[hit.document_id] = year_hints
 
     @staticmethod
-    def _hit_covers(requirement: str, hit: Any, year_hints: set[str]) -> bool:
+    def _hit_covers(
+        requirement: str,
+        hit: Any,
+        year_hints: set[str],
+        title: str = "",
+    ) -> bool:
         if requirement.isdigit():
             return requirement in year_hints
         folded_text = _fold_for_coverage(hit.text)
+        folded_source = _fold_for_coverage(
+            " ".join(
+                value
+                for value in (
+                    title,
+                    getattr(hit, "path", ""),
+                    getattr(hit, "text", ""),
+                )
+                if value
+            )
+        )
+        if requirement.startswith("publicación "):
+            expected = requirement.removeprefix("publicación ")
+            publication_date = getattr(hit, "publication_date", None) or ""
+            return publication_date == expected or (
+                len(expected) == 7 and publication_date.startswith(expected + "-")
+            )
+        if requirement.startswith("tema PND "):
+            period = _fold_for_coverage(requirement.removeprefix("tema PND "))
+            return period in folded_source and (
+                "plan nacional de desarrollo" in folded_source
+                or re.search(r"\bpnd\b", folded_source) is not None
+            )
+        if requirement.startswith("tema NOM-") or requirement.startswith("tema NMX-"):
+            identifier = _fold_for_coverage(requirement.removeprefix("tema "))
+            return identifier in folded_source
+        if requirement.startswith("tema reforma: "):
+            topic = _fold_for_coverage(requirement.removeprefix("tema reforma: "))
+            terms = [
+                term
+                for term in re.findall(r"\w+", topic)
+                if len(term) >= 4 and term not in TOPIC_STOP_WORDS
+            ]
+            return "reform" in folded_source and any(
+                term[:7] in folded_source for term in terms
+            )
+        if requirement.startswith("tema "):
+            terms = [
+                term
+                for term in re.findall(
+                    r"\w+", _fold_for_coverage(requirement.removeprefix("tema "))
+                )
+                if len(term) >= 4 and term not in TOPIC_STOP_WORDS
+            ]
+            return bool(terms) and all(term in folded_source for term in terms)
         if requirement.startswith("término "):
             return requirement.removeprefix("término ") in folded_text
         if requirement.startswith("rango hasta "):
@@ -572,12 +751,17 @@ class DofToolbox:
             arguments["chunk_ids"], neighbor_window=arguments["neighbor_window"]
         )
         self.read_chunk_ids.update(hit.chunk_id for hit in hits)
+        self.read_chunk_documents.update(
+            {hit.chunk_id: hit.document_id for hit in hits}
+        )
+        self.read_document_ids.update(hit.document_id for hit in hits)
         for requirement in self.coverage_requirements:
             if any(
                 self._hit_covers(
                     requirement,
                     hit,
                     self.visible_document_years.get(hit.document_id, set()),
+                    self.visible_document_titles.get(hit.document_id, ""),
                 )
                 for hit in hits
             ):
@@ -799,7 +983,13 @@ class OpenAIChatCompletionsBackend:
         )
 
 
-def _parse_final_answer(text: str, allowed: set[int]) -> AgentAnswer:
+def _parse_final_answer(
+    text: str,
+    allowed: set[int],
+    *,
+    citation_documents: dict[int, int] | None = None,
+    required_hops: int = 1,
+) -> AgentAnswer:
     try:
         decoder = json.JSONDecoder()
         data = None
@@ -829,6 +1019,15 @@ def _parse_final_answer(text: str, allowed: set[int]) -> AgentAnswer:
     if not citations:
         raise CitationRequiredError(
             "final answer requires at least one valid citation from a read chunk"
+        )
+    cited_documents = {
+        citation_documents[citation]
+        for citation in citations
+        if citation_documents and citation in citation_documents
+    }
+    if required_hops > 1 and len(cited_documents) < required_hops:
+        raise CitationCoverageError(
+            f"final answer requires citations from {required_hops} distinct documents"
         )
     return AgentAnswer(
         answer=data["answer"].strip(),
@@ -889,10 +1088,20 @@ class AgentRunner:
             ]
         return [definitions[name] for name in ("list_publications", "search_documents")]
 
-    def run(self, question: str, *, as_of: str | None = None) -> AgentRun:
+    def run(
+        self,
+        question: str,
+        *,
+        as_of: str | None = None,
+        required_hops: int = 1,
+    ) -> AgentRun:
         started = perf_counter()
         coverage_requirements = _coverage_requirements(question)
-        self.toolbox.begin(as_of=as_of, coverage_requirements=coverage_requirements)
+        self.toolbox.begin(
+            as_of=as_of,
+            coverage_requirements=coverage_requirements,
+            required_hops=required_hops,
+        )
         coverage_prompt = (
             "\nCobertura obligatoria antes de responder: "
             + ", ".join(coverage_requirements)
@@ -901,7 +1110,9 @@ class AgentRunner:
         )
         prompt = (
             f"Fecha de corte obligatoria: {as_of or 'no indicada'}\n"
-            f"Pregunta: {question}{coverage_prompt}"
+            f"Pregunta: {question}{coverage_prompt}\n"
+            f"Documentos distintos requeridos por la tarea: {required_hops}. "
+            "Lee y cita evidencia de cada uno antes de responder."
         )
         input_items: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
         traces: list[ToolTrace] = []
@@ -1020,8 +1231,24 @@ class AgentRunner:
                     continue
                 try:
                     answer = _parse_final_answer(
-                        turn.final_text, self.toolbox.read_chunk_ids
+                        turn.final_text,
+                        self.toolbox.read_chunk_ids,
+                        citation_documents=self.toolbox.read_chunk_documents,
+                        required_hops=required_hops,
                     )
+                except CitationCoverageError as exc:
+                    last_parse_error = str(exc)
+                    terminal_stop_reason = "citation_coverage_incomplete"
+                    input_items.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Corrige la respuesta final: cita evidencia leída de "
+                                f"{required_hops} documentos distintos."
+                            ),
+                        }
+                    )
+                    continue
                 except CitationRequiredError as exc:
                     last_parse_error = str(exc)
                     terminal_stop_reason = "citation_required"
@@ -1067,6 +1294,7 @@ class AgentRunner:
                     usage=usage,
                     elapsed_ms=(perf_counter() - started) * 1000.0,
                     coverage=self.toolbox.coverage,
+                    required_hops=required_hops,
                 )
             last_parse_error = "model returned neither tool calls nor a final answer"
         answer = AgentAnswer(
@@ -1092,4 +1320,5 @@ class AgentRunner:
             usage=usage,
             elapsed_ms=(perf_counter() - started) * 1000.0,
             coverage=self.toolbox.coverage,
+            required_hops=required_hops,
         )
