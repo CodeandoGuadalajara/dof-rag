@@ -13,6 +13,7 @@ from agent_tools.agent import (
     _coverage_requirements,
     _enumeration_requirements,
     _explicit_question_requirements,
+    _parse_final_answer,
     _query_snippet,
 )
 from agent_tools.headers import extract_document_header
@@ -823,6 +824,87 @@ class AgentToolsTests(unittest.TestCase):
         self.assertEqual(run.stop_reason, "completed")
         self.assertEqual(run.answer.citations, [4, 5])
         self.assertEqual(run.required_hops, 2)
+
+    def test_false_premise_rejects_search_failure_as_the_only_correction(self):
+        with self.assertRaisesRegex(ValueError, "affirmative correction"):
+            _parse_final_answer(
+                '{"answer":"No se encontró el decreto en los chunks leídos.",'
+                '"citations":[4],"premise_status":"false"}',
+                {4},
+            )
+
+    def test_false_premise_accepts_an_affirmative_correction(self):
+        answer = _parse_final_answer(
+            '{"answer":"No reformó el artículo 123; reformó los artículos 76 y 78 '
+            'de la Ley Federal del Trabajo.","citations":[4],'
+            '"premise_status":"false"}',
+            {4},
+        )
+        self.assertEqual(answer.premise_status, "false")
+        self.assertEqual(answer.citations, [4])
+
+    def test_agent_reports_missing_false_premise_correction(self):
+        backend = ScriptedBackend(
+            [
+                ModelTurn(
+                    response_id="one",
+                    output_items=[],
+                    tool_calls=[
+                        ToolCall(
+                            call_id="call-list",
+                            name="list_publications",
+                            arguments={
+                                "as_of": None,
+                                "date_from": "2025-01-01",
+                                "date_to": "2025-01-01",
+                                "section": "MAT",
+                                "limit": 5,
+                            },
+                        )
+                    ],
+                ),
+                ModelTurn(
+                    response_id="two",
+                    output_items=[],
+                    tool_calls=[
+                        ToolCall(
+                            call_id="call-outline",
+                            name="get_document_outline",
+                            arguments={"document_id": 2},
+                        )
+                    ],
+                ),
+                ModelTurn(
+                    response_id="three",
+                    output_items=[],
+                    tool_calls=[
+                        ToolCall(
+                            call_id="call-read",
+                            name="read_chunks",
+                            arguments={"chunk_ids": [4], "neighbor_window": 0},
+                        )
+                    ],
+                ),
+                ModelTurn(
+                    response_id="four",
+                    output_items=[],
+                    final_text=(
+                        '{"answer":"No se localizó la reforma.","citations":[4],'
+                        '"premise_status":"false"}'
+                    ),
+                ),
+            ]
+        )
+        run = AgentRunner(
+            backend,
+            DofToolbox(FakeRetriever()),
+            max_model_turns=4,
+        ).run("pregunta")
+        self.assertEqual(run.stop_reason, "premise_correction_required")
+        self.assertEqual(
+            run.verification["correction_supported_by_citations"],
+            "not_applicable",
+        )
 
     def test_unknown_tool_is_returned_as_structured_error(self):
         toolbox = DofToolbox(FakeRetriever())

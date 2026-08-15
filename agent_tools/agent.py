@@ -96,6 +96,19 @@ TOPIC_STOP_WORDS = {
     "las",
     "los",
 }
+SEARCH_FAILURE_RE = re.compile(
+    r"\b(?:no\s+se\s+(?:encontr[oó]|localiz[oó]|hall[oó])|"
+    r"no\s+fue\s+posible\s+(?:encontrar|localizar)|"
+    r"evidencia\s+(?:disponible\s+)?insuficiente|"
+    r"chunks?\s+(?:le[ií]dos?\s+)?no\s+(?:contienen?|muestran?))\b",
+    re.I,
+)
+CORRECTION_ASSERTION_RE = re.compile(
+    r"\b(?:reform\w*|expid\w*|derog\w*|establec\w*|dispus\w*|"
+    r"comprend\w*|correspond\w*|consta\w*|incluy\w*|vigent\w*|"
+    r"formad[oa]s?)\b",
+    re.I,
+)
 
 
 def _comparison_years(question: str) -> list[str]:
@@ -189,6 +202,20 @@ def _coverage_requirements(question: str) -> list[str]:
     return list(dict.fromkeys(requirements))
 
 
+def _has_affirmative_premise_correction(answer: str) -> bool:
+    """Reject a false-premise answer that only reports an unsuccessful search."""
+    for clause in re.split(r"[.;]\s*", _fold_for_coverage(answer)):
+        if not clause:
+            continue
+        if " sino " in f" {clause} " and CORRECTION_ASSERTION_RE.search(clause):
+            return True
+        if clause.startswith("no ") or SEARCH_FAILURE_RE.search(clause):
+            continue
+        if CORRECTION_ASSERTION_RE.search(clause):
+            return True
+    return False
+
+
 FINAL_ANSWER_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -212,9 +239,11 @@ Usa las herramientas para localizar documentos, buscar pasajes y leer los chunks
 que sostengan la respuesta. No respondas con conocimiento externo. Distingue la
 fecha de publicación de la fecha de entrada en vigor y respeta la fecha de corte.
 Una coincidencia de búsqueda no es una cita: sólo puedes citar IDs devueltos por
-read_chunks. Si la evidencia es insuficiente, dilo. Si la pregunta contiene una
-premisa falsa, márcala como false y explica la corrección con evidencia cuando sea
-posible. Mantén la respuesta concreta.
+read_chunks y debes incluir al menos una cita válida. Si la evidencia es
+insuficiente, dilo. Marca una premisa como false únicamente cuando los chunks
+citados establezcan la corrección y exprésala de forma afirmativa. "No se encontró"
+no demuestra que una premisa sea falsa; si no puedes documentar la corrección,
+usa unclear. Mantén la respuesta concreta.
 Al terminar devuelve SOLO JSON con la forma
 {"answer":"...","citations":[123],"premise_status":"supported|false|unclear"}.
 
@@ -304,6 +333,10 @@ class CitationCoverageError(ValueError):
     """Citations do not span the document count required by the question."""
 
 
+class PremiseCorrectionRequiredError(ValueError):
+    """A false-premise answer does not state a substantive correction."""
+
+
 @dataclass
 class AgentRun:
     question: str
@@ -319,6 +352,7 @@ class AgentRun:
     elapsed_ms: float
     required_hops: int = 1
     coverage: dict[str, bool] = field(default_factory=dict)
+    verification: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -1029,6 +1063,12 @@ def _parse_final_answer(
         raise CitationCoverageError(
             f"final answer requires citations from {required_hops} distinct documents"
         )
+    if data["premise_status"] == "false" and not _has_affirmative_premise_correction(
+        data["answer"]
+    ):
+        raise PremiseCorrectionRequiredError(
+            "false premise requires an affirmative correction, not only a failed search"
+        )
     return AgentAnswer(
         answer=data["answer"].strip(),
         citations=citations,
@@ -1044,6 +1084,32 @@ def _add_usage(total: dict[str, int], usage: dict[str, Any]) -> None:
         value = usage.get(key)
         if isinstance(value, int):
             total[key] = total.get(key, 0) + value
+
+
+def _verification(
+    answer: AgentAnswer,
+    toolbox: DofToolbox,
+    required_hops: int,
+) -> dict[str, Any]:
+    cited_documents = {
+        toolbox.read_chunk_documents[citation]
+        for citation in answer.citations
+        if citation in toolbox.read_chunk_documents
+    }
+    false_premise = answer.premise_status == "false"
+    return {
+        "citation_from_read_chunk": bool(answer.citations),
+        "coverage_requirements_met": not toolbox.missing_coverage,
+        "distinct_cited_documents_met": len(cited_documents) >= required_hops,
+        "false_premise_correction_form": (
+            _has_affirmative_premise_correction(answer.answer)
+            if false_premise
+            else None
+        ),
+        "correction_supported_by_citations": (
+            "human_review_required" if false_premise else "not_applicable"
+        ),
+    }
 
 
 class AgentRunner:
@@ -1249,6 +1315,20 @@ class AgentRunner:
                         }
                     )
                     continue
+                except PremiseCorrectionRequiredError as exc:
+                    last_parse_error = str(exc)
+                    terminal_stop_reason = "premise_correction_required"
+                    input_items.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Corrige la respuesta final: si marcas premise_status "
+                                "como false, afirma qué ocurrió realmente y cita el "
+                                "pasaje que lo demuestra. Una búsqueda fallida no basta."
+                            ),
+                        }
+                    )
+                    continue
                 except CitationRequiredError as exc:
                     last_parse_error = str(exc)
                     terminal_stop_reason = "citation_required"
@@ -1295,6 +1375,7 @@ class AgentRunner:
                     elapsed_ms=(perf_counter() - started) * 1000.0,
                     coverage=self.toolbox.coverage,
                     required_hops=required_hops,
+                    verification=_verification(answer, self.toolbox, required_hops),
                 )
             last_parse_error = "model returned neither tool calls nor a final answer"
         answer = AgentAnswer(
@@ -1321,4 +1402,5 @@ class AgentRunner:
             elapsed_ms=(perf_counter() - started) * 1000.0,
             coverage=self.toolbox.coverage,
             required_hops=required_hops,
+            verification=_verification(answer, self.toolbox, required_hops),
         )
