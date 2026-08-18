@@ -255,5 +255,11 @@ class EvaluationService:
         self, run_id: str, event_type: str, payload: dict[str, Any]
     ) -> None:
         with self._write_lock:
-            if not self._closing.is_set():
-                self.store.append_progress(run_id, event_type, payload)
+            if self._closing.is_set():
+                LOGGER.debug(
+                    "Dropping late progress event %r for run %s during shutdown",
+                    event_type,
+                    run_id,
+                )
+                return
+            self.store.append_progress(run_id, event_type, payload)
