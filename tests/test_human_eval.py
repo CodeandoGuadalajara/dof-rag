@@ -18,7 +18,7 @@ from human_eval.service import (
     EvaluationService,
     IdempotencyConflictError,
 )
-from human_eval.store import EvaluationStore
+from human_eval.store import SCHEMA_VERSION, EvaluationStore
 
 PROVENANCE = {
     "code_revision": "abc123",
@@ -38,7 +38,21 @@ PROVENANCE = {
 
 
 class FakeExecutor:
-    def execute(self, request: RunRequest):
+    def execute(self, request: RunRequest, *, on_progress=None):
+        if on_progress:
+            on_progress(
+                "agent_started",
+                {"message": "El agente comenzó a investigar la pregunta."},
+            )
+            on_progress(
+                "tool_completed",
+                {
+                    "message": "La consulta terminó.",
+                    "tool": "read_chunks",
+                    "ok": True,
+                    "chunks": [{"chunk_id": 123, "document_id": 45}],
+                },
+            )
         return {
             "answer": {
                 "text": f"Respuesta: {request.question}",
@@ -60,11 +74,11 @@ class BlockingExecutor(FakeExecutor):
         self.started = threading.Event()
         self.release = threading.Event()
 
-    def execute(self, request: RunRequest):
+    def execute(self, request: RunRequest, *, on_progress=None):
         self.started.set()
         if not self.release.wait(timeout=3):
             raise RuntimeError("test timed out")
-        return super().execute(request)
+        return super().execute(request, on_progress=on_progress)
 
 
 def wait_for_terminal(service: EvaluationService, run_id: str) -> dict:
@@ -225,6 +239,54 @@ class StoreTests(unittest.TestCase):
                 3,
             )
 
+    def test_progress_events_are_ordered_and_replayable(self):
+        run, _ = self.store.create_run(
+            RunRequest("pregunta válida"),
+            evaluator_hash="evaluator",
+            provenance=PROVENANCE,
+        )
+        first = self.store.append_progress(
+            run["run_id"], "agent_started", {"message": "inicio"}
+        )
+        second = self.store.append_progress(
+            run["run_id"], "model_turn_started", {"turn": 1}
+        )
+        self.assertEqual(first["sequence"], 1)
+        self.assertEqual(second["sequence"], 2)
+        self.assertEqual(
+            [event["sequence"] for event in self.store.progress_for_run(run["run_id"])],
+            [1, 2],
+        )
+        self.assertEqual(
+            self.store.progress_for_run(run["run_id"], after=1)[0]["event_type"],
+            "model_turn_started",
+        )
+
+    def test_schema_one_is_migrated_without_losing_runs(self):
+        run, _ = self.store.create_run(
+            RunRequest("pregunta conservada"),
+            evaluator_hash="evaluator",
+            provenance=PROVENANCE,
+        )
+        with sqlite3.connect(self.path) as connection:
+            connection.execute("DROP TABLE run_progress")
+            connection.execute(
+                "UPDATE schema_meta SET value = '1' WHERE key = 'schema_version'"
+            )
+        self.store.initialize()
+        with sqlite3.connect(self.path) as connection:
+            version = connection.execute(
+                "SELECT value FROM schema_meta WHERE key = 'schema_version'"
+            ).fetchone()[0]
+            progress_table = connection.execute(
+                "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'run_progress'"
+            ).fetchone()
+        self.assertEqual(version, SCHEMA_VERSION)
+        self.assertIsNotNone(progress_table)
+        self.assertEqual(
+            self.store.get_run(run["run_id"])["question"], "pregunta conservada"
+        )
+
     def test_client_request_id_is_idempotent_per_evaluator(self):
         request = RunRequest("pregunta válida", client_request_id="same-request")
         first, first_created = self.store.create_run(
@@ -263,6 +325,10 @@ class ServiceTests(unittest.TestCase):
             finished = wait_for_terminal(service, created["run_id"])
             self.assertEqual(finished["status"], "succeeded")
             self.assertEqual(finished["result"]["answer"]["citation_ids"], [123])
+            self.assertEqual(
+                [event["event_type"] for event in finished["progress"]],
+                ["agent_started", "tool_completed"],
+            )
             self.assertEqual(finished["provenance"]["code_revision"], "abc123")
             repeated = service.submit(
                 RunRequest("pregunta válida", client_request_id="request-1"),
@@ -360,6 +426,19 @@ class AirAppTests(unittest.TestCase):
         self.assertIn("Versión de código, índice, modelo", page.text)
         polled = self.client.get(f"/runs/{run_id}/status")
         self.assertIn(f'action="/runs/{run_id}/feedback"', polled.text)
+        streamed = self.client.get(f"/runs/{run_id}/events?after=0")
+        self.assertEqual(streamed.status_code, 200)
+        self.assertEqual(
+            streamed.headers["content-type"], "text/event-stream; charset=utf-8"
+        )
+        self.assertIn("event: progress", streamed.text)
+        self.assertIn("event: terminal", streamed.text)
+        self.assertNotIn("reasoning", streamed.text)
+        resumed = self.client.get(
+            f"/runs/{run_id}/events?after=0", headers={"Last-Event-ID": "1"}
+        )
+        self.assertNotIn("id: 1\n", resumed.text)
+        self.assertIn("id: 2\n", resumed.text)
         response = self.client.post(
             f"/runs/{run_id}/feedback",
             data={
@@ -409,6 +488,8 @@ class AirAppTests(unittest.TestCase):
         self.assertEqual(self.login("other-token").status_code, 303)
         response = self.client.get(f"/runs/{run_id}")
         self.assertEqual(response.status_code, 404)
+        stream = self.client.get(f"/runs/{run_id}/events")
+        self.assertEqual(stream.status_code, 404)
 
     def test_health_and_capabilities_are_public_but_reveal_no_paths(self):
         health = self.client.get("/api/v1/health")

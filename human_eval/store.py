@@ -10,9 +10,19 @@ from typing import Any
 
 from .contracts import FeedbackRequest, RunRequest, utc_now
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 TERMINAL_STATES = frozenset({"succeeded", "failed"})
 EVENT_STATES = frozenset({"queued", "started", *TERMINAL_STATES})
+PROGRESS_EVENT_TYPES = frozenset(
+    {
+        "agent_started",
+        "model_turn_started",
+        "tool_started",
+        "tool_completed",
+        "answer_revision_requested",
+        "verification_completed",
+    }
+)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -42,6 +52,23 @@ CREATE TABLE IF NOT EXISTS run_events (
     UNIQUE (run_id, sequence)
 );
 CREATE INDEX IF NOT EXISTS run_events_run_id ON run_events(run_id, sequence);
+CREATE TABLE IF NOT EXISTS run_progress (
+    progress_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL REFERENCES runs(run_id),
+    sequence INTEGER NOT NULL,
+    event_type TEXT NOT NULL CHECK (
+        event_type IN (
+            'agent_started', 'model_turn_started', 'tool_started',
+            'tool_completed', 'answer_revision_requested',
+            'verification_completed'
+        )
+    ),
+    created_at TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    UNIQUE (run_id, sequence)
+);
+CREATE INDEX IF NOT EXISTS run_progress_run_id
+ON run_progress(run_id, sequence);
 CREATE TABLE IF NOT EXISTS feedback (
     feedback_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL REFERENCES runs(run_id),
@@ -78,18 +105,28 @@ class EvaluationStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
             connection.execute("PRAGMA journal_mode = WAL")
-            connection.executescript(SCHEMA)
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS schema_meta ("
+                "key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+            )
             current = connection.execute(
                 "SELECT value FROM schema_meta WHERE key = 'schema_version'"
             ).fetchone()
-            if current and current[0] != SCHEMA_VERSION:
+            if current and current[0] not in {"1", SCHEMA_VERSION}:
                 raise RuntimeError(
                     f"unsupported evaluation schema {current[0]!r}; expected {SCHEMA_VERSION}"
                 )
+            connection.executescript(SCHEMA)
             connection.execute(
                 "INSERT OR IGNORE INTO schema_meta(key, value) VALUES (?, ?)",
                 ("schema_version", SCHEMA_VERSION),
             )
+            if current and current[0] == "1":
+                connection.execute(
+                    "UPDATE schema_meta SET value = ? WHERE key = 'schema_version'",
+                    (SCHEMA_VERSION,),
+                )
+            connection.execute("PRAGMA optimize")
 
     def create_run(
         self,
@@ -227,6 +264,61 @@ class EvaluationStore:
                 ),
             )
 
+    def append_progress(
+        self, run_id: str, event_type: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        if event_type not in PROGRESS_EVENT_TYPES:
+            raise ValueError(f"invalid progress event type: {event_type}")
+        created_at = utc_now()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            exists = connection.execute(
+                "SELECT 1 FROM runs WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if exists is None:
+                raise KeyError(run_id)
+            row = connection.execute(
+                "SELECT COALESCE(MAX(sequence), 0) + 1 FROM run_progress "
+                "WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            sequence = int(row[0])
+            connection.execute(
+                "INSERT INTO run_progress(run_id, sequence, event_type, created_at, "
+                "payload_json) VALUES (?, ?, ?, ?, ?)",
+                (run_id, sequence, event_type, created_at, _json(payload)),
+            )
+        return {
+            "sequence": sequence,
+            "event_type": event_type,
+            "created_at": created_at,
+            "payload": payload,
+        }
+
+    def progress_for_run(
+        self, run_id: str, *, after: int = 0, limit: int = 200
+    ) -> list[dict[str, Any]]:
+        if after < 0:
+            raise ValueError("after must be non-negative")
+        if not 1 <= limit <= 500:
+            raise ValueError("limit must be between 1 and 500")
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT sequence, event_type, created_at, payload_json "
+                "FROM run_progress WHERE run_id = ? AND sequence > ? "
+                "ORDER BY sequence LIMIT ?",
+                (run_id, after, limit),
+            ).fetchall()
+        return [
+            {
+                "sequence": int(row["sequence"]),
+                "event_type": row["event_type"],
+                "created_at": row["created_at"],
+                "payload": json.loads(row["payload_json"]),
+            }
+            for row in rows
+        ]
+
     def get_request(self, run_id: str) -> RunRequest | None:
         with self._connect() as connection:
             row = connection.execute(
@@ -283,6 +375,7 @@ class EvaluationStore:
             response["error"] = payload
         else:
             response["retry_after_ms"] = 2000
+        response["progress"] = self.progress_for_run(run_id)
         return response
 
     def add_feedback(

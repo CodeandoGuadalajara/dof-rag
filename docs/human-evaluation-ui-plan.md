@@ -16,8 +16,9 @@ deben actualizarlo en el mismo cambio de código.
   auditar el feedback, reproducir fallos ni producir candidatos revisables para
   v5. También se guardan evidencia, trazas públicas y procedencia.
 - La base de evaluación es SQLite y está separada del corpus, chunks e índices.
-- La UI crea una ejecución y consulta su estado. No mantiene abierta durante
-  decenas de segundos la petición que recibió la pregunta.
+- La UI crea una ejecución y abre un stream reconectable de eventos públicos.
+  No mantiene abierta durante decenas de segundos la petición que recibió la
+  pregunta.
 - La recuperación inicial es léxica y funciona sin esperar a que termine el
   índice vectorial.
 
@@ -32,7 +33,8 @@ Incluye:
 
 - acceso controlado mediante token de invitación y sesión firmada;
 - pregunta, fecha de corte opcional y `required_hops` entre 1 y 5;
-- estados visibles `queued`, `running`, `succeeded` y `failed` mediante polling;
+- estados visibles `queued`, `running`, `succeeded` y `failed`, más streaming
+  de búsquedas, documentos, chunks y verificaciones;
 - respuesta, citas, advertencias, documentos, pasajes y traza pública;
 - feedback append-only con rating, tipos de problema y comentario;
 - snapshot por ejecución de código, corpus, chunks, índice, modelo y
@@ -49,8 +51,8 @@ Incluye:
 - elegir desde el cliente proveedores, modelos, prompts, bases, `top_k` u otros
   argumentos de herramientas;
 - acceso directo del navegador a SQLite;
-- streaming token a token, cancelación fuerte de una llamada ya enviada al
-  proveedor, múltiples workers o alta disponibilidad;
+- streaming token a token o de razonamiento privado, cancelación fuerte de una
+  llamada ya enviada al proveedor, múltiples workers o alta disponibilidad;
 - búsqueda web o fuentes distintas del corpus DOF;
 - integrar la UI en Astro durante el MVP. El sitio público podría enlazar a la
   app más adelante, pero no forma parte de su ruta de ejecución.
@@ -59,7 +61,7 @@ Incluye:
 
 ```text
 Navegador
-  | HTTPS, HTML/forms/fetch, cookie de sesión de mismo origen
+  | HTTPS, HTML/forms + Server-Sent Events, cookie de mismo origen
   v
 Aplicación Air en dof-rag
   - UI y rutas HTTP en human_eval/app.py
@@ -89,8 +91,9 @@ reiniciar, porque no puede saberse si la llamada externa terminó.
 ## Contrato HTTP v1
 
 El contrato público del MVP es de mismo origen. Las rutas HTML usan formularios
-URL-encoded, redirects `303` después de escritura y fragmentos HTML para
-polling. Los endpoints de salud y capacidades usan JSON. No se habilita CORS.
+URL-encoded, redirects `303` después de escritura, Server-Sent Events (SSE) para
+actividad en vivo y un fragmento HTML como fallback de estado. Los endpoints de
+salud y capacidades usan JSON. No se habilita CORS.
 
 | Método y ruta | Autenticación | Resultado |
 | --- | --- | --- |
@@ -101,6 +104,7 @@ polling. Los endpoints de salud y capacidades usan JSON. No se habilita CORS.
 | `POST /runs` | sesión + CSRF | crea/idempotentiza ejecución y redirige |
 | `GET /runs/{run_id}` | sesión y propiedad | página completa de la ejecución |
 | `GET /runs/{run_id}/status` | sesión y propiedad | fragmento de estado/resultado |
+| `GET /runs/{run_id}/events?after=N` | sesión y propiedad | stream SSE reconectable de eventos públicos |
 | `POST /runs/{run_id}/feedback` | sesión, propiedad y CSRF | añade feedback y redirige |
 | `GET /api/v1/health` | no | salud del proceso y SQLite |
 | `GET /api/v1/capabilities` | no | contrato, modo, modelo y límites seguros |
@@ -131,10 +135,20 @@ La página y el fragmento representan cuatro estados:
 - `succeeded`: respuesta y resultado público persistidos;
 - `failed`: código y mensaje públicos estables, sin excepción interna.
 
-Mientras el estado no sea terminal, el navegador espera aproximadamente dos
-segundos y solicita `GET /runs/{run_id}/status`. La respuesta terminal se
-construye desde el resultado ya persistido, no volviendo a consultar un índice
-que pudo cambiar.
+Mientras el estado no sea terminal, el navegador mantiene un SSE liviano y
+reconectable. Cada evento lleva `id`, `event: progress` y un JSON con
+`sequence`, `event_type`, `created_at` y `payload`. `after=N` y
+`Last-Event-ID` permiten reanudar sin duplicar; hay heartbeats y se desactiva el
+buffering del proxy. Al llegar `event: terminal`, el navegador solicita el
+fragmento final. Si SSE no existe, conserva polling de estado como fallback.
+La respuesta terminal se construye desde el resultado ya persistido, no
+volviendo a consultar un índice que pudo cambiar.
+
+Los tipos iniciales son `agent_started`, `model_turn_started`, `tool_started`,
+`tool_completed`, `answer_revision_requested` y `verification_completed`. Los
+payloads muestran argumentos validados, IDs y metadatos acotados; omiten texto
+de razonamiento, borradores del modelo y texto completo de chunks. El stream no
+es el trabajo del agente: puede cortarse y reconectarse sin afectar el worker.
 
 El objeto lógico almacenado y presentado contiene:
 
@@ -219,6 +233,8 @@ Tablas fuente:
 - `run_events`: log append-only con secuencia y eventos `queued`, `started`,
   `succeeded` o `failed`; el payload terminal guarda la respuesta exacta o el
   error público;
+- `run_progress`: log append-only independiente con secuencia por ejecución,
+  tipo y payload público para reproducir el stream tras una recarga;
 - `feedback`: filas append-only con UUID, ejecución, rating, etiquetas,
   comentario y timestamp;
 - `schema_meta`: versión del esquema.
@@ -249,6 +265,9 @@ aprobar cada candidato antes de incorporarlo a un dataset versionado.
   verificaciones, límites y tiempos que sean seguros para el evaluador.
 - No se muestra chain-of-thought, mensajes privados del proveedor, claves,
   cabeceras ni configuración de clientes.
+- Los eventos en vivo sólo incluyen acciones observables, resultados acotados,
+  IDs, metadatos y verificaciones; el texto completo de evidencia aparece en el
+  resultado terminal persistido.
 - `invalid_citations`, fallos de herramienta, `stop_reason` y cobertura faltante
   aparecen como advertencias visibles.
 - Una búsqueda no cuenta como evidencia; el pasaje leído sí.
@@ -295,6 +314,8 @@ incompleta; continúa siendo evaluable.
   también están acotados en el backend.
 - Las ejecuciones solo son visibles para el hash de evaluador propietario. Los
   endpoints públicos de salud/capacidades no incluyen rutas locales ni secretos.
+- El stream exige la misma sesión y propiedad, lleva `no-store`, se puede
+  reanudar por secuencia y no habilita CORS.
 - Los logs usan `run_id` y no incluyen tokens ni cuerpos completos por defecto.
 
 ## Despliegue previsto
@@ -302,8 +323,8 @@ incompleta; continúa siendo evaluable.
 El MVP se ejecutará en la MacBook Pro actual, ligado inicialmente a
 `127.0.0.1:8765`. La UI y el backend se publican como una sola app ASGI. Para
 pruebas humanas remotas se colocará delante un túnel o reverse proxy HTTPS que
-termine TLS, limite cuerpos y use un hostname estable; todavía debe elegirse el
-proveedor.
+termine TLS, limite cuerpos, no almacene en buffer SSE y use un hostname estable;
+todavía debe elegirse el proveedor.
 
 Configuración mínima, con valores de ejemplo que no deben guardarse en Git:
 
@@ -358,8 +379,10 @@ dependencias de solo lectura con su propio ciclo de respaldo.
 ### Fase 2 — sitio Air mínimo
 
 - Login intercambia una invitación por sesión sin persistir el token.
-- El formulario acepta pregunta, fecha y hops; muestra progreso mediante
-  polling y no bloquea una petición larga.
+- El formulario acepta pregunta, fecha y hops; muestra progreso mediante SSE
+  reconectable y no bloquea la petición que crea la ejecución.
+- Una recarga o reconexión recupera eventos persistidos sin duplicarlos; el
+  fragmento de estado funciona como fallback cuando SSE no está disponible.
 - Respuesta, citas, documentos, pasajes, cobertura y traza son legibles con
   teclado y en móvil.
 - Feedback estructurado confirma que fue guardado y que no modifica v4.

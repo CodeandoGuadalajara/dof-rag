@@ -19,7 +19,7 @@ from agent_tools.agent import (
 from agent_tools.retrieval import DofRetriever
 
 from .contracts import RunRequest
-from .service import PublicExecutionError
+from .service import ProgressCallback, PublicExecutionError
 
 
 @dataclass(frozen=True)
@@ -164,7 +164,12 @@ class AgentRunExecutor:
             reasoning_effort=self.config.reasoning_effort,
         )
 
-    def execute(self, request: RunRequest) -> dict[str, Any]:
+    def execute(
+        self,
+        request: RunRequest,
+        *,
+        on_progress: ProgressCallback | None = None,
+    ) -> dict[str, Any]:
         try:
             backend = self._backend()
             with DofRetriever(
@@ -181,6 +186,7 @@ class AgentRunExecutor:
                     request.question,
                     as_of=request.as_of,
                     required_hops=request.required_hops,
+                    on_progress=on_progress,
                 )
         except PublicExecutionError:
             raise

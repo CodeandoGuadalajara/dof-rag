@@ -14,8 +14,16 @@ from .store import EvaluationStore
 LOGGER = logging.getLogger(__name__)
 
 
+ProgressCallback = Callable[[str, dict[str, Any]], None]
+
+
 class RunExecutor(Protocol):
-    def execute(self, request: RunRequest) -> dict[str, Any]: ...
+    def execute(
+        self,
+        request: RunRequest,
+        *,
+        on_progress: ProgressCallback | None = None,
+    ) -> dict[str, Any]: ...
 
 
 class PublicExecutionError(RuntimeError):
@@ -145,6 +153,7 @@ class EvaluationService:
         if run is None:
             raise KeyError(run_id)
         run["status_url"] = f"/api/v1/runs/{run_id}"
+        run["events_url"] = f"/runs/{run_id}/events"
         run["feedback_url"] = f"/api/v1/runs/{run_id}/feedback"
         return run
 
@@ -168,7 +177,13 @@ class EvaluationService:
                     continue
                 self.store.append_event(run_id, "started")
                 try:
-                    result = self.executor.execute(request)
+                    result = self.executor.execute(
+                        request,
+                        on_progress=lambda event_type,
+                        payload: self.store.append_progress(
+                            run_id, event_type, payload
+                        ),
+                    )
                 except PublicExecutionError as exc:
                     self.store.append_event(
                         run_id,

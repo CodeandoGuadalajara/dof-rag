@@ -8,8 +8,10 @@ without network access or model nondeterminism.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import unicodedata
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from time import perf_counter
 from typing import Any, Protocol
@@ -18,6 +20,8 @@ from jsonschema import Draft202012Validator
 
 from .models import RetrievalStrategy, SearchFilters
 from .retrieval import DofRetriever, QueryEmbedder
+
+LOGGER = logging.getLogger(__name__)
 
 YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
 YEAR_COMPARISON_RE = re.compile(
@@ -1160,6 +1164,7 @@ class AgentRunner:
         *,
         as_of: str | None = None,
         required_hops: int = 1,
+        on_progress: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> AgentRun:
         started = perf_counter()
         coverage_requirements = _coverage_requirements(question)
@@ -1167,6 +1172,16 @@ class AgentRunner:
             as_of=as_of,
             coverage_requirements=coverage_requirements,
             required_hops=required_hops,
+        )
+        _emit_progress(
+            on_progress,
+            "agent_started",
+            {
+                "message": "El agente comenzó a investigar la pregunta.",
+                "as_of": as_of,
+                "required_hops": required_hops,
+                "coverage_requirements": coverage_requirements,
+            },
         )
         coverage_prompt = (
             "\nCobertura obligatoria antes de responder: "
@@ -1202,6 +1217,20 @@ class AgentRunner:
                         ),
                     },
                 ]
+            _emit_progress(
+                on_progress,
+                "model_turn_started",
+                {
+                    "message": (
+                        "El agente está preparando la respuesta final."
+                        if force_final
+                        else "El agente está decidiendo qué consultar a continuación."
+                    ),
+                    "turn": turn_number,
+                    "max_turns": self.max_model_turns,
+                    "available_tools": [tool["name"] for tool in available_tools],
+                },
+            )
             turn = self.backend.create_turn(
                 input_items=turn_input,
                 tools=available_tools,
@@ -1232,6 +1261,16 @@ class AgentRunner:
             input_items.extend(turn.output_items)
             if turn.tool_calls:
                 for call in turn.tool_calls:
+                    _emit_progress(
+                        on_progress,
+                        "tool_started",
+                        {
+                            "message": _tool_start_message(call.name),
+                            "tool": call.name,
+                            "arguments": call.arguments or {},
+                            "turn": turn_number,
+                        },
+                    )
                     if len(traces) >= self.max_tool_calls:
                         output = {
                             "ok": False,
@@ -1256,6 +1295,17 @@ class AgentRunner:
                                 elapsed_ms=elapsed_ms,
                             )
                         )
+                    _emit_progress(
+                        on_progress,
+                        "tool_completed",
+                        _public_tool_progress(
+                            call.name,
+                            call.arguments,
+                            output,
+                            elapsed_ms=elapsed_ms,
+                            turn=turn_number,
+                        ),
+                    )
                     input_items.append(
                         {
                             "type": "function_call_output",
@@ -1305,6 +1355,15 @@ class AgentRunner:
                 except CitationCoverageError as exc:
                     last_parse_error = str(exc)
                     terminal_stop_reason = "citation_coverage_incomplete"
+                    _emit_progress(
+                        on_progress,
+                        "answer_revision_requested",
+                        {
+                            "message": "La verificación pidió cubrir más documentos.",
+                            "reason": "citation_coverage_incomplete",
+                            "turn": turn_number,
+                        },
+                    )
                     input_items.append(
                         {
                             "role": "user",
@@ -1318,6 +1377,15 @@ class AgentRunner:
                 except PremiseCorrectionRequiredError as exc:
                     last_parse_error = str(exc)
                     terminal_stop_reason = "premise_correction_required"
+                    _emit_progress(
+                        on_progress,
+                        "answer_revision_requested",
+                        {
+                            "message": "La verificación pidió sustentar la corrección de la premisa.",
+                            "reason": "premise_correction_required",
+                            "turn": turn_number,
+                        },
+                    )
                     input_items.append(
                         {
                             "role": "user",
@@ -1332,6 +1400,15 @@ class AgentRunner:
                 except CitationRequiredError as exc:
                     last_parse_error = str(exc)
                     terminal_stop_reason = "citation_required"
+                    _emit_progress(
+                        on_progress,
+                        "answer_revision_requested",
+                        {
+                            "message": "La verificación pidió una cita válida de un pasaje leído.",
+                            "reason": "citation_required",
+                            "turn": turn_number,
+                        },
+                    )
                     input_items.append(
                         {
                             "role": "user",
@@ -1344,6 +1421,15 @@ class AgentRunner:
                     continue
                 except ValueError as exc:
                     last_parse_error = str(exc)
+                    _emit_progress(
+                        on_progress,
+                        "answer_revision_requested",
+                        {
+                            "message": "La respuesta provisional no cumplió el contrato y será corregida.",
+                            "reason": "invalid_final_answer",
+                            "turn": turn_number,
+                        },
+                    )
                     input_items.append(
                         {
                             "role": "user",
@@ -1351,6 +1437,29 @@ class AgentRunner:
                         }
                     )
                     continue
+                verification = _verification(answer, self.toolbox, required_hops)
+                stop_reason = (
+                    "completed"
+                    if self.toolbox.read_chunk_ids and not self.toolbox.missing_coverage
+                    else (
+                        "evidence_not_read"
+                        if not self.toolbox.read_chunk_ids
+                        else "coverage_incomplete: "
+                        + ",".join(self.toolbox.missing_coverage)
+                    )
+                )
+                _emit_progress(
+                    on_progress,
+                    "verification_completed",
+                    {
+                        "message": "La respuesta y sus citas fueron verificadas.",
+                        "turn": turn_number,
+                        "citation_ids": answer.citations,
+                        "coverage": self.toolbox.coverage,
+                        "verification": verification,
+                        "stop_reason": stop_reason,
+                    },
+                )
                 return AgentRun(
                     question=question,
                     as_of=as_of,
@@ -1360,22 +1469,12 @@ class AgentRunner:
                     turns=turns,
                     model_turns=turn_number,
                     tool_calls=len(traces),
-                    stop_reason=(
-                        "completed"
-                        if self.toolbox.read_chunk_ids
-                        and not self.toolbox.missing_coverage
-                        else (
-                            "evidence_not_read"
-                            if not self.toolbox.read_chunk_ids
-                            else "coverage_incomplete: "
-                            + ",".join(self.toolbox.missing_coverage)
-                        )
-                    ),
+                    stop_reason=stop_reason,
                     usage=usage,
                     elapsed_ms=(perf_counter() - started) * 1000.0,
                     coverage=self.toolbox.coverage,
                     required_hops=required_hops,
-                    verification=_verification(answer, self.toolbox, required_hops),
+                    verification=verification,
                 )
             last_parse_error = "model returned neither tool calls nor a final answer"
         answer = AgentAnswer(
@@ -1383,6 +1482,23 @@ class AgentRunner:
             citations=[],
             invalid_citations=[],
             premise_status="unclear",
+        )
+        verification = _verification(answer, self.toolbox, required_hops)
+        stop_reason = (
+            terminal_stop_reason
+            if terminal_stop_reason != "model_turn_limit"
+            else f"model_turn_limit: {last_parse_error}"
+        )
+        _emit_progress(
+            on_progress,
+            "verification_completed",
+            {
+                "message": "La ejecución terminó sin una respuesta final verificable.",
+                "citation_ids": [],
+                "coverage": self.toolbox.coverage,
+                "verification": verification,
+                "stop_reason": stop_reason,
+            },
         )
         return AgentRun(
             question=question,
@@ -1393,14 +1509,122 @@ class AgentRunner:
             turns=turns,
             model_turns=self.max_model_turns,
             tool_calls=len(traces),
-            stop_reason=(
-                terminal_stop_reason
-                if terminal_stop_reason != "model_turn_limit"
-                else f"model_turn_limit: {last_parse_error}"
-            ),
+            stop_reason=stop_reason,
             usage=usage,
             elapsed_ms=(perf_counter() - started) * 1000.0,
             coverage=self.toolbox.coverage,
             required_hops=required_hops,
-            verification=_verification(answer, self.toolbox, required_hops),
+            verification=verification,
         )
+
+
+def _emit_progress(
+    callback: Callable[[str, dict[str, Any]], None] | None,
+    event_type: str,
+    payload: dict[str, Any],
+) -> None:
+    """Emit observable agent work without making telemetry a run dependency."""
+    if callback is None:
+        return
+    try:
+        callback(event_type, payload)
+    except Exception:
+        LOGGER.exception("agent progress callback failed for %s", event_type)
+
+
+def _tool_start_message(name: str) -> str:
+    return {
+        "list_publications": "Buscando publicaciones del DOF por fecha y sección.",
+        "search_documents": "Buscando documentos relevantes en el corpus.",
+        "search_evidence": "Buscando pasajes dentro de documentos candidatos.",
+        "get_document_outline": "Revisando la estructura de un documento.",
+        "read_chunks": "Leyendo pasajes para usarlos como evidencia.",
+    }.get(name, "Ejecutando una herramienta del agente.")
+
+
+def _public_tool_progress(
+    name: str,
+    arguments: dict[str, Any] | None,
+    output: dict[str, Any],
+    *,
+    elapsed_ms: float,
+    turn: int,
+) -> dict[str, Any]:
+    """Build a bounded public summary; never expose model reasoning or full chunks."""
+    payload: dict[str, Any] = {
+        "message": (
+            "La consulta terminó."
+            if output.get("ok")
+            else "La herramienta no pudo completar esta consulta."
+        ),
+        "tool": name,
+        "arguments": arguments or {},
+        "ok": bool(output.get("ok")),
+        "elapsed_ms": round(elapsed_ms, 1),
+        "turn": turn,
+    }
+    if not output.get("ok"):
+        error = output.get("error", {})
+        payload["error"] = {
+            "type": error.get("type", "tool_error"),
+            "message": error.get("message", "La consulta falló."),
+        }
+        return payload
+
+    data = output.get("data", {})
+    documents = data.get("documents", data.get("publications", []))
+    if documents:
+        payload["documents"] = [
+            {
+                key: item.get(key)
+                for key in (
+                    "document_id",
+                    "title",
+                    "publication_date",
+                    "section",
+                    "institution",
+                    "path",
+                )
+            }
+            for item in documents[:20]
+        ]
+        payload["result_count"] = len(documents)
+    evidence = data.get("evidence", [])
+    if evidence:
+        payload["chunks"] = [
+            {
+                key: item.get(key)
+                for key in (
+                    "chunk_id",
+                    "document_id",
+                    "path",
+                    "heading_path",
+                    "snippet",
+                    "source",
+                    "rank",
+                )
+            }
+            for item in evidence[:30]
+        ]
+        payload["result_count"] = len(evidence)
+    chunks = data.get("chunks", [])
+    if chunks:
+        payload["chunks"] = [
+            {
+                key: item.get(key)
+                for key in (
+                    "chunk_id",
+                    "document_id",
+                    "path",
+                    "heading_path",
+                    "chunk_index",
+                )
+            }
+            for item in chunks[:30]
+        ]
+        payload["result_count"] = len(chunks)
+    if "document_id" in data:
+        payload["document_id"] = data.get("document_id")
+    if "coverage" in data:
+        payload["coverage"] = data["coverage"]
+    return payload

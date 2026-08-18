@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
 import hmac
 import html
@@ -13,7 +14,7 @@ import threading
 import time
 import uuid
 from collections import defaultdict, deque
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,7 +25,13 @@ import uvicorn
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from starlette.responses import (
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 
 from .agent_executor import AgentExecutorConfig, AgentRunExecutor
 from .contracts import ContractError, FeedbackRequest, RunRequest
@@ -237,6 +244,18 @@ pre { background:#18201c; color:#e9eee9; border-radius:3px; max-height:28rem; ov
 .run-list li { border-top:1px solid var(--line); padding:.8rem 0; }
 .run-list a { display:block; font-weight:700; }
 .notice { color:var(--accent-dark); font-weight:700; }
+.stream-state { align-items:center; display:flex; gap:.55rem; }
+.stream-state::before { animation:pulse 1.2s ease-in-out infinite; background:var(--accent);
+  border-radius:50%; content:""; height:.55rem; width:.55rem; }
+.activity { list-style:none; margin:1.25rem 0 0; padding:0; }
+.activity li { border-top:1px solid var(--line); padding:.85rem 0 .85rem 1.4rem; position:relative; }
+.activity li::before { background:var(--accent); border:3px solid var(--panel); border-radius:50%;
+  box-shadow:0 0 0 1px var(--accent); content:""; height:.62rem; left:.08rem; position:absolute;
+  top:1.16rem; width:.62rem; }
+.activity strong { display:block; }
+.activity details { border:0; padding:.25rem 0 0; }
+.activity pre { font-size:.78rem; margin:.4rem 0 0; max-height:14rem; }
+@keyframes pulse { 50% { opacity:.35; transform:scale(.8); } }
 footer { border-top:1px solid var(--line); color:var(--muted); font-size:.82rem; margin-top:3rem;
   padding-top:1.25rem; }
 @media (max-width:680px) { .grid,.checks { grid-template-columns:1fr; } header { display:block; }
@@ -244,24 +263,81 @@ footer { border-top:1px solid var(--line); color:var(--muted); font-size:.82rem;
 """
 
 
-POLL_SCRIPT = """
+STREAM_SCRIPT = """
 (() => {
-  const poll = async (node) => {
-    const url = node.dataset.pollUrl;
-    if (!url) return;
-    await new Promise(resolve => setTimeout(resolve, 2000));
+  const replaceWithStatus = async (node) => {
+    const url = node.dataset.statusUrl;
+    if (!url) return false;
     try {
       const response = await fetch(url, {credentials: 'same-origin', cache: 'no-store'});
       if (response.status === 401) { location.href = '/login'; return; }
-      if (!response.ok) throw new Error('poll failed');
+      if (!response.ok) throw new Error('status failed');
       const holder = document.createElement('div');
       holder.innerHTML = await response.text();
       const replacement = holder.firstElementChild;
+      if (!replacement || replacement.dataset.state === 'queued' || replacement.dataset.state === 'running') {
+        return false;
+      }
       node.replaceWith(replacement);
-      if (replacement.dataset.pollUrl) poll(replacement);
-    } catch (_) { setTimeout(() => poll(node), 3000); }
+      return true;
+    } catch (_) { return false; }
   };
-  document.querySelectorAll('[data-poll-url]').forEach(poll);
+
+  const appendProgress = (list, event) => {
+    if (list.querySelector(`[data-sequence="${event.sequence}"]`)) return;
+    list.querySelector('[data-empty]')?.remove();
+    const item = document.createElement('li');
+    item.dataset.sequence = event.sequence;
+    const title = document.createElement('strong');
+    title.textContent = event.payload?.message || 'El agente registró actividad.';
+    item.appendChild(title);
+    const meta = document.createElement('span');
+    meta.className = 'meta';
+    meta.textContent = `${event.event_type} · ${event.created_at}`;
+    item.appendChild(meta);
+    const details = document.createElement('details');
+    const summary = document.createElement('summary');
+    summary.textContent = 'Ver datos públicos';
+    const pre = document.createElement('pre');
+    pre.textContent = JSON.stringify(event.payload || {}, null, 2);
+    details.append(summary, pre);
+    item.appendChild(details);
+    list.appendChild(item);
+  };
+
+  const start = (node) => {
+    const streamUrl = node.dataset.streamUrl;
+    if (!streamUrl) return;
+    const list = node.querySelector('[data-progress-list]');
+    const state = node.querySelector('[data-stream-state]');
+    let last = Number(node.dataset.lastEventId || 0);
+    if (!window.EventSource) {
+      state.textContent = 'Actualizando el estado…';
+      const timer = setInterval(async () => {
+        if (await replaceWithStatus(node)) clearInterval(timer);
+      }, 2000);
+      return;
+    }
+    const source = new EventSource(`${streamUrl}?after=${last}`);
+    source.addEventListener('open', () => { state.textContent = 'Conectado al trabajo del agente'; });
+    source.addEventListener('progress', (message) => {
+      const event = JSON.parse(message.data);
+      last = Math.max(last, Number(event.sequence || 0));
+      node.dataset.lastEventId = last;
+      appendProgress(list, event);
+      state.textContent = 'Recibiendo actividad en vivo';
+    });
+    source.addEventListener('terminal', async () => {
+      source.close();
+      state.textContent = 'Preparando el resultado…';
+      await replaceWithStatus(node);
+    });
+    source.onerror = async () => {
+      state.textContent = 'Reconectando al stream…';
+      await replaceWithStatus(node);
+    };
+  };
+  document.querySelectorAll('[data-stream-url]').forEach(start);
 })();
 """
 
@@ -286,7 +362,7 @@ def _page(
 <a href="/" style="text-decoration:none;color:inherit"><strong>Agente del Diario Oficial</strong></a></div>
 {session_action}</header>{body}
 <footer>Las preguntas, respuestas, evidencias y evaluaciones se guardan para análisis. El feedback no modifica automáticamente v4.</footer>
-</main><script>{POLL_SCRIPT}</script></body></html>"""
+</main><script>{STREAM_SCRIPT}</script></body></html>"""
 
 
 def _login_page(csrf_token: str, error: str | None = None) -> str:
@@ -332,7 +408,7 @@ def _home_page(
         for number in range(1, 6)
     )
     body = f"""<section><p class="eyebrow">Evaluación humana</p><h1>Pregunta, inspecciona, evalúa.</h1>
-<p class="lede">El agente usa hoy recuperación léxica completa. Una respuesta puede tardar decenas de segundos; la página consultará su estado sin mantener una petición abierta.</p></section>
+<p class="lede">El agente usa hoy recuperación léxica completa. La página mostrará en vivo sus búsquedas, documentos, lecturas y verificaciones.</p></section>
 <section class="panel"><h2>Nueva pregunta</h2>{error_html}<form method="post" action="/runs">
 <input type="hidden" name="csrf_token" value="{_escape(csrf_token)}">
 <input type="hidden" name="client_request_id" value="{_escape(values.get("client_request_id") or uuid.uuid4())}">
@@ -354,16 +430,17 @@ def _status_fragment(
     feedback_recorded: bool = False,
 ) -> str:
     state = run["status"]
-    poll = (
-        f' data-poll-url="/runs/{_escape(run["run_id"])}/status"'
-        if state in ACTIVE_STATES
-        else ""
-    )
     meta = f'<p class="meta">Creada: {_escape(run["created_at"])}</p>'
     if state in ACTIVE_STATES:
-        return f"""<section id="run-status" class="panel status" data-state="{state}"{poll} aria-live="polite">
+        progress = run.get("progress", [])
+        last_event_id = progress[-1]["sequence"] if progress else 0
+        return f"""<section id="run-status" class="panel status" data-state="{state}"
+data-stream-url="/runs/{_escape(run["run_id"])}/events"
+data-status-url="/runs/{_escape(run["run_id"])}/status"
+data-last-event-id="{_escape(last_event_id)}" aria-live="polite">
 <p class="eyebrow">{_escape(STATUS_LABELS[state])}</p><h2>La ejecución sigue en progreso</h2>
-<p>Puede tardar decenas de segundos. Esta sección se actualizará automáticamente.</p>{meta}</section>"""
+<p class="stream-state meta" data-stream-state>Conectando al trabajo del agente…</p>
+{_progress_timeline(progress)}{meta}</section>"""
     if state == "failed":
         error = run.get("error", {})
         return f"""<section id="run-status" class="panel status" data-state="failed" aria-live="polite">
@@ -436,6 +513,18 @@ def _status_fragment(
 <details><summary>Búsquedas, lecturas y verificaciones</summary><pre>{trace}</pre></details>
 <details><summary>Versión de código, índice, modelo y configuración</summary><pre>{provenance}</pre></details></section>
 {saved}{feedback}</section>"""
+
+
+def _progress_timeline(progress: list[dict[str, Any]]) -> str:
+    items = "".join(
+        f"""<li data-sequence="{_escape(event["sequence"])}"><strong>{_escape(event.get("payload", {}).get("message", "Actividad del agente"))}</strong>
+<span class="meta">{_escape(event["event_type"])} · {_escape(event["created_at"])}</span>
+<details><summary>Ver datos públicos</summary><pre>{_escape(json.dumps(event.get("payload", {}), ensure_ascii=False, indent=2))}</pre></details></li>"""
+        for event in progress
+    )
+    if not items:
+        items = '<li data-empty><span class="meta">Esperando la primera actividad…</span></li>'
+    return f'<ol class="activity" data-progress-list>{items}</ol>'
 
 
 def _feedback_form(run_id: str, csrf_token: str) -> str:
@@ -649,6 +738,62 @@ def create_app(
         except KeyError:
             return HTMLResponse("Ejecución no encontrada.", status_code=404)
         return HTMLResponse(_status_fragment(run, csrf_token=_csrf(request)))
+
+    @app.get("/runs/{run_id}/events")
+    async def run_events(request: Request, run_id: str) -> Response:
+        evaluator_hash = _evaluator(request)
+        if evaluator_hash is None:
+            return Response("Sesión requerida.", status_code=401)
+        if not service.store.run_belongs_to(run_id, evaluator_hash):
+            return Response("Ejecución no encontrada.", status_code=404)
+        try:
+            after_values = [
+                int(value)
+                for value in (
+                    request.query_params.get("after", "0"),
+                    request.headers.get("last-event-id", "0"),
+                )
+            ]
+            if any(value < 0 for value in after_values):
+                raise ValueError
+            after = max(after_values)
+        except ValueError:
+            return Response("Secuencia inválida.", status_code=400)
+
+        async def event_stream() -> AsyncIterator[str]:
+            cursor = after
+            heartbeat_at = time.monotonic()
+            while True:
+                events = await asyncio.to_thread(
+                    service.store.progress_for_run, run_id, after=cursor
+                )
+                for event in events:
+                    cursor = event["sequence"]
+                    data = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
+                    yield f"id: {cursor}\nevent: progress\ndata: {data}\n\n"
+                    heartbeat_at = time.monotonic()
+                run = await asyncio.to_thread(
+                    service.public_run, run_id, evaluator_hash=evaluator_hash
+                )
+                if run["status"] not in ACTIVE_STATES:
+                    data = json.dumps({"status": run["status"]}, separators=(",", ":"))
+                    yield f"event: terminal\ndata: {data}\n\n"
+                    return
+                if await request.is_disconnected():
+                    return
+                if time.monotonic() - heartbeat_at >= 15:
+                    yield ": keep-alive\n\n"
+                    heartbeat_at = time.monotonic()
+                await asyncio.sleep(0.5)
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
 
     @app.post("/runs/{run_id}/feedback", response_class=HTMLResponse)
     async def submit_feedback(request: Request, run_id: str) -> Response:
