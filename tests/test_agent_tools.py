@@ -614,7 +614,14 @@ class AgentToolsTests(unittest.TestCase):
             if event_type == "tool_completed" and payload["tool"] == "read_chunks"
         )
         self.assertEqual(read_event["chunks"][0]["chunk_id"], 4)
+        self.assertEqual(read_event["chunks"][0]["excerpt"], "evidencia")
         self.assertNotIn("text", read_event["chunks"][0])
+        search_event = next(
+            payload
+            for event_type, payload in progress
+            if event_type == "tool_started" and payload["tool"] == "read_chunks"
+        )
+        self.assertIn("Sólo los chunks leídos", search_event["why"])
 
     def test_agent_does_not_mark_a_final_answer_without_reading_as_completed(self):
         backend = ScriptedBackend(

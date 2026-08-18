@@ -1178,6 +1178,10 @@ class AgentRunner:
             "agent_started",
             {
                 "message": "El agente comenzó a investigar la pregunta.",
+                "why": (
+                    "Primero localizará documentos relevantes y después leerá "
+                    "pasajes que puedan sostener citas verificables."
+                ),
                 "as_of": as_of,
                 "required_hops": required_hops,
                 "coverage_requirements": coverage_requirements,
@@ -1222,9 +1226,9 @@ class AgentRunner:
                 "model_turn_started",
                 {
                     "message": (
-                        "El agente está preparando la respuesta final."
+                        "Organizando la evidencia y preparando la respuesta final."
                         if force_final
-                        else "El agente está decidiendo qué consultar a continuación."
+                        else "Analizando lo encontrado y decidiendo el siguiente paso."
                     ),
                     "turn": turn_number,
                     "max_turns": self.max_model_turns,
@@ -1265,7 +1269,8 @@ class AgentRunner:
                         on_progress,
                         "tool_started",
                         {
-                            "message": _tool_start_message(call.name),
+                            "message": _tool_start_message(call.name, call.arguments),
+                            "why": _tool_reason(call.name),
                             "tool": call.name,
                             "arguments": call.arguments or {},
                             "turn": turn_number,
@@ -1532,14 +1537,41 @@ def _emit_progress(
         LOGGER.exception("agent progress callback failed for %s", event_type)
 
 
-def _tool_start_message(name: str) -> str:
+def _tool_start_message(name: str, arguments: dict[str, Any] | None = None) -> str:
+    arguments = arguments or {}
+    query = str(arguments.get("query") or "").strip()
+    if name == "list_publications":
+        return "Buscando publicaciones del DOF dentro del periodo relevante."
+    if name == "search_documents":
+        return (
+            f"Buscando documentos sobre “{query}”."
+            if query
+            else "Buscando documentos relevantes."
+        )
+    if name == "search_evidence":
+        return (
+            f"Buscando pasajes sobre “{query}”."
+            if query
+            else "Buscando pasajes dentro de los documentos candidatos."
+        )
+    if name == "get_document_outline":
+        return f"Revisando la estructura del documento {arguments.get('document_id', '')}.".replace(
+            "  ", " "
+        )
+    if name == "read_chunks":
+        chunk_ids = ", ".join(str(item) for item in arguments.get("chunk_ids", []))
+        return f"Leyendo los chunks {chunk_ids} para comprobar la evidencia."
+    return "Consultando una fuente del agente."
+
+
+def _tool_reason(name: str) -> str:
     return {
-        "list_publications": "Buscando publicaciones del DOF por fecha y sección.",
-        "search_documents": "Buscando documentos relevantes en el corpus.",
-        "search_evidence": "Buscando pasajes dentro de documentos candidatos.",
-        "get_document_outline": "Revisando la estructura de un documento.",
-        "read_chunks": "Leyendo pasajes para usarlos como evidencia.",
-    }.get(name, "Ejecutando una herramienta del agente.")
+        "list_publications": "Necesita acotar qué publicaciones existían antes de seleccionar evidencia.",
+        "search_documents": "Necesita identificar documentos candidatos antes de buscar pasajes concretos.",
+        "search_evidence": "Ya tiene documentos candidatos y ahora busca dónde se afirma lo relevante.",
+        "get_document_outline": "La estructura ayuda a ubicar las secciones que conviene leer.",
+        "read_chunks": "Sólo los chunks leídos pueden convertirse en evidencia y citas de la respuesta.",
+    }.get(name, "Esta consulta aporta evidencia observable para el siguiente paso.")
 
 
 def _public_tool_progress(
@@ -1550,13 +1582,9 @@ def _public_tool_progress(
     elapsed_ms: float,
     turn: int,
 ) -> dict[str, Any]:
-    """Build a bounded public summary; never expose model reasoning or full chunks."""
+    """Build a bounded public decision log; never expose private model reasoning."""
     payload: dict[str, Any] = {
-        "message": (
-            "La consulta terminó."
-            if output.get("ok")
-            else "La herramienta no pudo completar esta consulta."
-        ),
+        "message": "La herramienta no pudo completar esta consulta.",
         "tool": name,
         "arguments": arguments or {},
         "ok": bool(output.get("ok")),
@@ -1600,6 +1628,7 @@ def _public_tool_progress(
                     "path",
                     "heading_path",
                     "snippet",
+                    "snippet_truncated",
                     "source",
                     "rank",
                 )
@@ -1611,14 +1640,19 @@ def _public_tool_progress(
     if chunks:
         payload["chunks"] = [
             {
-                key: item.get(key)
-                for key in (
-                    "chunk_id",
-                    "document_id",
-                    "path",
-                    "heading_path",
-                    "chunk_index",
-                )
+                **{
+                    key: item.get(key)
+                    for key in (
+                        "chunk_id",
+                        "document_id",
+                        "path",
+                        "heading_path",
+                        "chunk_index",
+                    )
+                },
+                "document_id": item.get("document_id") or data.get("document_id"),
+                "excerpt": str(item.get("text") or "")[:1600],
+                "excerpt_truncated": len(str(item.get("text") or "")) > 1600,
             }
             for item in chunks[:30]
         ]
@@ -1627,4 +1661,26 @@ def _public_tool_progress(
         payload["document_id"] = data.get("document_id")
     if "coverage" in data:
         payload["coverage"] = data["coverage"]
+    payload["message"] = _tool_completed_message(
+        name, arguments or {}, payload.get("result_count", 0)
+    )
     return payload
+
+
+def _tool_completed_message(
+    name: str, arguments: dict[str, Any], result_count: int
+) -> str:
+    noun = "resultado" if result_count == 1 else "resultados"
+    if name == "list_publications":
+        return f"Encontró {result_count} publicaciones dentro del periodo."
+    if name == "search_documents":
+        return f"Encontró {result_count} documentos candidatos."
+    if name == "search_evidence":
+        return f"Encontró {result_count} pasajes candidatos para revisar."
+    if name == "get_document_outline":
+        return f"Revisó la estructura del documento {arguments.get('document_id', '')}.".replace(
+            "  ", " "
+        )
+    if name == "read_chunks":
+        return f"Leyó {result_count} pasajes que ahora pueden sostener citas."
+    return f"La consulta devolvió {result_count} {noun}."

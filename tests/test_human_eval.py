@@ -11,7 +11,7 @@ from pathlib import Path
 from starlette.testclient import TestClient
 
 from human_eval.agent_executor import _public_result
-from human_eval.app import WebSettings, create_app
+from human_eval.app import WebSettings, _progress_timeline, create_app
 from human_eval.contracts import ContractError, FeedbackRequest, RunRequest
 from human_eval.service import (
     ActiveRunError,
@@ -48,9 +48,17 @@ class FakeExecutor:
                 "tool_completed",
                 {
                     "message": "La consulta terminó.",
+                    "why": "Sólo los chunks leídos pueden sostener citas.",
                     "tool": "read_chunks",
                     "ok": True,
-                    "chunks": [{"chunk_id": 123, "document_id": 45}],
+                    "chunks": [
+                        {
+                            "chunk_id": 123,
+                            "document_id": 45,
+                            "path": "2026/documento.md",
+                            "excerpt": "Pasaje verificable.",
+                        }
+                    ],
                 },
             )
         return {
@@ -456,6 +464,36 @@ class AirAppTests(unittest.TestCase):
             feedback[0]["problem_types"],
             ["missing_evidence", "incomplete_coverage"],
         )
+
+    def test_progress_timeline_shows_decisions_and_expandable_chunks(self):
+        rendered = _progress_timeline(
+            [
+                {
+                    "sequence": 1,
+                    "event_type": "tool_completed",
+                    "created_at": "2026-08-18T00:00:00Z",
+                    "payload": {
+                        "message": "Leyó un pasaje.",
+                        "why": "Puede sostener una cita.",
+                        "chunks": [
+                            {
+                                "chunk_id": 123,
+                                "document_id": 45,
+                                "path": "2026/documento.md",
+                                "heading_path": ["Acuerdo", "Artículo 2"],
+                                "excerpt": "Texto <verificable>.",
+                            }
+                        ],
+                    },
+                }
+            ]
+        )
+        self.assertIn("Puede sostener una cita.", rendered)
+        self.assertIn('class="chunk-link"', rendered)
+        self.assertIn("Chunk 123 · documento 45", rendered)
+        self.assertIn("Acuerdo › Artículo 2", rendered)
+        self.assertIn("Texto &lt;verificable&gt;.", rendered)
+        self.assertNotIn("Ver datos públicos", rendered)
 
     def test_authentication_session_and_csrf_are_enforced(self):
         anonymous = self.client.get("/", follow_redirects=False)

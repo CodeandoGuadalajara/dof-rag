@@ -60,6 +60,14 @@ PROBLEM_LABELS = {
     "hard_to_understand": "Difícil de entender",
     "other": "Otro",
 }
+PROGRESS_LABELS = {
+    "agent_started": "Inicio",
+    "model_turn_started": "Análisis",
+    "tool_started": "Siguiente acción",
+    "tool_completed": "Hallazgo",
+    "answer_revision_requested": "Revisión",
+    "verification_completed": "Verificación",
+}
 
 
 @dataclass(frozen=True)
@@ -253,8 +261,19 @@ pre { background:#18201c; color:#e9eee9; border-radius:3px; max-height:28rem; ov
   box-shadow:0 0 0 1px var(--accent); content:""; height:.62rem; left:.08rem; position:absolute;
   top:1.16rem; width:.62rem; }
 .activity strong { display:block; }
-.activity details { border:0; padding:.25rem 0 0; }
-.activity pre { font-size:.78rem; margin:.4rem 0 0; max-height:14rem; }
+.activity-kind { color:var(--accent); display:block; font-size:.72rem; font-weight:800;
+  letter-spacing:.08em; text-transform:uppercase; }
+.decision-why { color:var(--muted); margin:.3rem 0 .55rem; }
+.document-chips { display:flex; flex-wrap:wrap; gap:.4rem; margin:.65rem 0 .15rem; }
+.document-chip { background:#edf2ec; border:1px solid #cbd8cc; border-radius:3px; color:var(--ink);
+  font-size:.8rem; padding:.28rem .48rem; }
+.chunk-links { display:grid; gap:.45rem; margin:.65rem 0 .15rem; }
+.activity .chunk-link { background:#f5f8f3; border:1px solid #cbd8cc; border-radius:3px; padding:0; }
+.activity .chunk-link summary { color:var(--accent-dark); padding:.55rem .65rem; text-decoration:underline;
+  text-decoration-thickness:1px; text-underline-offset:3px; }
+.chunk-content { border-top:1px solid #d9e2da; padding:.15rem .65rem .65rem; }
+.chunk-content p { margin:.45rem 0 0; white-space:pre-wrap; }
+.activity .citation-tags { margin:.55rem 0 0; }
 @keyframes pulse { 50% { opacity:.35; transform:scale(.8); } }
 footer { border-top:1px solid var(--line); color:var(--muted); font-size:.82rem; margin-top:3rem;
   padding-top:1.25rem; }
@@ -265,6 +284,12 @@ footer { border-top:1px solid var(--line); color:var(--muted); font-size:.82rem;
 
 STREAM_SCRIPT = """
 (() => {
+  const labels = {
+    agent_started: 'Inicio', model_turn_started: 'Análisis', tool_started: 'Siguiente acción',
+    tool_completed: 'Hallazgo', answer_revision_requested: 'Revisión',
+    verification_completed: 'Verificación'
+  };
+
   const replaceWithStatus = async (node) => {
     const url = node.dataset.statusUrl;
     if (!url) return false;
@@ -288,20 +313,75 @@ STREAM_SCRIPT = """
     list.querySelector('[data-empty]')?.remove();
     const item = document.createElement('li');
     item.dataset.sequence = event.sequence;
+    const kind = document.createElement('span');
+    kind.className = 'activity-kind';
+    kind.textContent = labels[event.event_type] || 'Actividad';
+    item.appendChild(kind);
     const title = document.createElement('strong');
     title.textContent = event.payload?.message || 'El agente registró actividad.';
     item.appendChild(title);
+    if (event.payload?.why) {
+      const why = document.createElement('p');
+      why.className = 'decision-why';
+      why.textContent = event.payload.why;
+      item.appendChild(why);
+    }
     const meta = document.createElement('span');
     meta.className = 'meta';
-    meta.textContent = `${event.event_type} · ${event.created_at}`;
+    meta.textContent = event.created_at;
     item.appendChild(meta);
-    const details = document.createElement('details');
-    const summary = document.createElement('summary');
-    summary.textContent = 'Ver datos públicos';
-    const pre = document.createElement('pre');
-    pre.textContent = JSON.stringify(event.payload || {}, null, 2);
-    details.append(summary, pre);
-    item.appendChild(details);
+    if (event.payload?.documents?.length) {
+      const documents = document.createElement('div');
+      documents.className = 'document-chips';
+      event.payload.documents.forEach(documentItem => {
+        const chip = document.createElement('span');
+        chip.className = 'document-chip';
+        const name = documentItem.title || documentItem.path || `Documento ${documentItem.document_id}`;
+        chip.textContent = documentItem.publication_date ? `${name} · ${documentItem.publication_date}` : name;
+        documents.appendChild(chip);
+      });
+      item.appendChild(documents);
+    }
+    if (event.payload?.chunks?.length) {
+      const chunks = document.createElement('div');
+      chunks.className = 'chunk-links';
+      event.payload.chunks.forEach(chunk => {
+        const details = document.createElement('details');
+        details.className = 'chunk-link';
+        details.dataset.chunkId = chunk.chunk_id;
+        const summary = document.createElement('summary');
+        const heading = Array.isArray(chunk.heading_path) && chunk.heading_path.length
+          ? ` · ${chunk.heading_path.join(' › ')}` : '';
+        summary.textContent = `Chunk ${chunk.chunk_id} · documento ${chunk.document_id}${heading}`;
+        const content = document.createElement('div');
+        content.className = 'chunk-content';
+        const location = document.createElement('span');
+        location.className = 'meta';
+        location.textContent = chunk.path || 'Ruta no disponible';
+        content.appendChild(location);
+        const excerpt = chunk.excerpt || chunk.snippet;
+        if (excerpt) {
+          const text = document.createElement('p');
+          text.textContent = `${excerpt}${chunk.excerpt_truncated || chunk.snippet_truncated ? '…' : ''}`;
+          content.appendChild(text);
+        }
+        details.append(summary, content);
+        chunks.appendChild(details);
+      });
+      item.appendChild(chunks);
+    }
+    if (event.payload?.citation_ids?.length) {
+      const citations = document.createElement('p');
+      citations.className = 'citation-tags';
+      event.payload.citation_ids.forEach(chunkId => {
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = `cita: chunk ${chunkId}`;
+        citations.appendChild(tag);
+        citations.appendChild(document.createTextNode(' '));
+      });
+      item.appendChild(citations);
+    }
     list.appendChild(item);
   };
 
@@ -439,6 +519,7 @@ data-stream-url="/runs/{_escape(run["run_id"])}/events"
 data-status-url="/runs/{_escape(run["run_id"])}/status"
 data-last-event-id="{_escape(last_event_id)}" aria-live="polite">
 <p class="eyebrow">{_escape(STATUS_LABELS[state])}</p><h2>La ejecución sigue en progreso</h2>
+<p>Registro público de decisiones: qué intenta localizar, por qué consulta cada fuente y qué evidencia encuentra.</p>
 <p class="stream-state meta" data-stream-state>Conectando al trabajo del agente…</p>
 {_progress_timeline(progress)}{meta}</section>"""
     if state == "failed":
@@ -516,15 +597,61 @@ data-last-event-id="{_escape(last_event_id)}" aria-live="polite">
 
 
 def _progress_timeline(progress: list[dict[str, Any]]) -> str:
-    items = "".join(
-        f"""<li data-sequence="{_escape(event["sequence"])}"><strong>{_escape(event.get("payload", {}).get("message", "Actividad del agente"))}</strong>
-<span class="meta">{_escape(event["event_type"])} · {_escape(event["created_at"])}</span>
-<details><summary>Ver datos públicos</summary><pre>{_escape(json.dumps(event.get("payload", {}), ensure_ascii=False, indent=2))}</pre></details></li>"""
-        for event in progress
-    )
+    items = "".join(_progress_event_html(event) for event in progress)
     if not items:
         items = '<li data-empty><span class="meta">Esperando la primera actividad…</span></li>'
     return f'<ol class="activity" data-progress-list>{items}</ol>'
+
+
+def _progress_event_html(event: dict[str, Any]) -> str:
+    payload = event.get("payload", {})
+    why = (
+        f'<p class="decision-why">{_escape(payload["why"])}</p>'
+        if payload.get("why")
+        else ""
+    )
+    documents = "".join(
+        _progress_document_html(document) for document in payload.get("documents", [])
+    )
+    document_html = (
+        f'<div class="document-chips">{documents}</div>' if documents else ""
+    )
+    chunks = "".join(_progress_chunk_html(chunk) for chunk in payload.get("chunks", []))
+    chunk_html = f'<div class="chunk-links">{chunks}</div>' if chunks else ""
+    citations = " ".join(
+        f'<span class="tag">cita: chunk {_escape(chunk_id)}</span>'
+        for chunk_id in payload.get("citation_ids", [])
+    )
+    citation_html = f'<p class="citation-tags">{citations}</p>' if citations else ""
+    return f"""<li data-sequence="{_escape(event["sequence"])}">
+<span class="activity-kind">{_escape(PROGRESS_LABELS.get(event["event_type"], "Actividad"))}</span>
+<strong>{_escape(payload.get("message", "Actividad del agente"))}</strong>{why}
+<span class="meta">{_escape(event["created_at"])}</span>{document_html}{chunk_html}{citation_html}</li>"""
+
+
+def _progress_document_html(document: dict[str, Any]) -> str:
+    label = document.get("title") or document.get("path")
+    if not label:
+        label = f"Documento {document.get('document_id')}"
+    date = (
+        f" · {_escape(document['publication_date'])}"
+        if document.get("publication_date")
+        else ""
+    )
+    return f'<span class="document-chip">{_escape(label)}{date}</span>'
+
+
+def _progress_chunk_html(chunk: dict[str, Any]) -> str:
+    heading = " › ".join(str(item) for item in chunk.get("heading_path") or [])
+    heading_suffix = f" · {_escape(heading)}" if heading else ""
+    excerpt = chunk.get("excerpt") or chunk.get("snippet") or ""
+    truncated = chunk.get("excerpt_truncated") or chunk.get("snippet_truncated")
+    excerpt_html = (
+        f"<p>{_escape(excerpt)}{'…' if truncated else ''}</p>" if excerpt else ""
+    )
+    return f"""<details class="chunk-link" data-chunk-id="{_escape(chunk.get("chunk_id"))}">
+<summary>Chunk {_escape(chunk.get("chunk_id"))} · documento {_escape(chunk.get("document_id"))}{heading_suffix}</summary>
+<div class="chunk-content"><span class="meta">{_escape(chunk.get("path") or "Ruta no disponible")}</span>{excerpt_html}</div></details>"""
 
 
 def _feedback_form(run_id: str, csrf_token: str) -> str:

@@ -145,10 +145,13 @@ La respuesta terminal se construye desde el resultado ya persistido, no
 volviendo a consultar un índice que pudo cambiar.
 
 Los tipos iniciales son `agent_started`, `model_turn_started`, `tool_started`,
-`tool_completed`, `answer_revision_requested` y `verification_completed`. Los
-payloads muestran argumentos validados, IDs y metadatos acotados; omiten texto
-de razonamiento, borradores del modelo y texto completo de chunks. El stream no
-es el trabajo del agente: puede cortarse y reconectarse sin afectar el worker.
+`tool_completed`, `answer_revision_requested` y `verification_completed`. La UI
+los convierte en un registro público de decisiones: objetivo del paso, motivo
+observable de la consulta, documentos encontrados y chunks enlazados. Los
+payloads muestran argumentos validados, IDs, metadatos y extractos acotados;
+omiten chain-of-thought, tokens de razonamiento privados y borradores del modelo.
+El stream no es el trabajo del agente: puede cortarse y reconectarse sin afectar
+el worker.
 
 El objeto lógico almacenado y presentado contiene:
 
@@ -265,9 +268,10 @@ aprobar cada candidato antes de incorporarlo a un dataset versionado.
   verificaciones, límites y tiempos que sean seguros para el evaluador.
 - No se muestra chain-of-thought, mensajes privados del proveedor, claves,
   cabeceras ni configuración de clientes.
-- Los eventos en vivo sólo incluyen acciones observables, resultados acotados,
-  IDs, metadatos y verificaciones; el texto completo de evidencia aparece en el
-  resultado terminal persistido.
+- Los eventos en vivo incluyen explicaciones breves de decisiones observables,
+  resultados acotados, IDs, metadatos, verificaciones y extractos limitados de
+  chunks. La UI los presenta como enlaces expandibles; el texto completo de la
+  evidencia aparece en el resultado terminal persistido.
 - `invalid_citations`, fallos de herramienta, `stop_reason` y cobertura faltante
   aparecen como advertencias visibles.
 - Una búsqueda no cuenta como evidencia; el pasaje leído sí.
