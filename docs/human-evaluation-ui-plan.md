@@ -153,6 +153,11 @@ omiten chain-of-thought, tokens de razonamiento privados y borradores del modelo
 El stream no es el trabajo del agente: puede cortarse y reconectarse sin afectar
 el worker.
 
+Al alcanzar un estado terminal, el registro no desaparece. La página final lo
+vuelve a construir desde `run_progress` dentro de “Proceso de investigación”,
+en una sección expandible con los mismos documentos y chunks. En ejecuciones
+fallidas se abre por defecto para facilitar el diagnóstico.
+
 El objeto lógico almacenado y presentado contiene:
 
 ```json
@@ -272,6 +277,8 @@ aprobar cada candidato antes de incorporarlo a un dataset versionado.
   resultados acotados, IDs, metadatos, verificaciones y extractos limitados de
   chunks. La UI los presenta como enlaces expandibles; el texto completo de la
   evidencia aparece en el resultado terminal persistido.
+- La vista terminal conserva el registro completo y permite expandirlo sin
+  volver a ejecutar búsquedas ni leer el índice actual.
 - `invalid_citations`, fallos de herramienta, `stop_reason` y cobertura faltante
   aparecen como advertencias visibles.
 - Una búsqueda no cuenta como evidencia; el pasaje leído sí.

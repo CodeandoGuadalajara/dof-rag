@@ -274,6 +274,11 @@ pre { background:#18201c; color:#e9eee9; border-radius:3px; max-height:28rem; ov
 .chunk-content { border-top:1px solid #d9e2da; padding:.15rem .65rem .65rem; }
 .chunk-content p { margin:.45rem 0 0; white-space:pre-wrap; }
 .activity .citation-tags { margin:.55rem 0 0; }
+.process-archive { border:1px solid var(--line); border-radius:3px; padding:.75rem 1rem; }
+.process-archive > summary { color:var(--accent-dark); font-family:Georgia,"Times New Roman",serif;
+  font-size:1.1rem; }
+.process-archive[open] > summary { margin-bottom:.5rem; }
+.process-note { color:var(--muted); font-size:.86rem; margin:.55rem 0 0; }
 @keyframes pulse { 50% { opacity:.35; transform:scale(.8); } }
 footer { border-top:1px solid var(--line); color:var(--muted); font-size:.82rem; margin-top:3rem;
   padding-top:1.25rem; }
@@ -526,7 +531,8 @@ data-last-event-id="{_escape(last_event_id)}" aria-live="polite">
         error = run.get("error", {})
         return f"""<section id="run-status" class="panel status" data-state="failed" aria-live="polite">
 <p class="eyebrow">Ejecución fallida</p><h2>{_escape(error.get("message", "No se pudo completar la consulta."))}</h2>
-<p class="meta">Código: {_escape(error.get("code", "internal_error"))}</p>{meta}</section>"""
+<p class="meta">Código: {_escape(error.get("code", "internal_error"))}</p>{meta}
+{_completed_process(run.get("progress", []), open_by_default=True)}</section>"""
 
     result = run["result"]
     answer = result.get("answer", {})
@@ -588,6 +594,9 @@ data-last-event-id="{_escape(last_event_id)}" aria-live="polite">
 <section class="panel status"><p class="eyebrow">Respuesta terminada</p><h2>Respuesta</h2>{warning_html}
 <div class="answer">{_escape(answer.get("text", ""))}</div><p><strong>Citas:</strong> {citation_links}</p>
 <p class="meta">Premisa: {_escape(answer.get("premise_status", "unknown"))} · {_escape(result.get("elapsed_ms"))} ms</p></section>
+<section class="panel"><h2>Proceso de investigación</h2>
+<p class="lede">El registro de decisiones y evidencia permanece disponible después de generar la respuesta.</p>
+{_completed_process(run.get("progress", []))}</section>
 <section class="panel"><h2>Evidencia verificable</h2><h3>Documentos consultados</h3>{documents}
 <h3 style="margin-top:1.5rem">Pasajes leídos</h3>{evidence}</section>
 <section class="panel"><h2>Transparencia de la ejecución</h2>
@@ -601,6 +610,20 @@ def _progress_timeline(progress: list[dict[str, Any]]) -> str:
     if not items:
         items = '<li data-empty><span class="meta">Esperando la primera actividad…</span></li>'
     return f'<ol class="activity" data-progress-list>{items}</ol>'
+
+
+def _completed_process(
+    progress: list[dict[str, Any]], *, open_by_default: bool = False
+) -> str:
+    if not progress:
+        return '<p class="meta">Esta ejecución no registró un proceso público.</p>'
+    count = len(progress)
+    label = "paso" if count == 1 else "pasos"
+    open_attribute = " open" if open_by_default else ""
+    return f"""<details class="process-archive"{open_attribute}>
+<summary>Ver {count} {label} del proceso</summary>
+<p class="process-note">Resumen público de decisiones observables; no contiene tokens privados de razonamiento.</p>
+{_progress_timeline(progress)}</details>"""
 
 
 def _progress_event_html(event: dict[str, Any]) -> str:
