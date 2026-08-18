@@ -88,6 +88,12 @@ no sustituyen una cola recuperable. `EvaluationService` responde rápido con un
 quedaron en cola. Una ejecución que estaba iniciada se marca fallida al
 reiniciar, porque no puede saberse si la llamada externa terminó.
 
+El MVP admite exactamente un proceso web y un worker. Dentro de ese proceso,
+un bloqueo de ciclo de vida hace atómica la decisión `has_active_run` +
+`create_run` para cada evaluador. Esa garantía no se extiende a varios procesos;
+escalar horizontalmente requerirá mover admisión y cola a una transacción o
+servicio compartido.
+
 ## Contrato HTTP v1
 
 El contrato público del MVP es de mismo origen. Las rutas HTML usan formularios
@@ -144,6 +150,11 @@ fragmento final. Si SSE no existe, conserva polling de estado como fallback.
 La respuesta terminal se construye desde el resultado ya persistido, no
 volviendo a consultar un índice que pudo cambiar.
 
+En esta implementación cada cliente SSE consulta SQLite cada 500 ms mientras
+la ejecución está activa. Es una decisión consciente para un piloto pequeño de
+un solo nodo; antes de ampliar concurrencia se debe sustituir por notificación
+desde el worker, aumentar el intervalo o introducir un broker.
+
 Los tipos iniciales son `agent_started`, `model_turn_started`, `tool_started`,
 `tool_completed`, `answer_revision_requested` y `verification_completed`. La UI
 los convierte en un registro público de decisiones: objetivo del paso, motivo
@@ -177,6 +188,7 @@ El objeto lógico almacenado y presentado contiene:
     "chunker_version": "...",
     "vector_available": false,
     "vector_index_version": null,
+    "vector_used": false,
     "provider": "openai-responses",
     "model": "...",
     "configuration": {
@@ -315,6 +327,9 @@ incompleta; continúa siendo evaluable.
   `Secure` (`DOF_SECURE_COOKIE=true`) detrás de HTTPS.
 - Toda escritura, incluido login, valida CSRF. Las páginas y JSON llevan
   `Cache-Control: no-store`, CSP, `nosniff` y política de referrer.
+- La CSP permite temporalmente estilos y scripts inline porque la página Air se
+  entrega desde un solo módulo. Es una relajación conocida del MVP; antes de una
+  exposición pública se deben extraer esos recursos o adoptar nonces.
 - `TrustedHostMiddleware` usa una lista explícita configurada para el host del
   túnel. La app no habilita CORS porque UI y backend comparten origen.
 - Los cuerpos tienen un límite inicial de 16 KiB; contratos validan longitud,
@@ -328,6 +343,9 @@ incompleta; continúa siendo evaluable.
 - El stream exige la misma sesión y propiedad, lleva `no-store`, se puede
   reanudar por secuencia y no habilita CORS.
 - Los logs usan `run_id` y no incluyen tokens ni cuerpos completos por defecto.
+- El comando integrado desactiva el access log de Uvicorn para no persistir IPs
+  de clientes. El túnel o proxy deberá aplicar la misma política, o declarar su
+  retención por separado.
 
 ## Despliegue previsto
 
@@ -355,6 +373,10 @@ agresivamente con la indexación en curso. Antes del piloto externo faltan el
 supervisor local, el túnel HTTPS y un procedimiento de backup de
 `var/human_evaluation.sqlite`; el corpus y los índices siguen siendo
 dependencias de solo lectura con su propio ciclo de respaldo.
+
+La procedencia separa `vector_available` (el artefacto existe en disco) de
+`vector_used` (participó en esa ejecución). El MVP léxico registra siempre
+`vector_used=false`, aunque haya un índice parcial o completo disponible.
 
 ## Higiene de reproducibilidad
 
@@ -424,6 +446,8 @@ dependencias de solo lectura con su propio ciclo de respaldo.
   de actualización antes de invitar evaluadores.
 - La cola y el rate limit son locales y se reinician con el proceso; son
   suficientes para un piloto de un nodo, no para varios procesos.
+- Falta incorporar una verificación mínima del MVP a GitHub Actions; se mantiene
+  como trabajo posterior para no mezclar infraestructura de CI con este PR.
 - Deben fijarse presupuesto por modelo, timeout efectivo y respuesta ante cuota
   agotada.
 - La huella del índice vectorial debe ser verificable antes de activar modo

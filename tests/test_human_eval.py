@@ -10,7 +10,11 @@ from pathlib import Path
 
 from starlette.testclient import TestClient
 
-from human_eval.agent_executor import _public_result
+from human_eval.agent_executor import (
+    AgentExecutorConfig,
+    AgentRunExecutor,
+    _public_result,
+)
 from human_eval.app import WebSettings, _progress_timeline, create_app
 from human_eval.contracts import ContractError, FeedbackRequest, RunRequest
 from human_eval.service import (
@@ -27,6 +31,7 @@ PROVENANCE = {
     "chunker_version": "chunks-v1",
     "vector_available": False,
     "vector_index_version": None,
+    "vector_used": False,
     "provider": "fake",
     "model": "fake-model",
     "configuration": {
@@ -207,6 +212,28 @@ class AgentResultTests(unittest.TestCase):
         self.assertFalse(result["coverage"]["complete"])
         self.assertIn("invalid_citations_removed", result["warnings"])
 
+    def test_provenance_distinguishes_available_from_used_vector_index(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            vector = root / "vectors.sqlite"
+            vector.touch()
+            executor = AgentRunExecutor(
+                AgentExecutorConfig(
+                    repo_root=root,
+                    provider="openai-responses",
+                    model="test-model",
+                    corpus_db=root / "missing-corpus.sqlite",
+                    chunks_db=root / "missing-chunks.sqlite",
+                    vec0_db=vector,
+                    retrieval_mode="lexical",
+                )
+            )
+
+            provenance = executor.provenance()
+
+        self.assertTrue(provenance["vector_available"])
+        self.assertFalse(provenance["vector_used"])
+
 
 class StoreTests(unittest.TestCase):
     def setUp(self):
@@ -338,6 +365,11 @@ class ServiceTests(unittest.TestCase):
                 ["agent_started", "tool_completed"],
             )
             self.assertEqual(finished["provenance"]["code_revision"], "abc123")
+            self.assertEqual(
+                finished["events_url"], f"/runs/{created['run_id']}/events"
+            )
+            self.assertNotIn("status_url", finished)
+            self.assertNotIn("feedback_url", finished)
             repeated = service.submit(
                 RunRequest("pregunta válida", client_request_id="request-1"),
                 evaluator_hash="evaluator",
@@ -367,6 +399,43 @@ class ServiceTests(unittest.TestCase):
         finally:
             executor.release.set()
             service.close()
+
+    def test_close_never_blocks_on_full_queue_or_writes_late_results(self):
+        executor = BlockingExecutor()
+        service = EvaluationService(
+            self.store,
+            executor,
+            executor.provenance,
+            queue_capacity=1,
+            shutdown_timeout=0.01,
+        )
+        service.start()
+        first = service.submit(RunRequest("primera"), evaluator_hash="one")
+        self.assertTrue(executor.started.wait(timeout=1))
+        second = service.submit(RunRequest("segunda"), evaluator_hash="two")
+
+        started = time.monotonic()
+        service.close()
+        service.close()
+        self.assertLess(time.monotonic() - started, 0.5)
+        executor.release.set()
+        service.worker.join(timeout=1)
+
+        self.assertEqual(service.public_run(first["run_id"])["status"], "running")
+        self.assertEqual(service.public_run(second["run_id"])["status"], "queued")
+
+        replacement = EvaluationService(
+            self.store, FakeExecutor(), lambda: dict(PROVENANCE)
+        )
+        replacement.start()
+        try:
+            recovered_first = service.public_run(first["run_id"])
+            recovered_second = wait_for_terminal(replacement, second["run_id"])
+            self.assertEqual(recovered_first["status"], "failed")
+            self.assertEqual(recovered_first["error"]["code"], "service_restarted")
+            self.assertEqual(recovered_second["status"], "succeeded")
+        finally:
+            replacement.close()
 
 
 class AirAppTests(unittest.TestCase):

@@ -616,6 +616,13 @@ class AgentToolsTests(unittest.TestCase):
         self.assertEqual(read_event["chunks"][0]["chunk_id"], 4)
         self.assertEqual(read_event["chunks"][0]["excerpt"], "evidencia")
         self.assertNotIn("text", read_event["chunks"][0])
+        outline_event = next(
+            payload
+            for event_type, payload in progress
+            if event_type == "tool_completed"
+            and payload["tool"] == "get_document_outline"
+        )
+        self.assertNotIn("chunks", outline_event)
         search_event = next(
             payload
             for event_type, payload in progress

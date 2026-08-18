@@ -1636,7 +1636,10 @@ def _public_tool_progress(
             for item in evidence[:30]
         ]
         payload["result_count"] = len(evidence)
-    chunks = data.get("chunks", [])
+    # An outline also contains entries named "chunks", but those are structural
+    # metadata, not passages the agent has read. Only read_chunks can promote
+    # text to public, expandable evidence.
+    chunks = data.get("chunks", []) if name == "read_chunks" else []
     if chunks:
         payload["chunks"] = [
             {

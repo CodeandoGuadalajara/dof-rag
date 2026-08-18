@@ -1018,7 +1018,9 @@ def main() -> int:
     )
     args = parser.parse_args()
     app, settings = build_default_app(args.repo_root)
-    uvicorn.run(app, host=settings.host, port=settings.port)
+    # Questions are stored deliberately, but client IP addresses are not part
+    # of the evaluation dataset. Keep Uvicorn's per-request access log off.
+    uvicorn.run(app, host=settings.host, port=settings.port, access_log=False)
     return 0
 
 

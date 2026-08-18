@@ -135,6 +135,9 @@ class AgentRunExecutor:
             "code_revision": revision,
             "code_dirty": dirty,
             **_read_index_versions(self.config),
+            # vector_available describes the on-disk asset; vector_used records
+            # whether this execution can actually query it.
+            "vector_used": False,
             "provider": self.config.provider,
             "model": self.config.model,
             "configuration": {
