@@ -1,3 +1,4 @@
+import json
 import unittest
 from types import SimpleNamespace
 
@@ -581,9 +582,13 @@ class AgentToolsTests(unittest.TestCase):
                 ),
             ]
         )
+        progress = []
         run = AgentRunner(backend, DofToolbox(FakeRetriever())).run(
             "pregunta",
             as_of="2026-01-01",
+            on_progress=lambda event_type, payload: progress.append(
+                (event_type, payload)
+            ),
         )
         self.assertEqual(run.answer.citations, [4])
         self.assertEqual(run.answer.invalid_citations, [999])
@@ -597,6 +602,33 @@ class AgentToolsTests(unittest.TestCase):
         self.assertEqual(
             [tool["name"] for tool in backend.calls[2]["tools"]], ["read_chunks"]
         )
+        self.assertEqual(progress[0][0], "agent_started")
+        self.assertIn("tool_started", [event_type for event_type, _ in progress])
+        self.assertIn("tool_completed", [event_type for event_type, _ in progress])
+        self.assertEqual(progress[-1][0], "verification_completed")
+        serialized = json.dumps(progress, ensure_ascii=False)
+        self.assertNotIn('"answer": "ok"', serialized)
+        read_event = next(
+            payload
+            for event_type, payload in progress
+            if event_type == "tool_completed" and payload["tool"] == "read_chunks"
+        )
+        self.assertEqual(read_event["chunks"][0]["chunk_id"], 4)
+        self.assertEqual(read_event["chunks"][0]["excerpt"], "evidencia")
+        self.assertNotIn("text", read_event["chunks"][0])
+        outline_event = next(
+            payload
+            for event_type, payload in progress
+            if event_type == "tool_completed"
+            and payload["tool"] == "get_document_outline"
+        )
+        self.assertNotIn("chunks", outline_event)
+        search_event = next(
+            payload
+            for event_type, payload in progress
+            if event_type == "tool_started" and payload["tool"] == "read_chunks"
+        )
+        self.assertIn("Sólo los chunks leídos", search_event["why"])
 
     def test_agent_does_not_mark_a_final_answer_without_reading_as_completed(self):
         backend = ScriptedBackend(

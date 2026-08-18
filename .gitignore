@@ -184,7 +184,20 @@ cython_debug/
 eval/cache/*.npy
 logs/
 
+# Local evaluation runs and ranked-list checkpoints. Curated datasets and
+# reports remain tracked outside these patterns; existing files are preserved.
+eval/cache/eval_v4_agent_*.json
+eval/cache/eval_v4_full_*.json
+eval/cache/eval_v4_ranked_*.jsonl
+eval/cache/full_corpus_hybrid_results.json
+eval/cache/full_corpus_vector_lists.jsonl
+eval/cache/*_queries_meta.json
+
+# Human-evaluation state is separate from corpus/index databases.
+var/*.sqlite*
+
 # PoC local artifacts
 poc/extensions/
 poc/data/*.sqlite*
 poc/data/*.db
+rag_poc/*.db*

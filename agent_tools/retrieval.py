@@ -344,11 +344,14 @@ class DofRetriever:
     ):
         self.corpus = connect(corpus_db)
         self.chunks = sqlite3.connect(str(chunks_db))
+        self.corpus.execute("PRAGMA query_only = ON")
+        self.chunks.execute("PRAGMA query_only = ON")
         self.vec0: sqlite3.Connection | None = None
         if vec0_db and Path(vec0_db).exists():
             self.vec0 = sqlite3.connect(str(vec0_db))
             self.vec0.enable_load_extension(True)
             sqlite_vec.load(self.vec0)
+            self.vec0.execute("PRAGMA query_only = ON")
         n_docs = self.corpus.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
         self.pruner = DfPruner(self.corpus, n_docs)
         self._header_cache: dict[int, DocumentHeader] = {}
