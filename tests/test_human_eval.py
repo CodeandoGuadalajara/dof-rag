@@ -18,7 +18,7 @@ from human_eval.agent_executor import (
     _public_result,
 )
 from human_eval.app import WebSettings, _progress_timeline, create_app
-from human_eval.auth import FakeAuthBackend
+from human_eval.auth import FakeAuthBackend, User
 from human_eval.contracts import ContractError, FeedbackRequest, RunRequest
 from human_eval.service import (
     ActiveRunError,
@@ -1219,6 +1219,27 @@ class LoginPageTests(AirAppTestCase):
         response = self.client.get("/login?next=/runs/abc", follow_redirects=False)
         self.assertEqual(response.status_code, 303)
         self.assertEqual(response.headers["location"], "/runs/abc")
+
+
+class ClerkScriptsTests(unittest.TestCase):
+    def test_sync_script_resets_reload_guard_when_states_match(self):
+        env = {
+            "CLERK_PUBLISHABLE_KEY": "pk_test_dummy",
+            "CLERK_SECRET_KEY": "sk_test_dummy",
+        }
+        with mock.patch.dict(os.environ, env):
+            import airclerk  # noqa: F401 — validates Clerk env at import
+
+            from human_eval.clerk_auth import clerk_page_scripts
+
+            anonymous = clerk_page_scripts(None)
+            signed_in = clerk_page_scripts(User(id="u1", role="user"))
+        # The one-shot reload guard must clear once states match again,
+        # otherwise only the first sign-in of a tab session ever resyncs.
+        self.assertIn("sessionStorage.removeItem", anonymous)
+        self.assertIn("serverHasUser = false", anonymous)
+        self.assertIn("serverHasUser = true", signed_in)
+        self.assertIn("pk_test_dummy", anonymous)
 
 
 class DailyQuotaTests(AirAppTestCase):
