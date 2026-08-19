@@ -16,6 +16,7 @@ from human_eval.agent_executor import (
     _public_result,
 )
 from human_eval.app import WebSettings, _progress_timeline, create_app
+from human_eval.auth import FakeAuthBackend
 from human_eval.contracts import ContractError, FeedbackRequest, RunRequest
 from human_eval.service import (
     ActiveRunError,
@@ -97,7 +98,7 @@ class BlockingExecutor(FakeExecutor):
 def wait_for_terminal(service: EvaluationService, run_id: str) -> dict:
     deadline = time.monotonic() + 3
     while time.monotonic() < deadline:
-        run = service.public_run(run_id)
+        run = service.public_run(run_id, admin=True)
         if run["status"] in {"succeeded", "failed"}:
             return run
         time.sleep(0.01)
@@ -248,7 +249,7 @@ class StoreTests(unittest.TestCase):
     def test_run_events_and_feedback_are_append_only(self):
         request = RunRequest("pregunta válida", required_hops=2)
         run, created = self.store.create_run(
-            request, evaluator_hash="evaluator", provenance=PROVENANCE
+            request, user_id="evaluator", provenance=PROVENANCE
         )
         self.assertTrue(created)
         self.store.append_event(run["run_id"], "started")
@@ -256,7 +257,7 @@ class StoreTests(unittest.TestCase):
         feedback = self.store.add_feedback(
             run["run_id"],
             FeedbackRequest("not_helpful", ("incorrect_answer",), "No coincide."),
-            evaluator_hash="evaluator",
+            user_id="evaluator",
         )
         finished = self.store.get_run(run["run_id"])
         self.assertEqual(finished["status"], "succeeded")
@@ -277,7 +278,7 @@ class StoreTests(unittest.TestCase):
     def test_progress_events_are_ordered_and_replayable(self):
         run, _ = self.store.create_run(
             RunRequest("pregunta válida"),
-            evaluator_hash="evaluator",
+            user_id="evaluator",
             provenance=PROVENANCE,
         )
         first = self.store.append_progress(
@@ -300,7 +301,7 @@ class StoreTests(unittest.TestCase):
     def test_schema_one_is_migrated_without_losing_runs(self):
         run, _ = self.store.create_run(
             RunRequest("pregunta conservada"),
-            evaluator_hash="evaluator",
+            user_id="evaluator",
             provenance=PROVENANCE,
         )
         with sqlite3.connect(self.path) as connection:
@@ -322,16 +323,88 @@ class StoreTests(unittest.TestCase):
             self.store.get_run(run["run_id"])["question"], "pregunta conservada"
         )
 
+    def test_schema_two_is_migrated_with_user_ids_and_publish_columns(self):
+        with sqlite3.connect(self.path) as connection:
+            connection.executescript(
+                """
+                DROP TABLE IF EXISTS schema_meta;
+                DROP TABLE IF EXISTS runs;
+                DROP TABLE IF EXISTS run_events;
+                DROP TABLE IF EXISTS run_progress;
+                DROP TABLE IF EXISTS feedback;
+                CREATE TABLE schema_meta (
+                    key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                INSERT INTO schema_meta VALUES ('schema_version', '2');
+                CREATE TABLE runs (
+                    run_id TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL,
+                    question TEXT NOT NULL,
+                    as_of TEXT,
+                    required_hops INTEGER NOT NULL,
+                    evaluator_hash TEXT NOT NULL,
+                    client_request_id TEXT,
+                    provenance_json TEXT NOT NULL,
+                    UNIQUE (evaluator_hash, client_request_id));
+                INSERT INTO runs VALUES ('run-1', '2026-08-01T00:00:00Z',
+                    'pregunta heredada', NULL, 1, 'tokenhash123', NULL, '{}');
+                CREATE TABLE run_events (
+                    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL REFERENCES runs(run_id),
+                    sequence INTEGER NOT NULL,
+                    event_type TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    UNIQUE (run_id, sequence));
+                INSERT INTO run_events(run_id, sequence, event_type, created_at,
+                    payload_json) VALUES ('run-1', 1, 'queued',
+                    '2026-08-01T00:00:00Z', '{}'),
+                    ('run-1', 2, 'succeeded', '2026-08-01T00:05:00Z',
+                    '{"answer": {}}');
+                CREATE TABLE feedback (
+                    feedback_id TEXT PRIMARY KEY,
+                    run_id TEXT NOT NULL REFERENCES runs(run_id),
+                    created_at TEXT NOT NULL,
+                    evaluator_hash TEXT NOT NULL,
+                    rating TEXT NOT NULL,
+                    problem_types_json TEXT NOT NULL,
+                    comment TEXT NOT NULL);
+                INSERT INTO feedback VALUES ('fb-1', 'run-1',
+                    '2026-08-01T01:00:00Z', 'tokenhash123', 'helpful', '[]', '');
+                """
+            )
+        self.store.initialize()
+        with sqlite3.connect(self.path) as connection:
+            run_columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(runs)")
+            }
+            feedback_columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(feedback)")
+            }
+            version = connection.execute(
+                "SELECT value FROM schema_meta WHERE key = 'schema_version'"
+            ).fetchone()[0]
+        self.assertEqual(version, SCHEMA_VERSION)
+        self.assertNotIn("evaluator_hash", run_columns)
+        self.assertNotIn("evaluator_hash", feedback_columns)
+        self.assertTrue({"user_id", "published_at", "published_by"} <= run_columns)
+        self.assertIn("user_id", feedback_columns)
+        run = self.store.get_run("run-1")
+        self.assertEqual(run["question"], "pregunta heredada")
+        self.assertIsNone(run["published_at"])
+        self.assertEqual(
+            self.store.feedback_for_run("run-1")[0]["user_id"], "tokenhash123"
+        )
+
     def test_client_request_id_is_idempotent_per_evaluator(self):
         request = RunRequest("pregunta válida", client_request_id="same-request")
         first, first_created = self.store.create_run(
-            request, evaluator_hash="one", provenance=PROVENANCE
+            request, user_id="one", provenance=PROVENANCE
         )
         second, second_created = self.store.create_run(
-            request, evaluator_hash="one", provenance=PROVENANCE
+            request, user_id="one", provenance=PROVENANCE
         )
         third, third_created = self.store.create_run(
-            request, evaluator_hash="two", provenance=PROVENANCE
+            request, user_id="two", provenance=PROVENANCE
         )
         self.assertTrue(first_created)
         self.assertFalse(second_created)
@@ -355,7 +428,7 @@ class ServiceTests(unittest.TestCase):
         try:
             created = service.submit(
                 RunRequest("pregunta válida", client_request_id="request-1"),
-                evaluator_hash="evaluator",
+                user_id="evaluator",
             )
             finished = wait_for_terminal(service, created["run_id"])
             self.assertEqual(finished["status"], "succeeded")
@@ -372,13 +445,13 @@ class ServiceTests(unittest.TestCase):
             self.assertNotIn("feedback_url", finished)
             repeated = service.submit(
                 RunRequest("pregunta válida", client_request_id="request-1"),
-                evaluator_hash="evaluator",
+                user_id="evaluator",
             )
             self.assertEqual(repeated["run_id"], created["run_id"])
             with self.assertRaises(IdempotencyConflictError):
                 service.submit(
                     RunRequest("otra pregunta", client_request_id="request-1"),
-                    evaluator_hash="evaluator",
+                    user_id="evaluator",
                 )
         finally:
             service.close()
@@ -388,12 +461,10 @@ class ServiceTests(unittest.TestCase):
         service = EvaluationService(self.store, executor, executor.provenance)
         service.start()
         try:
-            service.submit(RunRequest("primera pregunta"), evaluator_hash="evaluator")
+            service.submit(RunRequest("primera pregunta"), user_id="evaluator")
             self.assertTrue(executor.started.wait(timeout=1))
             with self.assertRaises(ActiveRunError):
-                service.submit(
-                    RunRequest("segunda pregunta"), evaluator_hash="evaluator"
-                )
+                service.submit(RunRequest("segunda pregunta"), user_id="evaluator")
             executor.release.set()
             service.queue.join()
         finally:
@@ -410,9 +481,9 @@ class ServiceTests(unittest.TestCase):
             shutdown_timeout=0.01,
         )
         service.start()
-        first = service.submit(RunRequest("primera"), evaluator_hash="one")
+        first = service.submit(RunRequest("primera"), user_id="one")
         self.assertTrue(executor.started.wait(timeout=1))
-        second = service.submit(RunRequest("segunda"), evaluator_hash="two")
+        second = service.submit(RunRequest("segunda"), user_id="two")
 
         started = time.monotonic()
         service.close()
@@ -421,15 +492,19 @@ class ServiceTests(unittest.TestCase):
         executor.release.set()
         service.worker.join(timeout=1)
 
-        self.assertEqual(service.public_run(first["run_id"])["status"], "running")
-        self.assertEqual(service.public_run(second["run_id"])["status"], "queued")
+        self.assertEqual(
+            service.public_run(first["run_id"], admin=True)["status"], "running"
+        )
+        self.assertEqual(
+            service.public_run(second["run_id"], admin=True)["status"], "queued"
+        )
 
         replacement = EvaluationService(
             self.store, FakeExecutor(), lambda: dict(PROVENANCE)
         )
         replacement.start()
         try:
-            recovered_first = service.public_run(first["run_id"])
+            recovered_first = service.public_run(first["run_id"], admin=True)
             recovered_second = wait_for_terminal(replacement, second["run_id"])
             self.assertEqual(recovered_first["status"], "failed")
             self.assertEqual(recovered_first["error"]["code"], "service_restarted")
@@ -438,21 +513,28 @@ class ServiceTests(unittest.TestCase):
             replacement.close()
 
 
-class AirAppTests(unittest.TestCase):
+class AirAppTestCase(unittest.TestCase):
+    daily_question_limit = 50
+
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.db_path = Path(self.tempdir.name) / "evaluation.sqlite"
         store = EvaluationStore(self.db_path)
         self.executor = FakeExecutor()
         self.service = EvaluationService(store, self.executor, self.executor.provenance)
-        settings = WebSettings(
+        self.settings = WebSettings(
             host="127.0.0.1",
             port=0,
             db_path=store.path,
-            evaluator_tokens=("secret-token", "other-token"),
             session_secret="test-session-secret-that-is-at-least-32-bytes",
+            daily_question_limit=self.daily_question_limit,
         )
-        self.app = create_app(self.service, settings, self.executor.provenance)
+        self.app = create_app(
+            self.service,
+            self.settings,
+            self.executor.provenance,
+            auth_backend=FakeAuthBackend(),
+        )
         self.client_context = TestClient(self.app)
         self.client = self.client_context.__enter__()
 
@@ -467,14 +549,19 @@ class AirAppTests(unittest.TestCase):
             raise AssertionError(f"missing hidden field {name}")
         return match.group(1)
 
-    def login(self, token: str = "secret-token"):
-        page = self.client.get("/login")
-        csrf = self.hidden(page, "csrf_token")
-        return self.client.post(
-            "/login",
-            data={"csrf_token": csrf, "token": token},
-            follow_redirects=False,
-        )
+    def as_user(self, user_id: str = "alice", *, admin: bool = False):
+        self.client.headers["x-eval-user"] = user_id
+        if admin:
+            self.client.headers["x-eval-role"] = "admin"
+        else:
+            self.client.headers.pop("x-eval-role", None)
+
+    def as_anonymous(self):
+        self.client.headers.pop("x-eval-user", None)
+        self.client.headers.pop("x-eval-role", None)
+
+    def csrf(self) -> str:
+        return self.hidden(self.client.get("/"), "csrf_token")
 
     def create_run(self, question: str = "pregunta desde Air") -> str:
         page = self.client.get("/")
@@ -489,11 +576,35 @@ class AirAppTests(unittest.TestCase):
             },
             follow_redirects=False,
         )
-        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.status_code, 303, response.text[:500])
         return response.headers["location"].split("/")[-1]
 
+    def submit_feedback(self, run_id: str, *, rating: str = "helpful"):
+        page = self.client.get(f"/runs/{run_id}")
+        return self.client.post(
+            f"/runs/{run_id}/feedback",
+            data={
+                "csrf_token": self.hidden(page, "csrf_token"),
+                "next": self.hidden(page, "next"),
+                "rating": rating,
+                "problem_types": [],
+                "comment": "",
+            },
+            follow_redirects=False,
+        )
+
+    def publish(self, run_id: str):
+        self.client.get("/")  # ensure a session csrf token exists
+        return self.client.post(
+            f"/admin/runs/{run_id}/publish",
+            data={"csrf_token": self.csrf(), "next": "/admin/queue"},
+            follow_redirects=False,
+        )
+
+
+class AirAppTests(AirAppTestCase):
     def test_login_create_poll_and_feedback(self):
-        self.assertEqual(self.login().status_code, 303)
+        self.as_user("alice")
         run_id = self.create_run()
         wait_for_terminal(self.service, run_id)
         page = self.client.get(f"/runs/{run_id}")
@@ -519,23 +630,11 @@ class AirAppTests(unittest.TestCase):
         )
         self.assertNotIn("id: 1\n", resumed.text)
         self.assertIn("id: 2\n", resumed.text)
-        response = self.client.post(
-            f"/runs/{run_id}/feedback",
-            data={
-                "csrf_token": self.hidden(page, "csrf_token"),
-                "rating": "partially_helpful",
-                "problem_types": ["missing_evidence", "incomplete_coverage"],
-                "comment": "Falta una fuente.",
-            },
-            follow_redirects=False,
-        )
+        response = self.submit_feedback(run_id, rating="partially_helpful")
         self.assertEqual(response.status_code, 303)
         feedback = self.service.store.feedback_for_run(run_id)
         self.assertEqual(feedback[0]["rating"], "partially_helpful")
-        self.assertEqual(
-            feedback[0]["problem_types"],
-            ["missing_evidence", "incomplete_coverage"],
-        )
+        self.assertEqual(feedback[0]["user_id"], "alice")
 
     def test_progress_timeline_shows_decisions_and_expandable_chunks(self):
         rendered = _progress_timeline(
@@ -567,12 +666,18 @@ class AirAppTests(unittest.TestCase):
         self.assertIn("Texto &lt;verificable&gt;.", rendered)
         self.assertNotIn("Ver datos públicos", rendered)
 
-    def test_authentication_session_and_csrf_are_enforced(self):
-        anonymous = self.client.get("/", follow_redirects=False)
-        self.assertEqual(anonymous.status_code, 303)
-        self.assertEqual(anonymous.headers["location"], "/login")
-        self.assertEqual(self.login("wrong-token").status_code, 401)
-        self.assertEqual(self.login().status_code, 303)
+    def test_anonymous_and_csrf_constraints(self):
+        anonymous = self.client.get("/")
+        self.assertEqual(anonymous.status_code, 200)
+        self.assertIn("Entrar o crear cuenta", anonymous.text)
+        response = self.client.post(
+            "/runs",
+            data={"question": "pregunta válida", "required_hops": "1"},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
+        self.assertTrue(response.headers["location"].startswith("/login"))
+        self.as_user("alice")
         rejected = self.client.post(
             "/runs",
             data={
@@ -584,22 +689,140 @@ class AirAppTests(unittest.TestCase):
         )
         self.assertEqual(rejected.status_code, 403)
 
-    def test_invitation_token_is_not_persisted_or_echoed_in_session(self):
-        response = self.login()
-        self.assertNotIn("secret-token", response.headers.get("set-cookie", ""))
-        run_id = self.create_run("pregunta privada persistida")
+    def test_anonymous_sees_only_published_answers(self):
+        self.as_user("alice")
+        run_id = self.create_run("pregunta aún privada")
         wait_for_terminal(self.service, run_id)
-        self.assertNotIn(b"secret-token", self.db_path.read_bytes())
+        self.as_anonymous()
+        redirect = self.client.get(f"/runs/{run_id}", follow_redirects=False)
+        self.assertEqual(redirect.status_code, 303)
+        self.assertEqual(self.client.get(f"/answers/{run_id}").status_code, 404)
+        self.assertNotIn("pregunta aún privada", self.client.get("/").text)
 
-    def test_evaluators_cannot_read_each_others_runs(self):
-        self.assertEqual(self.login().status_code, 303)
+        self.as_user("root", admin=True)
+        self.assertEqual(self.publish(run_id).status_code, 303)
+
+        self.as_anonymous()
+        home = self.client.get("/")
+        self.assertIn("pregunta aún privada", home.text)
+        page = self.client.get(f"/answers/{run_id}")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Respuesta: pregunta aún privada", page.text)
+        self.assertNotIn("Guardar evaluación", page.text)
+        stream = self.client.get(f"/runs/{run_id}/events")
+        self.assertEqual(stream.status_code, 401)
+
+    def test_users_cannot_read_each_others_private_runs(self):
+        self.as_user("alice")
         run_id = self.create_run("pregunta privada")
-        self.client.cookies.clear()
-        self.assertEqual(self.login("other-token").status_code, 303)
-        response = self.client.get(f"/runs/{run_id}")
-        self.assertEqual(response.status_code, 404)
+        self.as_user("bob")
+        redirected = self.client.get(f"/runs/{run_id}", follow_redirects=False)
+        self.assertEqual(redirected.status_code, 303)
+        self.assertEqual(redirected.headers["location"], f"/answers/{run_id}")
+        self.assertEqual(self.client.get(f"/answers/{run_id}").status_code, 404)
         stream = self.client.get(f"/runs/{run_id}/events")
         self.assertEqual(stream.status_code, 404)
+        self.as_user("root", admin=True)
+        self.assertEqual(self.client.get(f"/runs/{run_id}").status_code, 200)
+
+    def test_feedback_gate_blocks_until_own_answer_is_evaluated(self):
+        self.as_user("alice")
+        run_id = self.create_run("primera pregunta de alice")
+        wait_for_terminal(self.service, run_id)
+
+        home = self.client.get("/")
+        self.assertIn("Antes de hacer otra pregunta", home.text)
+        page = home
+        blocked = self.client.post(
+            "/runs",
+            data={
+                "csrf_token": self.hidden(page, "csrf_token"),
+                "client_request_id": "gate-test",
+                "question": "segunda pregunta de alice",
+                "required_hops": "1",
+            },
+        )
+        self.assertEqual(blocked.status_code, 422)
+        self.assertIn("Evalúa la respuesta de tu pregunta anterior", blocked.text)
+
+        self.assertEqual(self.submit_feedback(run_id).status_code, 303)
+        self.assertIn('name="question"', self.client.get("/").text)
+
+    def test_any_user_can_evaluate_a_published_answer(self):
+        self.as_user("alice")
+        run_id = self.create_run("respuesta que será pública")
+        wait_for_terminal(self.service, run_id)
+        self.as_user("root", admin=True)
+        self.assertEqual(self.publish(run_id).status_code, 303)
+
+        self.as_user("bob")
+        page = self.client.get(f"/answers/{run_id}")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Guardar evaluación", page.text)
+        response = self.client.post(
+            f"/runs/{run_id}/feedback",
+            data={
+                "csrf_token": self.hidden(page, "csrf_token"),
+                "next": self.hidden(page, "next"),
+                "rating": "helpful",
+                "problem_types": [],
+                "comment": "Clara y con fuentes.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(
+            response.headers["location"],
+            f"/answers/{run_id}?feedback=recorded",
+        )
+        feedback = self.service.store.feedback_for_run(run_id)
+        self.assertEqual(feedback[0]["user_id"], "bob")
+
+        # ...but not an unpublished one.
+        self.as_user("root", admin=True)
+        private_run = self.create_run("respuesta todavía privada")
+        wait_for_terminal(self.service, private_run)
+        self.as_user("bob")
+        page = self.client.get("/")
+        denied = self.client.post(
+            f"/runs/{private_run}/feedback",
+            data={
+                "csrf_token": self.hidden(page, "csrf_token"),
+                "next": f"/answers/{private_run}",
+                "rating": "helpful",
+            },
+        )
+        self.assertEqual(denied.status_code, 404)
+
+    def test_moderation_queue_requires_admin_and_unpublish_hides(self):
+        self.as_user("alice")
+        run_id = self.create_run("respuesta para moderar")
+        wait_for_terminal(self.service, run_id)
+
+        self.as_anonymous()
+        anon = self.client.get("/admin/queue", follow_redirects=False)
+        self.assertEqual(anon.status_code, 303)
+        self.as_user("bob")
+        self.assertEqual(self.client.get("/admin/queue").status_code, 403)
+
+        self.as_user("root", admin=True)
+        queue = self.client.get("/admin/queue")
+        self.assertEqual(queue.status_code, 200)
+        self.assertIn("respuesta para moderar", queue.text)
+        self.assertEqual(self.publish(run_id).status_code, 303)
+        self.as_anonymous()
+        self.assertEqual(self.client.get(f"/answers/{run_id}").status_code, 200)
+
+        self.as_user("root", admin=True)
+        self.client.get("/")
+        unpublished = self.client.post(
+            f"/admin/runs/{run_id}/unpublish",
+            data={"csrf_token": self.csrf(), "next": "/admin/queue"},
+            follow_redirects=False,
+        )
+        self.assertEqual(unpublished.status_code, 303)
+        self.as_anonymous()
+        self.assertEqual(self.client.get(f"/answers/{run_id}").status_code, 404)
 
     def test_health_and_capabilities_are_public_but_reveal_no_paths(self):
         health = self.client.get("/api/v1/health")
@@ -607,7 +830,37 @@ class AirAppTests(unittest.TestCase):
         capabilities = self.client.get("/api/v1/capabilities")
         self.assertEqual(capabilities.status_code, 200)
         self.assertEqual(capabilities.json()["retrieval_mode"], "lexical")
+        self.assertEqual(
+            capabilities.json()["limits"]["questions_per_day"],
+            self.daily_question_limit,
+        )
         self.assertNotIn(str(self.db_path), capabilities.text)
+
+
+class DailyQuotaTests(AirAppTestCase):
+    daily_question_limit = 1
+
+    def test_second_question_within_24h_is_rejected_but_admin_is_exempt(self):
+        self.as_user("alice")
+        run_id = self.create_run("única pregunta del día")
+        wait_for_terminal(self.service, run_id)
+        self.assertEqual(self.submit_feedback(run_id).status_code, 303)
+
+        blocked = self.client.post(
+            "/runs",
+            data={
+                "csrf_token": self.csrf(),
+                "client_request_id": "quota-test",
+                "question": "otra pregunta el mismo día",
+                "required_hops": "1",
+            },
+        )
+        self.assertEqual(blocked.status_code, 422)
+        self.assertIn("Ya enviaste tu pregunta", blocked.text)
+
+        self.as_user("root", admin=True)
+        admin_run = self.create_run("pregunta de administración")
+        self.assertTrue(admin_run)
 
 
 if __name__ == "__main__":

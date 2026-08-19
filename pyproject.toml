@@ -29,11 +29,11 @@ dependencies = [
     "matplotlib>=3.10",
     "zstandard>=0.25.0",
     "openai>=2.50.0",
-    # 0.36+ requires Python 3.13; the DOF pipeline remains on managed Python 3.12.
-    "air==0.35.0",
+    "air>=0.48.1",
     "itsdangerous>=2.2,<3",
     "python-multipart>=0.0.20,<1",
     "uvicorn>=0.35,<1",
+    "airclerk>=0.2.0",
 ]
 
 [tool.ruff]
