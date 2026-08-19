@@ -1,24 +1,36 @@
-"""Single-process Air application for controlled human evaluation of the DOF agent."""
+"""Single-process Air application for controlled human evaluation of the DOF agent.
+
+Authentication is provider-agnostic: ``create_app`` receives an
+``auth.AuthBackend`` and never imports a provider. Production wires Clerk via
+``build_default_app``; tests inject ``auth.FakeAuthBackend``.
+
+Visibility model:
+- anonymous visitors can read published answers (terminal, published runs);
+- signed-in users can ask questions (rolling 24h quota; each question,
+  including the first, requires reviewing a published answer first) and can
+  evaluate any published answer as well as their own;
+- admins (Clerk ``public_metadata.role == "admin"``) publish/unpublish
+  answers and are exempt from the quota and the feedback gate.
+"""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import hashlib
 import hmac
 import html
 import json
 import os
 import secrets
-import threading
 import time
 import uuid
-from collections import defaultdict, deque
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import air
 import uvicorn
@@ -34,12 +46,15 @@ from starlette.responses import (
 )
 
 from .agent_executor import AgentExecutorConfig, AgentRunExecutor
+from .auth import AuthBackend, User
 from .contracts import ContractError, FeedbackRequest, RunRequest
 from .service import (
     ActiveRunError,
     EvaluationService,
     IdempotencyConflictError,
     QueueFullError,
+    QuotaExceededError,
+    ReviewRequiredError,
 )
 from .store import SCHEMA_VERSION, EvaluationStore
 
@@ -75,25 +90,15 @@ class WebSettings:
     host: str
     port: int
     db_path: Path
-    evaluator_tokens: tuple[str, ...]
     session_secret: str
     secure_cookie: bool = False
     allowed_hosts: tuple[str, ...] = ("127.0.0.1", "localhost", "testserver")
     session_max_age: int = 12 * 60 * 60
-    rate_limit_per_hour: int = 10
+    daily_question_limit: int = 1
     queue_capacity: int = 20
 
     @classmethod
     def from_env(cls, repo_root: Path) -> "WebSettings":
-        tokens = tuple(
-            token.strip()
-            for token in os.environ.get("DOF_EVALUATOR_TOKENS", "").split(",")
-            if token.strip()
-        )
-        if not tokens:
-            raise ValueError(
-                "set DOF_EVALUATOR_TOKENS to one or more invitation tokens"
-            )
         session_secret = os.environ.get("DOF_SESSION_SECRET", "")
         if len(session_secret) < 32:
             raise ValueError("set DOF_SESSION_SECRET to at least 32 characters")
@@ -112,7 +117,6 @@ class WebSettings:
                     "DOF_HUMAN_EVAL_DB", repo_root / "var/human_evaluation.sqlite"
                 )
             ),
-            evaluator_tokens=tokens,
             session_secret=session_secret,
             secure_cookie=os.environ.get("DOF_SECURE_COOKIE", "false").lower()
             in {"1", "true", "yes"},
@@ -120,48 +124,9 @@ class WebSettings:
             session_max_age=int(
                 os.environ.get("DOF_SESSION_MAX_AGE", str(12 * 60 * 60))
             ),
-            rate_limit_per_hour=int(os.environ.get("DOF_RATE_LIMIT_PER_HOUR", "10")),
+            daily_question_limit=int(os.environ.get("DOF_DAILY_QUESTION_LIMIT", "1")),
             queue_capacity=int(os.environ.get("DOF_QUEUE_CAPACITY", "20")),
         )
-
-
-class TokenAuthenticator:
-    """Exchange an invitation token for its stable hash; never persist the token."""
-
-    def __init__(self, tokens: tuple[str, ...]):
-        self.hashes = tuple(self.hash_token(token) for token in tokens)
-
-    @staticmethod
-    def hash_token(token: str) -> str:
-        return hashlib.sha256(token.encode()).hexdigest()
-
-    def authenticate(self, token: str) -> str | None:
-        candidate = self.hash_token(token.strip())
-        return next(
-            (known for known in self.hashes if hmac.compare_digest(candidate, known)),
-            None,
-        )
-
-
-class HourlyRateLimiter:
-    def __init__(self, limit: int):
-        if limit < 1:
-            raise ValueError("rate limit must be positive")
-        self.limit = limit
-        self.events: dict[str, deque[float]] = defaultdict(deque)
-        self.lock = threading.Lock()
-
-    def consume(self, evaluator_hash: str) -> bool:
-        now = time.monotonic()
-        cutoff = now - 3600
-        with self.lock:
-            events = self.events[evaluator_hash]
-            while events and events[0] < cutoff:
-                events.popleft()
-            if len(events) >= self.limit:
-                return False
-            events.append(now)
-            return True
 
 
 def _escape(value: Any) -> str:
@@ -185,9 +150,14 @@ def _csrf_valid(request: Request, submitted: Any) -> bool:
     )
 
 
-def _evaluator(request: Request) -> str | None:
-    value = request.session.get("evaluator_hash")
-    return value if isinstance(value, str) and len(value) == 64 else None
+def _safe_next(raw: Any, default: str) -> str:
+    """Same-origin absolute paths only; blocks open redirects."""
+    if not isinstance(raw, str):
+        return default
+    raw = raw.strip()
+    if not raw.startswith("/") or raw.startswith("//"):
+        return default
+    return raw
 
 
 async def _form(request: Request) -> Any:
@@ -211,6 +181,7 @@ a { color:var(--accent-dark); }
 .shell { width:min(980px,calc(100% - 2rem)); margin:0 auto; padding:2rem 0 5rem; }
 header { display:flex; gap:1rem; align-items:flex-start; justify-content:space-between;
   border-bottom:1px solid var(--line); margin-bottom:2.5rem; padding-bottom:1.25rem; }
+header .session { align-items:center; display:flex; gap:.75rem; }
 .eyebrow { color:var(--accent); font-size:.76rem; font-weight:800; letter-spacing:.12em;
   margin:0 0 .35rem; text-transform:uppercase; }
 h1,h2,h3 { font-family:Georgia,"Times New Roman",serif; line-height:1.14; margin-top:0; }
@@ -283,7 +254,7 @@ pre { background:#18201c; color:#e9eee9; border-radius:3px; max-height:28rem; ov
 footer { border-top:1px solid var(--line); color:var(--muted); font-size:.82rem; margin-top:3rem;
   padding-top:1.25rem; }
 @media (max-width:680px) { .grid,.checks { grid-template-columns:1fr; } header { display:block; }
-  header form { margin-top:1rem; } }
+  header .session { margin-top:1rem; } }
 """
 
 
@@ -431,70 +402,100 @@ def _page(
     title: str,
     body: str,
     *,
-    authenticated: bool = False,
+    user: User | None = None,
     csrf_token: str = "",
+    page_scripts: Callable[[User | None], str] | None = None,
 ) -> str:
-    session_action = (
-        f'<form method="post" action="/logout"><input type="hidden" name="csrf_token" '
-        f'value="{_escape(csrf_token)}"><button class="secondary" type="submit">Salir</button></form>'
-        if authenticated
-        else ""
-    )
+    if user is not None:
+        session_area = (
+            f'<span class="meta">{_escape(user.email or user.id)}'
+            f"{' · admin' if user.is_admin else ''}</span>"
+            f'<form method="post" action="/logout"><input type="hidden" name="csrf_token" '
+            f'value="{_escape(csrf_token)}"><button class="secondary" type="submit">Salir</button></form>'
+        )
+    else:
+        session_area = '<a class="button secondary" href="/login">Entrar</a>'
+    scripts = page_scripts(user) if page_scripts is not None else ""
     return f"""<!doctype html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{_escape(title)} · Evaluación DOF</title><style>{STYLE}</style></head>
+<title>{_escape(title)} · Agente del DOF</title><style>{STYLE}</style></head>
 <body><main class="shell"><header><div><p class="eyebrow">Piloto de investigación</p>
 <a href="/" style="text-decoration:none;color:inherit"><strong>Agente del Diario Oficial</strong></a></div>
-{session_action}</header>{body}
-<footer>Las preguntas, respuestas, evidencias y evaluaciones se guardan para análisis. El feedback no modifica automáticamente v4.</footer>
-</main><script>{STREAM_SCRIPT}</script></body></html>"""
+<div class="session">{session_area}</div></header>{body}
+<footer>Las preguntas, respuestas, evidencias y evaluaciones se guardan para análisis y mejora del sistema.
+Las respuestas publicadas son públicas. Las cuentas se gestionan con Clerk; no registramos direcciones IP.</footer>
+</main><script>{STREAM_SCRIPT}</script>{scripts}</body></html>"""
 
 
-def _login_page(csrf_token: str, error: str | None = None) -> str:
-    error_html = (
-        f'<p class="warning" role="alert">{_escape(error)}</p>' if error else ""
-    )
-    body = f"""<section><p class="eyebrow">Acceso controlado</p><h1>Prueba el agente del DOF</h1>
-<p class="lede">Introduce el token de invitación. Se convertirá en una sesión firmada y no se guardará en la base de datos.</p></section>
-<section class="panel" style="max-width:34rem">{error_html}<form method="post" action="/login">
-<input type="hidden" name="csrf_token" value="{_escape(csrf_token)}">
-<div class="field"><label for="token">Token de invitación</label>
-<input id="token" name="token" type="password" required autocomplete="current-password"></div>
-<button type="submit">Entrar al piloto</button></form></section>"""
-    return _page("Acceso", body)
+def _run_list_items(
+    runs: list[dict[str, Any]], *, base: str, show_status: bool = True
+) -> str:
+    items = []
+    for run in runs:
+        status = (
+            f"{_escape(STATUS_LABELS.get(run['status'], run['status']))} · "
+            if show_status
+            else ""
+        )
+        date = run.get("published_at") or run.get("created_at") or ""
+        items.append(
+            f'<li><a href="{base}/{_escape(run["run_id"])}">{_escape(run["question"])}</a>'
+            f'<span class="meta">{status}{_escape(date)}</span></li>'
+        )
+    return "".join(items)
 
 
 def _home_page(
     request: Request,
-    runs: list[dict[str, Any]],
     *,
+    user: User | None,
+    published: list[dict[str, Any]],
+    my_runs: list[dict[str, Any]] | None = None,
+    needs_review: bool = False,
+    review_target: dict[str, Any] | None = None,
+    quota_reached: bool = False,
     error: str | None = None,
     values: dict[str, Any] | None = None,
+    page_scripts: Callable[[User | None], str] | None = None,
 ) -> str:
     values = values or {}
     csrf_token = _csrf(request)
     error_html = (
         f'<p class="warning" role="alert">{_escape(error)}</p>' if error else ""
     )
-    run_items = "".join(
-        f'<li><a href="/runs/{_escape(run["run_id"])}">{_escape(run["question"])}</a>'
-        f'<span class="meta">{_escape(STATUS_LABELS.get(run["status"], run["status"]))} · '
-        f"{_escape(run['created_at'])}</span></li>"
-        for run in runs
-    )
-    history = (
-        f'<section class="panel"><h2>Ejecuciones recientes</h2><ul class="run-list">{run_items}</ul></section>'
-        if run_items
-        else ""
-    )
-    hops = str(values.get("required_hops", "1"))
-    options = "".join(
-        f'<option value="{number}"{" selected" if hops == str(number) else ""}>{number}</option>'
-        for number in range(1, 6)
-    )
-    body = f"""<section><p class="eyebrow">Evaluación humana</p><h1>Pregunta, inspecciona, evalúa.</h1>
-<p class="lede">El agente usa hoy recuperación léxica completa. La página mostrará en vivo sus búsquedas, documentos, lecturas y verificaciones.</p></section>
-<section class="panel"><h2>Nueva pregunta</h2>{error_html}<form method="post" action="/runs">
+
+    if user is None:
+        ask_section = f"""<section class="panel"><h2>Participa</h2>{error_html}
+<p class="lede">Crea una cuenta, evalúa una respuesta publicada y desbloquea tu primera
+pregunta. Cada pregunta nueva pide una evaluación más: tu participación es lo que
+mejora este piloto.</p>
+<p><a class="button" href="/login">Entrar o crear cuenta</a></p></section>"""
+    elif needs_review:
+        first = not my_runs
+        if review_target is not None:
+            base = "/answers" if review_target["published"] else "/runs"
+            review_html = (
+                f'<p class="warning">Antes de hacer {"tu primera" if first else "otra"} '
+                "pregunta, evalúa una respuesta, por ejemplo: "
+                f'<a href="{base}/{_escape(review_target["run_id"])}">'
+                f"{_escape(review_target['question'])}</a></p>"
+            )
+        else:
+            review_html = (
+                '<p class="warning">Aún no hay respuestas publicadas disponibles '
+                "para evaluar. Vuelve a intentarlo pronto.</p>"
+            )
+        ask_section = f'<section class="panel"><h2>Nueva pregunta</h2>{error_html}{review_html}</section>'
+    elif quota_reached:
+        ask_section = f"""<section class="panel"><h2>Nueva pregunta</h2>{error_html}
+<p class="notice">Ya enviaste tu pregunta de este periodo de 24 horas. Vuelve a intentar más tarde.</p></section>"""
+    else:
+        hops = str(values.get("required_hops", "1"))
+        options = "".join(
+            f'<option value="{number}"{" selected" if hops == str(number) else ""}>{number}</option>'
+            for number in range(1, 6)
+        )
+        ask_section = f"""<section class="panel"><h2>Nueva pregunta</h2>{error_html}<form method="post" action="/runs">
 <input type="hidden" name="csrf_token" value="{_escape(csrf_token)}">
 <input type="hidden" name="client_request_id" value="{_escape(values.get("client_request_id") or uuid.uuid4())}">
 <div class="grid"><div class="field full"><label for="question">Pregunta</label>
@@ -504,8 +505,32 @@ def _home_page(
 <div class="field"><label for="required_hops">Documentos mínimos</label>
 <select id="required_hops" name="required_hops">{options}</select>
 <span class="meta">Usa 2 o más para comparaciones que requieran fuentes distintas.</span></div></div>
-<button type="submit">Iniciar consulta</button></form></section>{history}"""
-    return _page("Nueva pregunta", body, authenticated=True, csrf_token=csrf_token)
+<button type="submit">Iniciar consulta</button></form></section>"""
+
+    my_runs_html = ""
+    if user is not None and my_runs:
+        items = _run_list_items(my_runs, base="/runs")
+        my_runs_html = f'<section class="panel"><h2>Mis preguntas</h2><ul class="run-list">{items}</ul></section>'
+
+    if published:
+        published_html = f"""<section class="panel"><h2>Respuestas publicadas</h2>
+<ul class="run-list">{_run_list_items(published, base="/answers", show_status=False)}</ul></section>"""
+    else:
+        published_html = """<section class="panel"><h2>Respuestas publicadas</h2>
+<p class="meta">Aún no hay respuestas publicadas. Las primeras aparecerán aquí en cuanto
+el equipo editorial las revise.</p></section>"""
+
+    body = f"""<section><p class="eyebrow">Evaluación humana</p><h1>Pregunta, inspecciona, evalúa.</h1>
+<p class="lede">El agente usa hoy recuperación léxica completa. Las respuestas revisadas por el equipo
+editorial son públicas; cualquier persona con cuenta puede evaluarlas.</p></section>
+{ask_section}{my_runs_html}{published_html}"""
+    return _page(
+        "Preguntas al DOF",
+        body,
+        user=user,
+        csrf_token=csrf_token,
+        page_scripts=page_scripts,
+    )
 
 
 def _status_fragment(
@@ -513,6 +538,7 @@ def _status_fragment(
     *,
     csrf_token: str = "",
     feedback_recorded: bool = False,
+    feedback_next: str = "",
 ) -> str:
     state = run["status"]
     meta = f'<p class="meta">Creada: {_escape(run["created_at"])}</p>'
@@ -585,11 +611,15 @@ data-last-event-id="{_escape(last_event_id)}" aria-live="polite">
         json.dumps(run.get("provenance", {}), ensure_ascii=False, indent=2)
     )
     saved = (
-        '<p class="notice" role="status">Feedback guardado. Gracias.</p>'
+        '<p class="notice" role="status">Evaluación guardada. Gracias.</p>'
         if feedback_recorded
         else ""
     )
-    feedback = _feedback_form(run["run_id"], csrf_token) if csrf_token else ""
+    feedback = (
+        _feedback_form(run["run_id"], csrf_token, next_url=feedback_next)
+        if csrf_token
+        else ""
+    )
     return f"""<section id="run-status" data-state="succeeded" aria-live="polite">
 <section class="panel status"><p class="eyebrow">Respuesta terminada</p><h2>Respuesta</h2>{warning_html}
 <div class="answer">{_escape(answer.get("text", ""))}</div><p><strong>Citas:</strong> {citation_links}</p>
@@ -677,15 +707,17 @@ def _progress_chunk_html(chunk: dict[str, Any]) -> str:
 <div class="chunk-content"><span class="meta">{_escape(chunk.get("path") or "Ruta no disponible")}</span>{excerpt_html}</div></details>"""
 
 
-def _feedback_form(run_id: str, csrf_token: str) -> str:
+def _feedback_form(run_id: str, csrf_token: str, *, next_url: str) -> str:
     checks = "".join(
         f'<label class="check"><input type="checkbox" name="problem_types" value="{key}"> {_escape(label)}</label>'
         for key, label in PROBLEM_LABELS.items()
     )
     return f"""<section class="panel"><h2>Evalúa la respuesta</h2>
-<p class="lede">Tu evaluación se guarda como un registro nuevo. No cambia esta respuesta ni el conjunto v4.</p>
+<p class="lede">Tu evaluación se guarda como un registro nuevo y queda asociada a tu cuenta.
+No cambia esta respuesta ni el conjunto v4.</p>
 <form method="post" action="/runs/{_escape(run_id)}/feedback">
 <input type="hidden" name="csrf_token" value="{_escape(csrf_token)}">
+<input type="hidden" name="next" value="{_escape(next_url)}">
 <div class="field"><label for="rating">Evaluación general</label><select id="rating" name="rating" required>
 <option value="helpful">Útil</option><option value="partially_helpful">Parcialmente útil</option>
 <option value="not_helpful">No útil</option></select></div>
@@ -695,12 +727,79 @@ def _feedback_form(run_id: str, csrf_token: str) -> str:
 <button type="submit">Guardar evaluación</button></form></section>"""
 
 
+def _admin_panel(run: dict[str, Any], csrf_token: str) -> str:
+    run_id = _escape(run["run_id"])
+    published_at = run.get("published_at")
+    next_url = _escape(f"/runs/{run['run_id']}")
+    if published_at:
+        return f"""<section class="panel"><h2>Moderación</h2>
+<p class="meta">Publicada {_escape(published_at)} por {_escape(run.get("published_by") or "admin")}.</p>
+<form method="post" action="/admin/runs/{run_id}/unpublish">
+<input type="hidden" name="csrf_token" value="{_escape(csrf_token)}">
+<input type="hidden" name="next" value="{next_url}">
+<button class="secondary" type="submit">Retirar de la vista pública</button></form></section>"""
+    if run["status"] != "succeeded":
+        return ""
+    return f"""<section class="panel"><h2>Moderación</h2>
+<p class="lede">Publicar hace visible la pregunta y la respuesta para cualquier visitante.
+Revisa que la pregunta no contenga datos personales antes de publicar.</p>
+<form method="post" action="/admin/runs/{run_id}/publish">
+<input type="hidden" name="csrf_token" value="{_escape(csrf_token)}">
+<input type="hidden" name="next" value="{next_url}">
+<button type="submit">Publicar respuesta</button></form></section>"""
+
+
+def _moderation_page(
+    runs: list[dict[str, Any]],
+    *,
+    user: User,
+    csrf_token: str,
+    page_scripts: Callable[[User | None], str] | None = None,
+) -> str:
+    rows = []
+    for run in runs:
+        if run["published_at"]:
+            action = "unpublish"
+            label = "Retirar"
+            state = f"Publicada {_escape(run['published_at'])}"
+        else:
+            action = "publish"
+            label = "Publicar"
+            state = "Sin publicar"
+        rows.append(
+            f"""<li><a href="/runs/{_escape(run["run_id"])}">{_escape(run["question"])}</a>
+<span class="meta">{state} · {_escape(run["created_at"])}</span>
+<form method="post" action="/admin/runs/{_escape(run["run_id"])}/{action}" style="margin-top:.4rem">
+<input type="hidden" name="csrf_token" value="{_escape(csrf_token)}">
+<input type="hidden" name="next" value="/admin/queue">
+<button class="secondary" type="submit">{label}</button></form></li>"""
+        )
+    items = (
+        "".join(rows)
+        or '<li><span class="meta">No hay respuestas por moderar.</span></li>'
+    )
+    body = f"""<p><a href="/">← Portada</a></p><section><p class="eyebrow">Moderación</p>
+<h1>Cola de publicación</h1><p class="lede">Las respuestas publicadas son visibles para cualquier
+visitante. Revisa cada pregunta antes de publicarla: se vuelve contenido público.</p></section>
+<section class="panel"><ul class="run-list">{items}</ul></section>"""
+    return _page(
+        "Moderación",
+        body,
+        user=user,
+        csrf_token=csrf_token,
+        page_scripts=page_scripts,
+    )
+
+
 def create_app(
     service: EvaluationService,
     settings: WebSettings,
     provenance_factory: Callable[[], dict[str, Any]],
+    *,
+    auth_backend: AuthBackend,
+    page_scripts: Callable[[User | None], str] | None = None,
 ) -> Any:
-    """Build an Air app around an injected service so UI behavior is testable."""
+    """Build an Air app around injected service/auth so UI behavior is testable."""
 
     @asynccontextmanager
     async def lifespan(_: Any):
@@ -711,8 +810,6 @@ def create_app(
             service.close()
 
     app = air.Air(lifespan=lifespan)
-    authenticator = TokenAuthenticator(settings.evaluator_tokens)
-    limiter = HourlyRateLimiter(settings.rate_limit_per_hour)
     app.add_middleware(
         SessionMiddleware,
         secret_key=settings.session_secret,
@@ -734,70 +831,93 @@ def create_app(
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; "
             "form-action 'self'; style-src 'self' 'unsafe-inline'; "
-            "script-src 'self' 'unsafe-inline'"
+            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net "
+            "https://challenges.cloudflare.com https://*.clerk.accounts.dev; "
+            "connect-src 'self' https://*.clerk.accounts.dev https://clerk.com "
+            "https://*.clerk.com; img-src 'self' https://img.clerk.com data:; "
+            "frame-src https://challenges.cloudflare.com "
+            "https://*.clerk.accounts.dev; worker-src 'self' blob:"
         )
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response
 
-    def login_redirect() -> RedirectResponse:
-        return RedirectResponse("/login", status_code=303)
+    unset = object()
 
-    @app.get("/login", response_class=HTMLResponse)
-    async def login_page(request: Request) -> Response:
-        if _evaluator(request):
-            return RedirectResponse("/", status_code=303)
-        return HTMLResponse(_login_page(_csrf(request)))
+    async def current_user(request: Request) -> User | None:
+        value = getattr(request.state, "eval_user", unset)
+        if value is unset:
+            value = await auth_backend.get_user(request)
+            request.state.eval_user = value
+        return value
 
-    @app.post("/login", response_class=HTMLResponse)
-    async def login(request: Request) -> Response:
-        try:
-            form = await _form(request)
-        except ContractError as exc:
-            return HTMLResponse(_login_page(_csrf(request), str(exc)), status_code=400)
-        if not _csrf_valid(request, form.get("csrf_token")):
-            return HTMLResponse(
-                _login_page(_csrf(request), "La sesión del formulario venció."),
-                status_code=403,
-            )
-        evaluator_hash = authenticator.authenticate(str(form.get("token", "")))
-        if evaluator_hash is None:
-            return HTMLResponse(
-                _login_page(_csrf(request), "Token de invitación inválido."),
-                status_code=401,
-            )
-        request.session.clear()
-        request.session["evaluator_hash"] = evaluator_hash
-        request.session["csrf_token"] = secrets.token_urlsafe(32)
-        return RedirectResponse("/", status_code=303)
+    def login_redirect(request: Request) -> RedirectResponse:
+        path = request.url.path
+        if request.url.query:
+            path += f"?{request.url.query}"
+        return RedirectResponse(f"/login?next={quote(path, safe='')}", status_code=303)
 
-    @app.post("/logout")
-    async def logout(request: Request) -> Response:
-        form = await _form(request)
-        if not _csrf_valid(request, form.get("csrf_token")):
-            return HTMLResponse("Solicitud inválida.", status_code=403)
-        request.session.clear()
-        return RedirectResponse("/login", status_code=303)
+    def render_home(
+        request: Request,
+        user: User | None,
+        *,
+        error: str | None = None,
+        values: dict[str, Any] | None = None,
+        status_code: int = 200,
+    ) -> HTMLResponse:
+        published = service.store.published_runs()
+        my_runs = None
+        needs_review = False
+        review_target = None
+        quota_reached = False
+        if user is not None:
+            my_runs = service.store.runs_for_user(user.id)
+            if not user.is_admin:
+                needs_review = not service.store.has_review_since_last_submission(
+                    user.id
+                )
+                if needs_review:
+                    review_target = service.store.next_answer_to_review(user.id)
+                elif settings.daily_question_limit >= 1:
+                    cutoff = (
+                        (datetime.now(timezone.utc) - timedelta(hours=24))
+                        .isoformat()
+                        .replace("+00:00", "Z")
+                    )
+                    quota_reached = (
+                        service.store.count_submissions_since(user.id, cutoff)
+                        >= settings.daily_question_limit
+                    )
+        return HTMLResponse(
+            _home_page(
+                request,
+                user=user,
+                published=published,
+                my_runs=my_runs,
+                needs_review=needs_review,
+                review_target=review_target,
+                quota_reached=quota_reached,
+                error=error,
+                values=values,
+                page_scripts=page_scripts,
+            ),
+            status_code=status_code,
+        )
 
     @app.get("/", response_class=HTMLResponse)
     async def home(request: Request) -> Response:
-        evaluator_hash = _evaluator(request)
-        if evaluator_hash is None:
-            return login_redirect()
-        runs = service.store.runs_for_evaluator(evaluator_hash)
-        return HTMLResponse(_home_page(request, runs))
+        user = await current_user(request)
+        return render_home(request, user)
 
     @app.post("/runs", response_class=HTMLResponse)
     async def create_run(request: Request) -> Response:
-        evaluator_hash = _evaluator(request)
-        if evaluator_hash is None:
-            return login_redirect()
+        user = await current_user(request)
+        if user is None:
+            return login_redirect(request)
         try:
             form = await _form(request)
         except ContractError as exc:
-            return HTMLResponse(
-                _home_page(request, [], error=str(exc)), status_code=400
-            )
+            return render_home(request, user, error=str(exc), status_code=400)
         values = {
             "question": form.get("question", ""),
             "as_of": form.get("as_of", ""),
@@ -805,10 +925,11 @@ def create_app(
             "client_request_id": form.get("client_request_id", ""),
         }
         if not _csrf_valid(request, form.get("csrf_token")):
-            return HTMLResponse(
-                _home_page(
-                    request, [], error="La sesión del formulario venció.", values=values
-                ),
+            return render_home(
+                request,
+                user,
+                error="La sesión del formulario venció.",
+                values=values,
                 status_code=403,
             )
         try:
@@ -820,48 +941,107 @@ def create_app(
                     "client_request_id": values["client_request_id"],
                 }
             )
-            existing = service.idempotent_run(
-                run_request, evaluator_hash=evaluator_hash
+            run = service.submit(
+                run_request,
+                user_id=user.id,
+                admin=user.is_admin,
+                daily_question_limit=settings.daily_question_limit,
             )
-            if existing is not None:
-                run = existing
-            else:
-                if not limiter.consume(evaluator_hash):
-                    raise ContractError("Se alcanzó el límite de ejecuciones por hora.")
-                run = service.submit(run_request, evaluator_hash=evaluator_hash)
         except (ContractError, ValueError) as exc:
-            runs = service.store.runs_for_evaluator(evaluator_hash)
-            return HTMLResponse(
-                _home_page(request, runs, error=str(exc), values=values),
+            return render_home(
+                request, user, error=str(exc), values=values, status_code=422
+            )
+        except ReviewRequiredError:
+            return render_home(
+                request,
+                user,
+                error=(
+                    "Evalúa una respuesta publicada para desbloquear tu "
+                    "siguiente pregunta."
+                ),
+                values=values,
+                status_code=422,
+            )
+        except QuotaExceededError:
+            return render_home(
+                request,
+                user,
+                error="Ya enviaste tu pregunta de este periodo de 24 horas.",
+                values=values,
                 status_code=422,
             )
         except ActiveRunError:
-            message = "Ya existe una ejecución activa para este evaluador."
-            runs = service.store.runs_for_evaluator(evaluator_hash)
-            return HTMLResponse(
-                _home_page(request, runs, error=message, values=values), status_code=409
+            return render_home(
+                request,
+                user,
+                error="Ya existe una ejecución activa para tu cuenta.",
+                values=values,
+                status_code=409,
             )
         except IdempotencyConflictError:
-            message = "El identificador del formulario ya se usó para otra pregunta."
-            runs = service.store.runs_for_evaluator(evaluator_hash)
-            return HTMLResponse(
-                _home_page(request, runs, error=message, values=values), status_code=409
+            return render_home(
+                request,
+                user,
+                error="El identificador del formulario ya se usó para otra pregunta.",
+                values=values,
+                status_code=409,
             )
         except QueueFullError:
-            message = "La cola local está llena; intenta más tarde."
-            runs = service.store.runs_for_evaluator(evaluator_hash)
-            return HTMLResponse(
-                _home_page(request, runs, error=message, values=values), status_code=503
+            return render_home(
+                request,
+                user,
+                error="La cola local está llena; intenta más tarde.",
+                values=values,
+                status_code=503,
             )
         return RedirectResponse(f"/runs/{run['run_id']}", status_code=303)
 
+    @app.get("/answers/{run_id}", response_class=HTMLResponse)
+    async def answer_page(request: Request, run_id: str) -> Response:
+        user = await current_user(request)
+        try:
+            run = service.public_run(
+                run_id,
+                user_id=user.id if user else None,
+                admin=bool(user and user.is_admin),
+            )
+        except KeyError:
+            return HTMLResponse("Respuesta no encontrada.", status_code=404)
+        if run["status"] != "succeeded" or run.get("published_at") is None:
+            # Owners/admins looking at their private run belong on /runs/.
+            return RedirectResponse(f"/runs/{run_id}", status_code=303)
+        csrf_token = _csrf(request)
+        feedback_recorded = request.query_params.get("feedback") == "recorded"
+        fragment = _status_fragment(
+            run,
+            csrf_token=csrf_token if user is not None else "",
+            feedback_recorded=feedback_recorded,
+            feedback_next=f"/answers/{run_id}",
+        )
+        body = f"""<p><a href="/">← Respuestas publicadas</a></p><section><p class="eyebrow">Respuesta publicada</p>
+<h1>{_escape(run["question"])}</h1><p class="lede">Fecha de corte: {_escape(run.get("as_of") or "sin fecha")} ·
+Publicada: {_escape(run.get("published_at"))}</p></section>
+{fragment}"""
+        return HTMLResponse(
+            _page(
+                "Respuesta",
+                body,
+                user=user,
+                csrf_token=csrf_token,
+                page_scripts=page_scripts,
+            )
+        )
+
     @app.get("/runs/{run_id}", response_class=HTMLResponse)
     async def run_page(request: Request, run_id: str) -> Response:
-        evaluator_hash = _evaluator(request)
-        if evaluator_hash is None:
-            return login_redirect()
+        user = await current_user(request)
+        if user is None:
+            return RedirectResponse(f"/answers/{run_id}", status_code=303)
+        is_owner = service.store.run_belongs_to(run_id, user.id)
+        if not is_owner and not user.is_admin:
+            return RedirectResponse(f"/answers/{run_id}", status_code=303)
         try:
-            run = service.public_run(run_id, evaluator_hash=evaluator_hash)
+            run = service.public_run(run_id, user_id=user.id, admin=True)
         except KeyError:
             return HTMLResponse("Ejecución no encontrada.", status_code=404)
         csrf_token = _csrf(request)
@@ -870,31 +1050,47 @@ def create_app(
             run,
             csrf_token=csrf_token,
             feedback_recorded=feedback_recorded,
+            feedback_next=f"/runs/{run_id}",
         )
-        body = f"""<p><a href="/">← Nueva pregunta</a></p><section><p class="eyebrow">Ejecución</p>
+        admin_html = _admin_panel(run, csrf_token) if user.is_admin else ""
+        body = f"""<p><a href="/">← Portada</a></p><section><p class="eyebrow">Ejecución</p>
 <h1>{_escape(run["question"])}</h1><p class="lede">Fecha de corte: {_escape(run.get("as_of") or "sin fecha")} · Documentos mínimos: {_escape(run["required_hops"])}</p></section>
-{fragment}"""
+{fragment}{admin_html}"""
         return HTMLResponse(
-            _page("Ejecución", body, authenticated=True, csrf_token=csrf_token)
+            _page(
+                "Ejecución",
+                body,
+                user=user,
+                csrf_token=csrf_token,
+                page_scripts=page_scripts,
+            )
         )
 
     @app.get("/runs/{run_id}/status", response_class=HTMLResponse)
     async def run_status(request: Request, run_id: str) -> Response:
-        evaluator_hash = _evaluator(request)
-        if evaluator_hash is None:
+        user = await current_user(request)
+        if user is None:
             return HTMLResponse("Sesión requerida.", status_code=401)
+        if not user.is_admin and not service.store.run_belongs_to(run_id, user.id):
+            return HTMLResponse("Ejecución no encontrada.", status_code=404)
         try:
-            run = service.public_run(run_id, evaluator_hash=evaluator_hash)
+            run = service.public_run(run_id, user_id=user.id, admin=True)
         except KeyError:
             return HTMLResponse("Ejecución no encontrada.", status_code=404)
-        return HTMLResponse(_status_fragment(run, csrf_token=_csrf(request)))
+        return HTMLResponse(
+            _status_fragment(
+                run,
+                csrf_token=_csrf(request),
+                feedback_next=f"/runs/{run_id}",
+            )
+        )
 
     @app.get("/runs/{run_id}/events")
     async def run_events(request: Request, run_id: str) -> Response:
-        evaluator_hash = _evaluator(request)
-        if evaluator_hash is None:
+        user = await current_user(request)
+        if user is None:
             return Response("Sesión requerida.", status_code=401)
-        if not service.store.run_belongs_to(run_id, evaluator_hash):
+        if not user.is_admin and not service.store.run_belongs_to(run_id, user.id):
             return Response("Ejecución no encontrada.", status_code=404)
         try:
             after_values = [
@@ -923,7 +1119,7 @@ def create_app(
                     yield f"id: {cursor}\nevent: progress\ndata: {data}\n\n"
                     heartbeat_at = time.monotonic()
                 run = await asyncio.to_thread(
-                    service.public_run, run_id, evaluator_hash=evaluator_hash
+                    service.public_run, run_id, user_id=user.id, admin=True
                 )
                 if run["status"] not in ACTIVE_STATES:
                     data = json.dumps({"status": run["status"]}, separators=(",", ":"))
@@ -947,12 +1143,13 @@ def create_app(
 
     @app.post("/runs/{run_id}/feedback", response_class=HTMLResponse)
     async def submit_feedback(request: Request, run_id: str) -> Response:
-        evaluator_hash = _evaluator(request)
-        if evaluator_hash is None:
-            return login_redirect()
+        user = await current_user(request)
+        if user is None:
+            return login_redirect(request)
         form = await _form(request)
         if not _csrf_valid(request, form.get("csrf_token")):
             return HTMLResponse("La sesión del formulario venció.", status_code=403)
+        next_url = _safe_next(form.get("next"), f"/answers/{run_id}")
         try:
             feedback = FeedbackRequest.from_dict(
                 {
@@ -961,12 +1158,65 @@ def create_app(
                     "comment": form.get("comment", ""),
                 }
             )
-            service.submit_feedback(run_id, feedback, evaluator_hash=evaluator_hash)
+            service.submit_feedback(
+                run_id,
+                feedback,
+                user_id=user.id,
+                admin=user.is_admin,
+            )
         except ContractError as exc:
             return HTMLResponse(_escape(str(exc)), status_code=422)
         except KeyError:
             return HTMLResponse("Ejecución no encontrada.", status_code=404)
-        return RedirectResponse(f"/runs/{run_id}?feedback=recorded", status_code=303)
+        separator = "&" if "?" in next_url else "?"
+        return RedirectResponse(
+            f"{next_url}{separator}feedback=recorded", status_code=303
+        )
+
+    @app.get("/admin/queue", response_class=HTMLResponse)
+    async def moderation_queue(request: Request) -> Response:
+        user = await current_user(request)
+        if user is None:
+            return login_redirect(request)
+        if not user.is_admin:
+            return HTMLResponse("Solo administradores.", status_code=403)
+        return HTMLResponse(
+            _moderation_page(
+                service.store.runs_for_moderation(),
+                user=user,
+                csrf_token=_csrf(request),
+                page_scripts=page_scripts,
+            )
+        )
+
+    @app.post("/admin/runs/{run_id}/publish")
+    async def publish_run(request: Request, run_id: str) -> Response:
+        return await _moderate(request, run_id, publish=True)
+
+    @app.post("/admin/runs/{run_id}/unpublish")
+    async def unpublish_run(request: Request, run_id: str) -> Response:
+        return await _moderate(request, run_id, publish=False)
+
+    async def _moderate(request: Request, run_id: str, *, publish: bool) -> Response:
+        user = await current_user(request)
+        if user is None:
+            return login_redirect(request)
+        if not user.is_admin:
+            return HTMLResponse("Solo administradores.", status_code=403)
+        form = await _form(request)
+        if not _csrf_valid(request, form.get("csrf_token")):
+            return HTMLResponse("La sesión del formulario venció.", status_code=403)
+        try:
+            if publish:
+                service.publish(run_id, admin_id=user.id)
+            else:
+                service.unpublish(run_id)
+        except KeyError:
+            return HTMLResponse("Ejecución no encontrada.", status_code=404)
+        except ValueError as exc:
+            return HTMLResponse(_escape(str(exc)), status_code=422)
+        next_url = _safe_next(form.get("next"), "/admin/queue")
+        return RedirectResponse(next_url, status_code=303)
 
     @app.get("/api/v1/health")
     async def health() -> JSONResponse:
@@ -989,8 +1239,8 @@ def create_app(
                 "limits": {
                     "question_characters": 2000,
                     "required_hops": 5,
-                    "runs_per_hour": settings.rate_limit_per_hour,
-                    "active_runs_per_evaluator": 1,
+                    "questions_per_day": settings.daily_question_limit,
+                    "active_runs_per_user": 1,
                 },
             }
         )
@@ -1001,6 +1251,13 @@ def create_app(
 def build_default_app(repo_root: Path | None = None) -> tuple[Any, WebSettings]:
     root = (repo_root or Path(__file__).resolve().parent.parent).resolve()
     settings = WebSettings.from_env(root)
+    # Imported lazily: airclerk validates Clerk environment variables at
+    # import time, and tests/offline development use FakeAuthBackend instead.
+    import airclerk
+
+    from .clerk_auth import ClerkAuthBackend, clerk_page_scripts
+
+    auth_backend = ClerkAuthBackend(secret_key=airclerk.settings.CLERK_SECRET_KEY)
     executor = AgentRunExecutor(AgentExecutorConfig.from_env(root))
     service = EvaluationService(
         EvaluationStore(settings.db_path),
@@ -1008,7 +1265,15 @@ def build_default_app(repo_root: Path | None = None) -> tuple[Any, WebSettings]:
         executor.provenance,
         queue_capacity=settings.queue_capacity,
     )
-    return create_app(service, settings, executor.provenance), settings
+    app = create_app(
+        service,
+        settings,
+        executor.provenance,
+        auth_backend=auth_backend,
+        page_scripts=clerk_page_scripts,
+    )
+    app.include_router(airclerk.router)
+    return app, settings
 
 
 def main() -> int:

@@ -6,6 +6,7 @@ import logging
 import queue
 import threading
 from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
 
 from .contracts import FeedbackRequest, RunRequest
@@ -42,6 +43,14 @@ class ActiveRunError(RuntimeError):
 
 class IdempotencyConflictError(RuntimeError):
     pass
+
+
+class QuotaExceededError(RuntimeError):
+    """The user already submitted the maximum questions in the window."""
+
+
+class ReviewRequiredError(RuntimeError):
+    """The user must evaluate a published answer before asking a question."""
 
 
 class EvaluationService:
@@ -123,23 +132,46 @@ class EvaluationService:
                 "human-evaluation worker is still waiting for an in-flight call"
             )
 
-    def submit(self, request: RunRequest, *, evaluator_hash: str) -> dict[str, Any]:
+    def submit(
+        self,
+        request: RunRequest,
+        *,
+        user_id: str,
+        admin: bool = False,
+        daily_question_limit: int = 1,
+    ) -> dict[str, Any]:
         # This lock makes has_active_run + create_run atomic inside the one
         # process supported by the MVP. SQLite constraints still provide
         # idempotency, but multi-process admission would require a DB lock.
         with self._lifecycle_lock:
             if not self._started:
                 raise RuntimeError("service has not started")
-            existing = self.idempotent_run(request, evaluator_hash=evaluator_hash)
+            existing = self.idempotent_run(request, user_id=user_id)
             if existing is not None:
                 return existing
-            if self.store.has_active_run(evaluator_hash):
-                raise ActiveRunError("evaluator already has an active run")
+            if self.store.has_active_run(user_id):
+                raise ActiveRunError("user already has an active run")
+            if not admin:
+                if not self.store.has_review_since_last_submission(user_id):
+                    raise ReviewRequiredError(
+                        "a published-answer review is required before asking"
+                    )
+                if daily_question_limit >= 1:
+                    cutoff = (
+                        (datetime.now(timezone.utc) - timedelta(hours=24))
+                        .isoformat()
+                        .replace("+00:00", "Z")
+                    )
+                    if (
+                        self.store.count_submissions_since(user_id, cutoff)
+                        >= daily_question_limit
+                    ):
+                        raise QuotaExceededError("daily question limit reached")
             if self.queue.full():
                 raise QueueFullError("execution queue is full")
             run, created = self.store.create_run(
                 request,
-                evaluator_hash=evaluator_hash,
+                user_id=user_id,
                 provenance=self.provenance_factory(),
             )
             if created:
@@ -155,14 +187,12 @@ class EvaluationService:
                         },
                     )
                     raise QueueFullError("execution queue is full")
-            return self.public_run(run["run_id"], evaluator_hash=evaluator_hash)
+            return self.public_run(run["run_id"], user_id=user_id, admin=True)
 
     def idempotent_run(
-        self, request: RunRequest, *, evaluator_hash: str
+        self, request: RunRequest, *, user_id: str
     ) -> dict[str, Any] | None:
-        existing = self.store.find_idempotent_run(
-            evaluator_hash, request.client_request_id
-        )
+        existing = self.store.find_idempotent_run(user_id, request.client_request_id)
         if existing is None:
             return None
         if any(
@@ -175,29 +205,46 @@ class EvaluationService:
             raise IdempotencyConflictError(
                 "client_request_id was already used for a different request"
             )
-        return self.public_run(existing["run_id"], evaluator_hash=evaluator_hash)
+        return self.public_run(existing["run_id"], user_id=user_id, admin=True)
 
     def public_run(
-        self, run_id: str, *, evaluator_hash: str | None = None
+        self,
+        run_id: str,
+        *,
+        user_id: str | None = None,
+        admin: bool = False,
     ) -> dict[str, Any]:
-        if evaluator_hash is not None and not self.store.run_belongs_to(
-            run_id, evaluator_hash
-        ):
-            raise KeyError(run_id)
         run = self.store.get_run(run_id)
         if run is None:
             raise KeyError(run_id)
+        if not admin and not self._is_public(run):
+            if user_id is None or not self.store.run_belongs_to(run_id, user_id):
+                raise KeyError(run_id)
         run["events_url"] = f"/runs/{run_id}/events"
         return run
+
+    @staticmethod
+    def _is_public(run: dict[str, Any]) -> bool:
+        return run["status"] == "succeeded" and run.get("published_at") is not None
 
     def submit_feedback(
         self,
         run_id: str,
         request: FeedbackRequest,
         *,
-        evaluator_hash: str,
+        user_id: str,
+        admin: bool = False,
     ) -> dict[str, Any]:
-        return self.store.add_feedback(run_id, request, evaluator_hash=evaluator_hash)
+        # Any signed-in user may evaluate a published answer; unpublished
+        # runs stay private to their author (and admins).
+        self.public_run(run_id, user_id=user_id, admin=admin)
+        return self.store.add_feedback(run_id, request, user_id=user_id)
+
+    def publish(self, run_id: str, *, admin_id: str) -> None:
+        self.store.publish_run(run_id, publisher_id=admin_id)
+
+    def unpublish(self, run_id: str) -> None:
+        self.store.unpublish_run(run_id)
 
     def _worker_loop(self) -> None:
         while not self._closing.is_set():

@@ -315,6 +315,10 @@ incompleta; continúa siendo evaluable.
 
 ## Seguridad, autenticación y límites
 
+> Nota: la autenticación por tokens de invitación descrita aquí fue reemplazada
+> por cuentas Clerk; ver «Actualización: cuentas Clerk, publicación editorial
+> y evaluación abierta» más abajo.
+
 - Claves y configuración de proveedores existen solo en variables de entorno
   del backend.
 - `DOF_EVALUATOR_TOKENS` contiene invitaciones individuales. En login se
@@ -373,6 +377,59 @@ agresivamente con la indexación en curso. Antes del piloto externo faltan el
 supervisor local, el túnel HTTPS y un procedimiento de backup de
 `var/human_evaluation.sqlite`; el corpus y los índices siguen siendo
 dependencias de solo lectura con su propio ciclo de respaldo.
+
+## Actualización: cuentas Clerk, publicación editorial y evaluación abierta
+
+La versión con esquema v3 reemplaza los tokens de invitación y convierte el
+piloto en una app con tres audiencias:
+
+- **Visitantes anónimos** pueden leer todas las respuestas publicadas
+  (`/` y `/answers/{run_id}`). No ven ejecuciones en curso ni el stream SSE.
+- **Usuarios con cuenta** (Clerk, vía AirClerk) pueden preguntar y evaluar.
+  Límites: una pregunta por ventana móvil de 24 h
+  (`DOF_DAILY_QUESTION_LIMIT`, las ejecuciones cuentan aunque fallen) y una
+  puerta de participación: cada pregunta —incluida la primera— requiere haber
+  evaluado alguna respuesta (cualquiera publicada, o la propia aunque no se
+  haya publicado) desde la pregunta anterior. Cualquier usuario puede evaluar
+  cualquier respuesta publicada; cada evaluación guarda el `user_id` de quien
+  la emitió.
+- **Administradores** (`public_metadata.role == "admin"` en Clerk) publican o
+  retiran respuestas desde `/admin/queue` o desde la propia ejecución.
+  Publicar convierte la pregunta y la respuesta en contenido público, así que
+  la cola de moderación también sirve para revisar datos personales. Los
+  administradores están exentos de la cuota y de la puerta de evaluación.
+
+Detalles de implementación:
+
+- La app depende de un protocolo `AuthBackend` (`human_eval/auth.py`); Clerk
+  vive solo en `human_eval/clerk_auth.py`, importado de forma diferida porque
+  AirClerk valida sus variables de entorno al importarse. Las pruebas usan
+  `FakeAuthBackend` (encabezados `X-Eval-User`/`X-Eval-Role`) y no requieren
+  red ni credenciales.
+- La cookie de sesión firmada sobrevive solo para CSRF; la autenticación la
+  resuelve el JWT de Clerk. La CSP se amplió para jsDelivr y los dominios de
+  Clerk (`script-src`/`connect-src`/`frame-src`).
+- Migración v3: `runs.evaluator_hash` → `runs.user_id` (los hashes heredados
+  quedan huérfanos y ya no pueden iniciar sesión) y columnas nuevas
+  `published_at`/`published_by`.
+
+Configuración mínima actualizada:
+
+```bash
+export CLERK_PUBLISHABLE_KEY='pk_test_...'
+export CLERK_SECRET_KEY='sk_test_...'
+export DOF_SESSION_SECRET='valor-aleatorio-de-al-menos-32-caracteres'
+export DOF_ALLOWED_HOSTS='127.0.0.1,piloto.example'
+export DOF_SECURE_COOKIE='true'
+export DOF_DAILY_QUESTION_LIMIT='1'
+export DOF_AGENT_PROVIDER='openai-responses'
+export DOF_AGENT_MODEL='modelo-configurado-en-backend'
+export OPENAI_API_KEY='...'
+uv run python -m human_eval.app
+```
+
+Clerk no acepta `localhost` como dominio de desarrollo: usar `127.0.0.1` o el
+hostname del túnel.
 
 La procedencia separa `vector_available` (el artefacto existe en disco) de
 `vector_used` (participó en esa ejecución). El MVP léxico registra siempre
