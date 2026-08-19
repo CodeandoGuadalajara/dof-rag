@@ -22,6 +22,16 @@ from starlette.requests import Request
 from .auth import ROLE_ADMIN, ROLE_USER, User
 
 
+def _json_script_value(value: str) -> str:
+    """Serialize a value for a JavaScript string inside an HTML script tag."""
+    return (
+        json.dumps(value)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
+
+
 class ClerkAuthBackend:
     """Verify Clerk session JWTs and map Clerk users to local User records.
 
@@ -124,7 +134,7 @@ def clerk_login_scripts(next_url: str) -> str:
     """
     src = html.escape(airclerk.settings.CLERK_JS_SRC, quote=True)
     key = html.escape(airclerk.settings.CLERK_PUBLISHABLE_KEY, quote=True)
-    target = json.dumps(next_url)
+    target = _json_script_value(next_url)
     return (
         f'<script src="{src}" crossorigin="anonymous" '
         f'data-clerk-publishable-key="{key}"></script>'

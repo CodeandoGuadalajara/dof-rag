@@ -411,8 +411,14 @@ document.addEventListener('click', async (event) => {
   event.preventDefault();
   await window.Clerk.load();
   const url = new URL(link.href, window.location.origin);
-  const next = url.searchParams.get('next')
+  const candidate = url.searchParams.get('next')
     || (window.location.pathname + window.location.search);
+  const next = candidate.startsWith('/')
+    && !candidate.startsWith('//')
+    && !candidate.includes(String.fromCharCode(92))
+    && !/[\\u0000-\\u001f\\u007f]/.test(candidate)
+    ? candidate
+    : '/';
   window.Clerk.openSignIn({ redirectUrl: next });
 });
 """
@@ -818,6 +824,12 @@ def _sanitize_login_next(raw: str | None) -> str:
         return "/"
     raw = raw.strip()
     if not raw:
+        return "/"
+    # Browsers normalize network-path references and backslashes differently
+    # from urllib.parse, so reject those forms before parsing the URL.
+    if raw.startswith("//") or "\\" in raw:
+        return "/"
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in raw):
         return "/"
     parsed = urlparse(raw)
     if parsed.scheme or parsed.netloc or not parsed.path.startswith("/"):
