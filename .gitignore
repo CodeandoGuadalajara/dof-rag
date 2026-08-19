@@ -188,6 +188,9 @@ logs/
 # reports remain tracked outside these patterns; existing files are preserved.
 eval/cache/eval_v4_agent_*.json
 eval/cache/eval_v4_full_*.json
+# The final full-coverage comparison is deterministic (stores are static) and
+# small enough to keep under version control as the canonical record.
+!eval/cache/eval_v4_full_comparison.json
 eval/cache/eval_v4_ranked_*.jsonl
 eval/cache/full_corpus_vector_lists.jsonl
 eval/cache/*_queries_meta.json

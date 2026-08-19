@@ -426,12 +426,47 @@ def write_report(path: Path, results: dict[str, Any]) -> None:
     coverage = results["vector_coverage"]
     all_systems = results["all_questions"]["systems"]
     eligible_systems = results["eligible_questions"]["systems"]
+    full_coverage = coverage["fully_covered_questions"] == results["n_queries"]
     best_hybrid = max(
         (name for name in all_systems if name.startswith(("W", "RRF"))),
         key=lambda name: all_systems[name]["mrr_first_gold"],
     )
+    title = "# Eval v4: full BM25 vs vectors and hybrid"
+    all_questions_note = (
+        "This is the operational result against today's indexes. All questions "
+        "are fully vector-covered, so vector and hybrid scores are unbiased."
+        if full_coverage
+        else "This is the operational result against today's indexes. Vector and "
+        "hybrid scores are coverage-confounded because most gold documents have "
+        "not yet been embedded."
+    )
+    covered_subset_note = (
+        "All questions qualify, so this cut is identical to the full set."
+        if full_coverage
+        else f"Only {coverage['fully_covered_questions']} questions currently "
+        "qualify. This cut is fair to the vector leg but too small for a stable "
+        "model choice."
+    )
+    if full_coverage:
+        interpretation = [
+            "- Every v4 question is fully vector-covered; this is the final "
+            "full-corpus comparison, not a partial-index checkpoint.",
+            "- The eligible-question cut is identical to the all-question table "
+            "and is kept only for continuity with earlier partial runs.",
+        ]
+    else:
+        interpretation = [
+            "- BM25 is the only complete-index baseline in this run.",
+            "- The all-question vector score primarily measures current index "
+            "coverage, not the final embedding model's retrieval quality.",
+            "- The fully covered subset should be treated as a mechanical smoke "
+            "test; rerun the identical command after the vector build and vec0 "
+            "top-off complete.",
+            "- Preserve these outputs as the partial-index checkpoint and compare "
+            "the final run using the same frozen v4 questions and runner.",
+        ]
     lines = [
-        "# Eval v4: full BM25 vs partial vectors and hybrid",
+        title,
         "",
         f"Run date: {results['run_date']}",
         "",
@@ -452,16 +487,13 @@ def write_report(path: Path, results: dict[str, Any]) -> None:
         "",
         "## All 42 questions",
         "",
-        "This is the operational result against today's indexes. Vector and hybrid "
-        "scores are coverage-confounded because most gold documents have not yet "
-        "been embedded.",
+        all_questions_note,
         "",
         *report_table(all_systems),
         "",
         "## Fully covered subset",
         "",
-        f"Only {coverage['fully_covered_questions']} questions currently qualify. "
-        "This cut is fair to the vector leg but too small for a stable model choice.",
+        covered_subset_note,
         "",
         *report_table(eligible_systems),
         "",
@@ -500,13 +532,7 @@ def write_report(path: Path, results: dict[str, Any]) -> None:
         "",
         "## Interpretation",
         "",
-        "- BM25 is the only complete-index baseline in this run.",
-        "- The all-question vector score primarily measures current index coverage, "
-        "not the final embedding model's retrieval quality.",
-        "- The fully covered subset should be treated as a mechanical smoke test; "
-        "rerun the identical command after the vector build and vec0 top-off complete.",
-        "- Preserve these outputs as the partial-index checkpoint and compare the final "
-        "run using the same frozen v4 questions and runner.",
+        *interpretation,
         "",
         "## Reproduction",
         "",
