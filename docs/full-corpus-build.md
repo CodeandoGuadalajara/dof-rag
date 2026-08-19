@@ -105,13 +105,12 @@ binary-search variant of `_force_split` was tried and **reverted**: token
 counts are not monotone in prefix length (rare BPE merges), and seeding
 changed cut points in 7/799 docs.
 
-## Full embedding run: in progress
+## Full embedding run: done
 
 `dof_db/dof_vectors_jina_binary.sqlite`, all 6,730,304 chunks,
 `corpus_store/embed` (resumable by contiguous chunk_id ranges, config in
-`vector_meta`). Measured 5.36–5.77 chunks/s -> ETA ~13.5 days;
-interruptions are expected and safe — reruns resume after
-`MAX(chunk_id)`. Monitor `logs/full_embed.log`.
+`vector_meta`). Measured 5.36–5.77 chunks/s across ~11 days of wall time
+with two resumes; reruns resumed after `MAX(chunk_id)`.
 
 ## Doc-level FTS5: done
 
@@ -274,24 +273,47 @@ article_specific (0.208 vs 0.104); paraphrase is the one type where W0.5
 wins the total by not collapsing on any single type. Final eval will
 report both v2 and v3 cuts for historical comparability.
 
+**Full-corpus hybrid eval, final (2026-08-19)**: all 6,730,304 vectors
+live, no `--eligible-only`, both cuts (`eval_hybrid_full.py`, depth 50).
+Deterministic results + ranked vector lists committed under
+`eval/cache/` (`full_corpus_hybrid{,_v3}_results.json`,
+`full_corpus_hybrid{,_v3}_vector_lists.jsonl`).
+
+v2 (3,023 queries) — hybrid beats both legs, with α=0.5 on top:
+
+| system | MRR | R@1 | R@5 | R@10 |
+|---|---|---|---|---|
+| W0.5 | **0.196** | 0.132 | 0.265 | 0.322 |
+| RRF | 0.194 | 0.136 | 0.258 | 0.314 |
+| W0.75 | 0.190 | 0.139 | 0.238 | 0.290 |
+| BM25-doc | 0.170 | 0.119 | 0.224 | 0.269 |
+| W0.25 | 0.160 | 0.108 | 0.204 | 0.266 |
+| jina-binary (doc-collapsed) | 0.138 | 0.096 | 0.183 | 0.226 |
+
+v3 (3,013 queries) — the BM25-heavy W0.75 wins; vectors alone stay weak:
+
+| system | MRR | R@1 | R@5 | R@10 |
+|---|---|---|---|---|
+| W0.75 | **0.390** | 0.309 | 0.482 | 0.536 |
+| W0.5 | 0.369 | 0.274 | 0.484 | 0.545 |
+| BM25-doc | 0.366 | 0.282 | 0.462 | 0.519 |
+| RRF | 0.360 | 0.274 | 0.464 | 0.535 |
+| W0.25 | 0.272 | 0.199 | 0.330 | 0.411 |
+| jina-binary (doc-collapsed) | 0.219 | 0.159 | 0.286 | 0.338 |
+
+Read: no single weighting wins both cuts (W0.5 tops v2, W0.75 tops v3),
+and per-type the spread is wider still — thematic 0.671 (W0.75) vs
+0.507 (W0.25); paraphrase 0.635 (W0.75) vs 0.374 (W0.25). That is the
+adaptive-alpha argument made concrete. Per-type tables are in the
+results JSONs.
+
 ## Remaining
 
-1. ~~Full embedding run~~ (in progress, see above).
+1. ~~Full embedding run~~ (done, see above).
 2. ~~Doc-level FTS5 build~~ (done, see above).
 3. ~~BM25 leg of full-corpus eval~~ (done, see above).
-3. Build the sqlite-vec `bit[1024]` vec0 search store from
-   `chunk_vectors` once embeddings complete — script ready:
-   `scripts/build_vec0_full.py` (resumable after MAX(rowid); re-run the
-   same command to top off). Dry-run on the first 311k partial vectors:
-   146k inserts/s (~50 s for 6.73M), 151 B/vec (~0.97 GiB full), k=50
-   hamming 16.5 ms -> extrapolates to ~0.36 s/query at 6.73M (expected
-   ~0.3 s).
-4. When embeddings complete: top off the vec0 store
-   (`scripts/build_vec0_full.py`, ~1 min), then run
-   `uv run python scripts/eval_hybrid_full.py` (no --eligible-only) —
-   that is the full quality gate (vectors + hybrid; BM25 lists already
-   cached). MRR will drop vs the 499-doc subset; that's signal, not
-   regression. Do not commit re-run noise to
+4. ~~vec0 store + full hybrid eval, v2 and v3 cuts~~ (done, see above).
+   Do not commit re-run noise to
    `eval/cache/hybrid_doclevel_results.json` (harness is slightly
    nondeterministic at the 4th decimal).
 5. License review before any production deployment (sqlite-vector
