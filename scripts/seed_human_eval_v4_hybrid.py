@@ -54,6 +54,17 @@ def seed_live_run(
         required_hops=max(1, min(5, int(item.get("required_hops") or 1))),
         client_request_id=f"eval-v4-hybrid:{question_id}",
     )
+    existing = store.find_idempotent_run(SEED_USER, request.client_request_id)
+    if existing is not None:
+        if existing["status"] == "succeeded":
+            if publish and existing["published_at"] is None:
+                store.publish_run(existing["run_id"], publisher_id=SEED_USER)
+            return "skipped"
+        if existing["status"] == "failed":
+            store.delete_seed_run(existing["run_id"], user_prefix=SEED_USER)
+        else:
+            # Do not delete a queued/running run owned by another process.
+            return "pending"
     record, created = store.create_run(
         request, user_id=SEED_USER, provenance=executor.provenance()
     )
@@ -134,7 +145,7 @@ def main() -> int:
         if args.replace:
             deleted = store.delete_seed_runs(user_prefix=SEED_USER)
             print(f"--replace: deleted {deleted} existing {SEED_USER} runs", flush=True)
-        counts = {"created": 0, "skipped": 0, "failed": 0}
+        counts = {"created": 0, "skipped": 0, "pending": 0, "failed": 0}
         for index, item in enumerate(queries, 1):
             outcome = seed_live_run(store, executor, item, publish=not args.no_publish)
             if outcome == "abort":
@@ -149,11 +160,11 @@ def main() -> int:
             print(f"[{index}/{len(queries)}] {item['id']}: {outcome}", flush=True)
         print(
             f"done: {counts['created']} created, {counts['skipped']} already "
-            f"present, {counts['failed']} failed"
+            f"present, {counts['pending']} pending, {counts['failed']} failed"
         )
     finally:
         executor.close()
-    return 0
+    return 1 if counts["failed"] or counts["pending"] else 0
 
 
 if __name__ == "__main__":

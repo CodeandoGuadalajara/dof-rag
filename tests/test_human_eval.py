@@ -27,6 +27,7 @@ from human_eval.service import (
     PublicExecutionError,
 )
 from human_eval.store import SCHEMA_VERSION, EvaluationStore
+from scripts.seed_human_eval_v4_hybrid import SEED_USER, seed_live_run
 
 PROVENANCE = {
     "code_revision": "abc123",
@@ -262,12 +263,24 @@ class AgentExecutorConfigTests(unittest.TestCase):
         )
         self.assertEqual(config.embed_port, 8086)
 
-    def test_vec0_db_defaults_to_canonical_path_when_present(self):
+    def test_lexical_mode_does_not_default_to_vector_database(self):
         vec0_dir = self.root.resolve() / "dof_db"
         vec0_dir.mkdir()
         default_vec0 = vec0_dir / "dof_vec0_jina_binary.sqlite"
         default_vec0.touch()
         config = self._config()
+        self.assertIsNone(config.vec0_db)
+
+    def test_non_lexical_mode_defaults_to_canonical_vector_database(self):
+        vec0_dir = self.root.resolve() / "dof_db"
+        vec0_dir.mkdir()
+        default_vec0 = vec0_dir / "dof_vec0_jina_binary.sqlite"
+        default_vec0.touch()
+        gguf = self.root / "model.gguf"
+        gguf.touch()
+        config = self._config(
+            DOF_RETRIEVAL_MODE="hybrid", DOF_GGUF_MODEL=str(gguf)
+        )
         self.assertEqual(config.vec0_db, default_vec0)
 
     def test_rejects_unknown_retrieval_mode(self):
@@ -343,6 +356,8 @@ class AgentExecutorEmbedderTests(unittest.TestCase):
         ) as factory:
             executor = self._executor("hybrid")
             self.assertFalse(executor.provenance()["vector_used"])
+            executor.prepare()
+            self.assertTrue(executor.provenance()["vector_used"])
             first = executor.query_embedder()
             second = executor.query_embedder()
             factory.assert_called_once_with(self.gguf, port=8086)
@@ -553,6 +568,52 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(self.store.feedback_for_run(seed_run["run_id"]), [])
         self.assertIsNotNone(self.store.get_run(real_run["run_id"]))
 
+    def test_delete_seed_run_removes_only_the_requested_seed_run(self):
+        first, _ = self.store.create_run(
+            RunRequest("primera semilla"),
+            user_id="seed:eval-v4",
+            provenance=PROVENANCE,
+        )
+        second, _ = self.store.create_run(
+            RunRequest("segunda semilla"),
+            user_id="seed:eval-v4",
+            provenance=PROVENANCE,
+        )
+        self.assertTrue(self.store.delete_seed_run(first["run_id"]))
+        self.assertIsNone(self.store.get_run(first["run_id"]))
+        self.assertIsNotNone(self.store.get_run(second["run_id"]))
+        self.assertFalse(self.store.delete_seed_run(first["run_id"]))
+        with self.assertRaises(ValueError):
+            self.store.delete_seed_run(second["run_id"], user_prefix="evaluator")
+
+    def test_failed_seed_run_is_retried_on_the_next_attempt(self):
+        class FlakySeedExecutor:
+            def __init__(self):
+                self.calls = 0
+
+            def provenance(self):
+                return dict(PROVENANCE)
+
+            def execute(self, request, *, on_progress=None):
+                self.calls += 1
+                if self.calls == 1:
+                    raise PublicExecutionError("internal_error", "falló")
+                return {"answer": {"text": "respuesta"}}
+
+        executor = FlakySeedExecutor()
+        item = {"id": "LI-001", "question": "pregunta semilla"}
+        self.assertEqual(
+            seed_live_run(self.store, executor, item, publish=False), "failed"
+        )
+        self.assertEqual(
+            seed_live_run(self.store, executor, item, publish=False), "created"
+        )
+        record = self.store.find_idempotent_run(
+            SEED_USER, "eval-v4-hybrid:LI-001"
+        )
+        self.assertEqual(record["status"], "succeeded")
+        self.assertEqual(executor.calls, 2)
+
     def test_client_request_id_is_idempotent_per_evaluator(self):
         request = RunRequest("pregunta válida", client_request_id="same-request")
         first, first_created = self.store.create_run(
@@ -617,6 +678,34 @@ class ServiceTests(unittest.TestCase):
         finally:
             service.close()
 
+    def test_submit_prepares_executor_before_snapshotting_provenance(self):
+        class PreparingExecutor(FakeExecutor):
+            def __init__(self):
+                self.prepared = False
+
+            def prepare(self):
+                self.prepared = True
+
+            def provenance(self):
+                provenance = dict(PROVENANCE)
+                provenance["vector_used"] = self.prepared
+                return provenance
+
+        executor = PreparingExecutor()
+        service = EvaluationService(self.store, executor, executor.provenance)
+        service.start()
+        try:
+            created = service.submit(
+                RunRequest("pregunta híbrida"), user_id="evaluator", admin=True
+            )
+            self.assertTrue(
+                service.public_run(created["run_id"], admin=True)["provenance"][
+                    "vector_used"
+                ]
+            )
+        finally:
+            service.close()
+
     def test_only_one_active_run_per_evaluator(self):
         executor = BlockingExecutor()
         service = EvaluationService(self.store, executor, executor.provenance)
@@ -648,6 +737,31 @@ class ServiceTests(unittest.TestCase):
         service = EvaluationService(self.store, executor, executor.provenance)
         service.start()
         service.close()
+        self.assertTrue(executor.closed)
+
+    def test_close_does_not_shutdown_executor_while_worker_is_active(self):
+        class ClosingBlockingExecutor(BlockingExecutor):
+            def __init__(self):
+                super().__init__()
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+        executor = ClosingBlockingExecutor()
+        service = EvaluationService(
+            self.store,
+            executor,
+            executor.provenance,
+            shutdown_timeout=0.01,
+        )
+        service.start()
+        service.submit(RunRequest("pregunta activa"), user_id="one", admin=True)
+        self.assertTrue(executor.started.wait(timeout=1))
+        service.close()
+        self.assertFalse(executor.closed)
+        executor.release.set()
+        service.worker.join(timeout=1)
         self.assertTrue(executor.closed)
 
     def test_close_never_blocks_on_full_queue_or_writes_late_results(self):

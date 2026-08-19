@@ -76,6 +76,8 @@ class EvaluationService:
         self._closing = threading.Event()
         self._lifecycle_lock = threading.Lock()
         self._write_lock = threading.Lock()
+        self._executor_close_lock = threading.Lock()
+        self._executor_closed = False
         self._started = False
 
     def start(self) -> None:
@@ -131,13 +133,8 @@ class EvaluationService:
             LOGGER.warning(
                 "human-evaluation worker is still waiting for an in-flight call"
             )
-        # Executors may hold expensive resources (e.g. a shared llama-server).
-        close_executor = getattr(self.executor, "close", None)
-        if callable(close_executor):
-            try:
-                close_executor()
-            except Exception:
-                LOGGER.exception("executor shutdown hook failed")
+        else:
+            self._close_executor()
 
     def submit(
         self,
@@ -176,6 +173,9 @@ class EvaluationService:
                         raise QuotaExceededError("daily question limit reached")
             if self.queue.full():
                 raise QueueFullError("execution queue is full")
+            prepare_executor = getattr(self.executor, "prepare", None)
+            if callable(prepare_executor):
+                prepare_executor()
             run, created = self.store.create_run(
                 request,
                 user_id=user_id,
@@ -254,44 +254,62 @@ class EvaluationService:
         self.store.unpublish_run(run_id)
 
     def _worker_loop(self) -> None:
-        while not self._closing.is_set():
-            run_id = self.queue.get()
-            try:
-                if run_id is None or self._closing.is_set():
-                    return
-                request = self.store.get_request(run_id)
-                if request is None:
-                    continue
-                if not self._append_event_if_open(run_id, "started"):
-                    return
+        try:
+            while not self._closing.is_set():
+                run_id = self.queue.get()
                 try:
-                    result = self.executor.execute(
-                        request,
-                        on_progress=lambda event_type,
-                        payload: self._append_progress_if_open(
-                            run_id, event_type, payload
-                        ),
-                    )
-                except PublicExecutionError as exc:
-                    self._append_event_if_open(
-                        run_id,
-                        "failed",
-                        {"code": exc.code, "message": str(exc)},
-                    )
-                except Exception:
-                    LOGGER.exception("human-evaluation run %s failed", run_id)
-                    self._append_event_if_open(
-                        run_id,
-                        "failed",
-                        {
-                            "code": "internal_error",
-                            "message": "La ejecución no pudo completarse.",
-                        },
-                    )
-                else:
-                    self._append_event_if_open(run_id, "succeeded", result)
-            finally:
-                self.queue.task_done()
+                    if run_id is None or self._closing.is_set():
+                        return
+                    request = self.store.get_request(run_id)
+                    if request is None:
+                        continue
+                    if not self._append_event_if_open(run_id, "started"):
+                        return
+                    try:
+                        result = self.executor.execute(
+                            request,
+                            on_progress=lambda event_type,
+                            payload: self._append_progress_if_open(
+                                run_id, event_type, payload
+                            ),
+                        )
+                    except PublicExecutionError as exc:
+                        self._append_event_if_open(
+                            run_id,
+                            "failed",
+                            {"code": exc.code, "message": str(exc)},
+                        )
+                    except Exception:
+                        LOGGER.exception("human-evaluation run %s failed", run_id)
+                        self._append_event_if_open(
+                            run_id,
+                            "failed",
+                            {
+                                "code": "internal_error",
+                                "message": "La ejecución no pudo completarse.",
+                            },
+                        )
+                    else:
+                        self._append_event_if_open(run_id, "succeeded", result)
+                finally:
+                    self.queue.task_done()
+        finally:
+            if self._closing.is_set():
+                self._close_executor()
+
+    def _close_executor(self) -> None:
+        # If shutdown timed out while a run was active, the worker calls this
+        # after execute() returns so it never tears down an active run.
+        with self._executor_close_lock:
+            if self._executor_closed:
+                return
+            self._executor_closed = True
+        close_executor = getattr(self.executor, "close", None)
+        if callable(close_executor):
+            try:
+                close_executor()
+            except Exception:
+                LOGGER.exception("executor shutdown hook failed")
 
     def _append_event_if_open(
         self,

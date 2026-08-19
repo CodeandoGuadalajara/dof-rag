@@ -60,9 +60,11 @@ class AgentExecutorConfig:
         vec0_value = os.environ.get("DOF_VEC0_DB")
         if vec0_value:
             vec0_db: Path | None = Path(vec0_value)
-        else:
+        elif retrieval_mode != "lexical":
             default_vec0 = root / DEFAULT_VEC0_DB
             vec0_db = default_vec0 if default_vec0.exists() else None
+        else:
+            vec0_db = None
         gguf_value = os.environ.get("DOF_GGUF_MODEL", DEFAULT_GGUF_MODEL)
         gguf_model = Path(gguf_value).expanduser() if gguf_value else None
         if retrieval_mode != "lexical":
@@ -189,6 +191,10 @@ class AgentRunExecutor:
                 )
             return self._embedder
 
+    def prepare(self) -> None:
+        """Prepare resources needed before a run is persisted."""
+        self.query_embedder()
+
     def close(self) -> None:
         """Stop the shared llama-server, if it was started."""
         with self._embedder_lock:
@@ -246,7 +252,11 @@ class AgentRunExecutor:
             with DofRetriever(
                 corpus_db=self.config.corpus_db,
                 chunks_db=self.config.chunks_db,
-                vec0_db=self.config.vec0_db,
+                vec0_db=(
+                    self.config.vec0_db
+                    if self.config.retrieval_mode != "lexical"
+                    else None
+                ),
             ) as retriever:
                 run = AgentRunner(
                     backend,

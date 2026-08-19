@@ -604,6 +604,22 @@ class EvaluationStore:
                     )
         return len(run_ids)
 
+    def delete_seed_run(self, run_id: str, *, user_prefix: str = "seed:") -> bool:
+        """Delete one seed-owned run, returning whether it existed."""
+        if not user_prefix.startswith("seed:"):
+            raise ValueError("only seed: system users can be deleted")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            exists = connection.execute(
+                "SELECT 1 FROM runs WHERE run_id = ? AND substr(user_id, 1, ?) = ?",
+                (run_id, len(user_prefix), user_prefix),
+            ).fetchone()
+            if exists is None:
+                return False
+            for table in ("run_progress", "run_events", "feedback", "runs"):
+                connection.execute(f"DELETE FROM {table} WHERE run_id = ?", (run_id,))
+        return True
+
     def unfinished_runs(self) -> list[tuple[str, str]]:
         with self._connect() as connection:
             rows = connection.execute(
