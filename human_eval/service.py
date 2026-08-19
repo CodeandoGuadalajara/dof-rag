@@ -131,6 +131,13 @@ class EvaluationService:
             LOGGER.warning(
                 "human-evaluation worker is still waiting for an in-flight call"
             )
+        # Executors may hold expensive resources (e.g. a shared llama-server).
+        close_executor = getattr(self.executor, "close", None)
+        if callable(close_executor):
+            try:
+                close_executor()
+            except Exception:
+                LOGGER.exception("executor shutdown hook failed")
 
     def submit(
         self,

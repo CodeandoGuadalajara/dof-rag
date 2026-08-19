@@ -579,6 +579,31 @@ class EvaluationStore:
             "created_at": created_at,
         }
 
+    def delete_seed_runs(self, *, user_prefix: str = "seed:") -> int:
+        """Delete seed-owned runs together with events, progress, and feedback.
+
+        The store is append-only for real users; ``seed:`` users are
+        re-importable system fixtures, so reseeding may remove their runs.
+        Any other prefix is refused. Returns the number of runs deleted.
+        """
+        if not user_prefix.startswith("seed:"):
+            raise ValueError("only seed: system users can be deleted")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                "SELECT run_id FROM runs WHERE substr(user_id, 1, ?) = ?",
+                (len(user_prefix), user_prefix),
+            ).fetchall()
+            run_ids = [row[0] for row in rows]
+            if run_ids:
+                placeholders = ",".join("?" for _ in run_ids)
+                for table in ("run_progress", "run_events", "feedback", "runs"):
+                    connection.execute(
+                        f"DELETE FROM {table} WHERE run_id IN ({placeholders})",
+                        run_ids,
+                    )
+        return len(run_ids)
+
     def unfinished_runs(self) -> list[tuple[str, str]]:
         with self._connect() as connection:
             rows = connection.execute(
