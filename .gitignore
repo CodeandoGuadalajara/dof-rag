@@ -189,7 +189,6 @@ logs/
 eval/cache/eval_v4_agent_*.json
 eval/cache/eval_v4_full_*.json
 eval/cache/eval_v4_ranked_*.jsonl
-eval/cache/full_corpus_hybrid_results.json
 eval/cache/full_corpus_vector_lists.jsonl
 eval/cache/*_queries_meta.json
 
