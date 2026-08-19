@@ -579,6 +579,47 @@ class EvaluationStore:
             "created_at": created_at,
         }
 
+    def delete_seed_runs(self, *, user_prefix: str = "seed:") -> int:
+        """Delete seed-owned runs together with events, progress, and feedback.
+
+        The store is append-only for real users; ``seed:`` users are
+        re-importable system fixtures, so reseeding may remove their runs.
+        Any other prefix is refused. Returns the number of runs deleted.
+        """
+        if not user_prefix.startswith("seed:"):
+            raise ValueError("only seed: system users can be deleted")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                "SELECT run_id FROM runs WHERE substr(user_id, 1, ?) = ?",
+                (len(user_prefix), user_prefix),
+            ).fetchall()
+            run_ids = [row[0] for row in rows]
+            if run_ids:
+                placeholders = ",".join("?" for _ in run_ids)
+                for table in ("run_progress", "run_events", "feedback", "runs"):
+                    connection.execute(
+                        f"DELETE FROM {table} WHERE run_id IN ({placeholders})",
+                        run_ids,
+                    )
+        return len(run_ids)
+
+    def delete_seed_run(self, run_id: str, *, user_prefix: str = "seed:") -> bool:
+        """Delete one seed-owned run, returning whether it existed."""
+        if not user_prefix.startswith("seed:"):
+            raise ValueError("only seed: system users can be deleted")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            exists = connection.execute(
+                "SELECT 1 FROM runs WHERE run_id = ? AND substr(user_id, 1, ?) = ?",
+                (run_id, len(user_prefix), user_prefix),
+            ).fetchone()
+            if exists is None:
+                return False
+            for table in ("run_progress", "run_events", "feedback", "runs"):
+                connection.execute(f"DELETE FROM {table} WHERE run_id = ?", (run_id,))
+        return True
+
     def unfinished_runs(self) -> list[tuple[str, str]]:
         with self._connect() as connection:
             rows = connection.execute(

@@ -6,6 +6,7 @@ import hashlib
 import os
 import sqlite3
 import subprocess
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -16,10 +17,14 @@ from agent_tools.agent import (
     OpenAIChatCompletionsBackend,
     OpenAIResponsesBackend,
 )
-from agent_tools.retrieval import DofRetriever
+from agent_tools.retrieval import DofRetriever, LlamaQueryEmbedder, QueryEmbedder
 
 from .contracts import RunRequest
 from .service import ProgressCallback, PublicExecutionError
+
+DEFAULT_GGUF_MODEL = "~/dof-gguf/jina-v5-small-retrieval-F16.gguf"
+DEFAULT_VEC0_DB = "dof_db/dof_vec0_jina_binary.sqlite"
+RETRIEVAL_MODES = frozenset({"lexical", "vector", "hybrid"})
 
 
 @dataclass(frozen=True)
@@ -30,6 +35,8 @@ class AgentExecutorConfig:
     corpus_db: Path
     chunks_db: Path
     vec0_db: Path | None = None
+    gguf_model: Path | None = None
+    embed_port: int = 8086
     reasoning_effort: str | None = "low"
     max_model_turns: int = 8
     max_tool_calls: int = 8
@@ -46,11 +53,31 @@ class AgentExecutorConfig:
         if not model:
             raise ValueError("set DOF_AGENT_MODEL or OPENAI_MODEL")
         retrieval_mode = os.environ.get("DOF_RETRIEVAL_MODE", "lexical")
-        if retrieval_mode != "lexical":
+        if retrieval_mode not in RETRIEVAL_MODES:
             raise ValueError(
-                "the MVP currently supports DOF_RETRIEVAL_MODE=lexical only"
+                "DOF_RETRIEVAL_MODE must be one of: lexical, vector, hybrid"
             )
         vec0_value = os.environ.get("DOF_VEC0_DB")
+        if vec0_value:
+            vec0_db: Path | None = Path(vec0_value)
+        elif retrieval_mode != "lexical":
+            default_vec0 = root / DEFAULT_VEC0_DB
+            vec0_db = default_vec0 if default_vec0.exists() else None
+        else:
+            vec0_db = None
+        gguf_value = os.environ.get("DOF_GGUF_MODEL", DEFAULT_GGUF_MODEL)
+        gguf_model = Path(gguf_value).expanduser() if gguf_value else None
+        if retrieval_mode != "lexical":
+            if vec0_db is None or not vec0_db.exists():
+                raise ValueError(
+                    f"DOF_RETRIEVAL_MODE={retrieval_mode} requires an existing "
+                    "vector index (DOF_VEC0_DB)"
+                )
+            if gguf_model is None or not gguf_model.exists():
+                raise ValueError(
+                    f"DOF_RETRIEVAL_MODE={retrieval_mode} requires an existing "
+                    "GGUF embedding model (DOF_GGUF_MODEL)"
+                )
         return cls(
             repo_root=root,
             provider=provider,
@@ -61,7 +88,9 @@ class AgentExecutorConfig:
             chunks_db=Path(
                 os.environ.get("DOF_CHUNKS_DB", root / "dof_db/dof_chunks.sqlite")
             ),
-            vec0_db=Path(vec0_value) if vec0_value else None,
+            vec0_db=vec0_db,
+            gguf_model=gguf_model,
+            embed_port=int(os.environ.get("DOF_EMBED_PORT", "8086")),
             reasoning_effort=os.environ.get("DOF_REASONING_EFFORT", "low") or None,
             max_model_turns=int(os.environ.get("DOF_MAX_MODEL_TURNS", "8")),
             max_tool_calls=int(os.environ.get("DOF_MAX_TOOL_CALLS", "8")),
@@ -126,8 +155,52 @@ def _read_index_versions(config: AgentExecutorConfig) -> dict[str, Any]:
 
 
 class AgentRunExecutor:
+    """Run the agent, sharing one llama-server for query embeddings.
+
+    The embedding server starts lazily on the first vector-capable run and
+    stays alive for the executor's lifetime (spawning per run is slow).
+    ``close`` stops it; ``EvaluationService.close`` calls it on shutdown.
+    """
+
     def __init__(self, config: AgentExecutorConfig):
         self.config = config
+        self._embedder: QueryEmbedder | None = None
+        self._embedder_lock = threading.Lock()
+
+    def query_embedder(self) -> QueryEmbedder | None:
+        """Return the shared embedder, starting llama-server once if needed."""
+        if self.config.retrieval_mode == "lexical":
+            return None
+        with self._embedder_lock:
+            if self._embedder is None:
+                if self.config.vec0_db is None or not self.config.vec0_db.exists():
+                    raise PublicExecutionError(
+                        "provider_unavailable",
+                        "El índice vectorial no está disponible.",
+                    )
+                if (
+                    self.config.gguf_model is None
+                    or not self.config.gguf_model.exists()
+                ):
+                    raise PublicExecutionError(
+                        "provider_unavailable",
+                        "El modelo de embeddings no está disponible.",
+                    )
+                self._embedder = LlamaQueryEmbedder(
+                    self.config.gguf_model, port=self.config.embed_port
+                )
+            return self._embedder
+
+    def prepare(self) -> None:
+        """Prepare resources needed before a run is persisted."""
+        self.query_embedder()
+
+    def close(self) -> None:
+        """Stop the shared llama-server, if it was started."""
+        with self._embedder_lock:
+            if self._embedder is not None:
+                self._embedder.close()
+                self._embedder = None
 
     def provenance(self) -> dict[str, Any]:
         revision, dirty = _git_snapshot(self.config.repo_root)
@@ -136,8 +209,8 @@ class AgentRunExecutor:
             "code_dirty": dirty,
             **_read_index_versions(self.config),
             # vector_available describes the on-disk asset; vector_used records
-            # whether this execution can actually query it.
-            "vector_used": False,
+            # whether this executor can actually query it (embedder is live).
+            "vector_used": self._embedder is not None,
             "provider": self.config.provider,
             "model": self.config.model,
             "configuration": {
@@ -175,14 +248,19 @@ class AgentRunExecutor:
     ) -> dict[str, Any]:
         try:
             backend = self._backend()
+            embedder = self.query_embedder()
             with DofRetriever(
                 corpus_db=self.config.corpus_db,
                 chunks_db=self.config.chunks_db,
-                vec0_db=None,
+                vec0_db=(
+                    self.config.vec0_db
+                    if self.config.retrieval_mode != "lexical"
+                    else None
+                ),
             ) as retriever:
                 run = AgentRunner(
                     backend,
-                    DofToolbox(retriever),
+                    DofToolbox(retriever, embedder=embedder),
                     max_model_turns=self.config.max_model_turns,
                     max_tool_calls=self.config.max_tool_calls,
                 ).run(

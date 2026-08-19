@@ -52,6 +52,7 @@ from .service import (
     ActiveRunError,
     EvaluationService,
     IdempotencyConflictError,
+    PublicExecutionError,
     QueueFullError,
     QuotaExceededError,
     ReviewRequiredError,
@@ -991,6 +992,14 @@ def create_app(
                 request,
                 user,
                 error="La cola local está llena; intenta más tarde.",
+                values=values,
+                status_code=503,
+            )
+        except PublicExecutionError as exc:
+            return render_home(
+                request,
+                user,
+                error=str(exc),
                 values=values,
                 status_code=503,
             )
