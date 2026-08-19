@@ -1172,6 +1172,55 @@ class AirAppTests(AirAppTestCase):
         self.assertNotIn(str(self.db_path), capabilities.text)
 
 
+class LoginPageTests(AirAppTestCase):
+    def test_login_page_uses_app_layout_with_dev_fallback(self):
+        response = self.client.get("/login")
+        self.assertEqual(response.status_code, 200)
+        # The app shell (header, styles, footer), not a bare fragment.
+        self.assertIn("Agente del Diario Oficial", response.text)
+        self.assertIn("Las cuentas se gestionan con Clerk", response.text)
+        self.assertIn("X-Eval-User", response.text)
+        self.assertNotIn('id="sign-in"', response.text)
+        # The modal enhancer ships on every page as progressive enhancement.
+        self.assertIn("openSignIn", response.text)
+
+    def test_login_page_mounts_provider_widget_when_configured(self):
+        settings = WebSettings(
+            host="127.0.0.1",
+            port=0,
+            db_path=self.db_path,
+            session_secret="test-session-secret-that-is-at-least-32-bytes",
+        )
+        store = EvaluationStore(self.db_path)
+        service = EvaluationService(store, self.executor, self.executor.provenance)
+        app = create_app(
+            service,
+            settings,
+            self.executor.provenance,
+            auth_backend=FakeAuthBackend(),
+            login_scripts=lambda target: f'<script data-mount="{target}"></script>',
+        )
+        with TestClient(app) as client:
+            response = client.get("/login?next=/runs/abc")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('id="sign-in"', response.text)
+        self.assertIn('data-mount="/runs/abc"', response.text)
+
+    def test_login_next_is_sanitized_against_open_redirects(self):
+        self.as_user("alice")
+        response = self.client.get(
+            "/login?next=https://evil.example", follow_redirects=False
+        )
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], "/")
+
+    def test_signed_in_user_is_redirected_to_next(self):
+        self.as_user("alice")
+        response = self.client.get("/login?next=/runs/abc", follow_redirects=False)
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], "/runs/abc")
+
+
 class DailyQuotaTests(AirAppTestCase):
     daily_question_limit = 1
 

@@ -9,6 +9,8 @@ environment variables at import time; tests and offline development use
 from __future__ import annotations
 
 import asyncio
+import html
+import json
 import time
 
 import airclerk
@@ -82,3 +84,25 @@ class ClerkAuthBackend:
 def clerk_page_scripts(user: User | None) -> str:
     """Render Clerk JS tags that keep client/server auth state in sync."""
     return str(airclerk.clerk_scripts(user))
+
+
+def clerk_login_scripts(next_url: str) -> str:
+    """Render Clerk JS plus the SignIn mount for the styled /login page.
+
+    ``next_url`` must already be sanitized to a same-origin path; it is
+    emitted through ``json.dumps`` so it is always a safe JS string literal.
+    """
+    src = html.escape(airclerk.settings.CLERK_JS_SRC, quote=True)
+    key = html.escape(airclerk.settings.CLERK_PUBLISHABLE_KEY, quote=True)
+    target = json.dumps(next_url)
+    return (
+        f'<script src="{src}" crossorigin="anonymous" '
+        f'data-clerk-publishable-key="{key}"></script>'
+        "<script>document.addEventListener('DOMContentLoaded', async () => {"
+        "if (!window.Clerk) return;"
+        "await window.Clerk.load();"
+        f"if (window.Clerk.user) {{ window.location.assign({target}); return; }}"
+        "window.Clerk.mountSignIn(document.getElementById('sign-in'),"
+        f" {{ redirectUrl: {target} }});"
+        "});</script>"
+    )
