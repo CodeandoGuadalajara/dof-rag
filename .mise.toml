@@ -1,5 +1,5 @@
 [tools]
-python = "3.12"
+python = "3.14"
 rust = "1"
 
 [env]
