@@ -17,8 +17,13 @@ from human_eval.agent_executor import (
     AgentRunExecutor,
     _public_result,
 )
-from human_eval.app import WebSettings, _progress_timeline, create_app
-from human_eval.auth import FakeAuthBackend
+from human_eval.app import (
+    WebSettings,
+    _progress_timeline,
+    _sanitize_login_next,
+    create_app,
+)
+from human_eval.auth import FakeAuthBackend, User
 from human_eval.contracts import ContractError, FeedbackRequest, RunRequest
 from human_eval.service import (
     ActiveRunError,
@@ -1170,6 +1175,110 @@ class AirAppTests(AirAppTestCase):
             self.daily_question_limit,
         )
         self.assertNotIn(str(self.db_path), capabilities.text)
+
+
+class LoginPageTests(AirAppTestCase):
+    def test_login_page_uses_app_layout_with_dev_fallback(self):
+        response = self.client.get("/login")
+        self.assertEqual(response.status_code, 200)
+        # The app shell (header, styles, footer), not a bare fragment.
+        self.assertIn("Agente del Diario Oficial", response.text)
+        self.assertIn("Las cuentas se gestionan con Clerk", response.text)
+        self.assertIn("X-Eval-User", response.text)
+        self.assertNotIn('id="sign-in"', response.text)
+        # The modal enhancer ships on every page as progressive enhancement.
+        self.assertIn("openSignIn", response.text)
+
+    def test_login_page_mounts_provider_widget_when_configured(self):
+        settings = WebSettings(
+            host="127.0.0.1",
+            port=0,
+            db_path=self.db_path,
+            session_secret="test-session-secret-that-is-at-least-32-bytes",
+        )
+        store = EvaluationStore(self.db_path)
+        service = EvaluationService(store, self.executor, self.executor.provenance)
+        app = create_app(
+            service,
+            settings,
+            self.executor.provenance,
+            auth_backend=FakeAuthBackend(),
+            login_scripts=lambda target: f'<script data-mount="{target}"></script>',
+        )
+        with TestClient(app) as client:
+            response = client.get("/login?next=/runs/abc")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('id="sign-in"', response.text)
+        self.assertIn('data-mount="/runs/abc"', response.text)
+
+    def test_login_next_is_sanitized_against_open_redirects(self):
+        self.as_user("alice")
+        response = self.client.get(
+            "/login?next=https://evil.example", follow_redirects=False
+        )
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], "/")
+
+        external_paths = (
+            "///evil.example",
+            "/\\evil.example",
+            "/safe\nLocation: https://evil.example",
+        )
+        for external_path in external_paths:
+            response = self.client.get(
+                "/login", params={"next": external_path}, follow_redirects=False
+            )
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(response.headers["location"], "/")
+
+    def test_login_next_rejects_browser_normalized_external_paths(self):
+        self.assertEqual(_sanitize_login_next("///evil.example"), "/")
+        self.assertEqual(_sanitize_login_next("/\\evil.example"), "/")
+        self.assertEqual(
+            _sanitize_login_next("/safe\nLocation: https://evil.example"), "/"
+        )
+
+    def test_signed_in_user_is_redirected_to_next(self):
+        self.as_user("alice")
+        response = self.client.get("/login?next=/runs/abc", follow_redirects=False)
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], "/runs/abc")
+
+
+class ClerkScriptsTests(unittest.TestCase):
+    def test_sync_script_resets_reload_guard_when_states_match(self):
+        env = {
+            "CLERK_PUBLISHABLE_KEY": "pk_test_dummy",
+            "CLERK_SECRET_KEY": "sk_test_dummy",
+        }
+        with mock.patch.dict(os.environ, env):
+            import airclerk  # noqa: F401 — validates Clerk env at import
+
+            from human_eval.clerk_auth import clerk_page_scripts
+
+            anonymous = clerk_page_scripts(None)
+            signed_in = clerk_page_scripts(User(id="u1", role="user"))
+        # The one-shot reload guard must clear once states match again,
+        # otherwise only the first sign-in of a tab session ever resyncs.
+        self.assertIn("sessionStorage.removeItem", anonymous)
+        self.assertIn("serverHasUser = false", anonymous)
+        self.assertIn("serverHasUser = true", signed_in)
+        self.assertIn("pk_test_dummy", anonymous)
+
+    def test_login_script_escapes_html_script_terminators(self):
+        env = {
+            "CLERK_PUBLISHABLE_KEY": "pk_test_dummy",
+            "CLERK_SECRET_KEY": "sk_test_dummy",
+        }
+        with mock.patch.dict(os.environ, env):
+            import airclerk  # noqa: F401 — validates Clerk env at import
+
+            from human_eval.clerk_auth import clerk_login_scripts
+
+            script = clerk_login_scripts("/</script><script>alert(1)</script>")
+
+        self.assertNotIn('"/</script><script>', script)
+        self.assertIn(r"\u003c/script\u003e", script)
 
 
 class DailyQuotaTests(AirAppTestCase):

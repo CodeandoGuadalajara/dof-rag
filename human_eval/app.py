@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import air
 import uvicorn
@@ -192,6 +192,9 @@ h3 { font-size:1.18rem; margin-bottom:.45rem; }
 .lede { color:var(--muted); max-width:68ch; margin:0; }
 .panel { background:var(--panel); border:1px solid var(--line); border-radius:4px;
   box-shadow:0 12px 32px rgba(30,35,28,.06); padding:clamp(1.1rem,3vw,2rem); margin:1.25rem 0; }
+.login-panel { max-width:30rem; margin:2.5rem auto; text-align:center; }
+.login-panel .lede { margin:0 auto 1.5rem; }
+.sign-in { display:flex; justify-content:center; }
 .grid { display:grid; gap:1rem; grid-template-columns:repeat(2,minmax(0,1fr)); }
 .field { display:flex; flex-direction:column; gap:.4rem; margin-bottom:1rem; }
 .field.full { grid-column:1/-1; }
@@ -398,6 +401,28 @@ STREAM_SCRIPT = """
 })();
 """
 
+# Enhance "Entrar" links with Clerk's sign-in modal when Clerk JS is loaded
+# (production). Without Clerk (tests, offline dev) the links keep their
+# normal /login navigation as a fallback.
+LOGIN_MODAL_SCRIPT = """
+document.addEventListener('click', async (event) => {
+  const link = event.target.closest('a[href^="/login"]');
+  if (!link || !window.Clerk) return;
+  event.preventDefault();
+  await window.Clerk.load();
+  const url = new URL(link.href, window.location.origin);
+  const candidate = url.searchParams.get('next')
+    || (window.location.pathname + window.location.search);
+  const next = candidate.startsWith('/')
+    && !candidate.startsWith('//')
+    && !candidate.includes(String.fromCharCode(92))
+    && !/[\\u0000-\\u001f\\u007f]/.test(candidate)
+    ? candidate
+    : '/';
+  window.Clerk.openSignIn({ redirectUrl: next });
+});
+"""
+
 
 def _page(
     title: str,
@@ -406,6 +431,7 @@ def _page(
     user: User | None = None,
     csrf_token: str = "",
     page_scripts: Callable[[User | None], str] | None = None,
+    trailing_scripts: str = "",
 ) -> str:
     if user is not None:
         session_area = (
@@ -425,7 +451,7 @@ def _page(
 <div class="session">{session_area}</div></header>{body}
 <footer>Las preguntas, respuestas, evidencias y evaluaciones se guardan para análisis y mejora del sistema.
 Las respuestas publicadas son públicas. Las cuentas se gestionan con Clerk; no registramos direcciones IP.</footer>
-</main><script>{STREAM_SCRIPT}</script>{scripts}</body></html>"""
+</main><script>{STREAM_SCRIPT}</script><script>{LOGIN_MODAL_SCRIPT}</script>{scripts}{trailing_scripts}</body></html>"""
 
 
 def _run_list_items(
@@ -792,6 +818,25 @@ visitante. Revisa cada pregunta antes de publicarla: se vuelve contenido públic
     )
 
 
+def _sanitize_login_next(raw: str | None) -> str:
+    """Allow only same-origin absolute paths (open-redirect guard)."""
+    if not raw:
+        return "/"
+    raw = raw.strip()
+    if not raw:
+        return "/"
+    # Browsers normalize network-path references and backslashes differently
+    # from urllib.parse, so reject those forms before parsing the URL.
+    if raw.startswith("//") or "\\" in raw:
+        return "/"
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in raw):
+        return "/"
+    parsed = urlparse(raw)
+    if parsed.scheme or parsed.netloc or not parsed.path.startswith("/"):
+        return "/"
+    return raw
+
+
 def create_app(
     service: EvaluationService,
     settings: WebSettings,
@@ -799,6 +844,7 @@ def create_app(
     *,
     auth_backend: AuthBackend,
     page_scripts: Callable[[User | None], str] | None = None,
+    login_scripts: Callable[[str], str] | None = None,
 ) -> Any:
     """Build an Air app around injected service/auth so UI behavior is testable."""
 
@@ -903,6 +949,46 @@ def create_app(
                 page_scripts=page_scripts,
             ),
             status_code=status_code,
+        )
+
+    @app.get("/login", response_class=HTMLResponse)
+    async def login(request: Request, next: str = "/") -> Response:
+        # Shadows airclerk's bare-fragment /login with the app layout. The
+        # auth-provider mount snippet arrives via login_scripts so create_app
+        # stays provider-agnostic; without it (tests, offline dev) the page
+        # explains the header-based login instead.
+        target = _sanitize_login_next(next)
+        user = await current_user(request)
+        if user is not None:
+            return RedirectResponse(target, status_code=303)
+        if login_scripts is None:
+            body = (
+                '<section class="panel login-panel"><h2>Entrar</h2>'
+                '<p class="lede">El inicio de sesión interactivo usa Clerk. En '
+                "desarrollo sin Clerk, identifícate con el encabezado "
+                "<code>X-Eval-User</code>.</p></section>"
+            )
+            trailing = ""
+        else:
+            body = (
+                '<section class="panel login-panel"><h2>Entrar o crear cuenta</h2>'
+                '<p class="lede">Usa tu correo o una cuenta de Google o GitHub. '
+                "Al entrar aceptas que tus preguntas y evaluaciones se guarden "
+                'para mejorar el piloto.</p><div id="sign-in" class="sign-in">'
+                "</div></section>"
+            )
+            trailing = login_scripts(target)
+        return HTMLResponse(
+            _page(
+                "Entrar",
+                body,
+                user=None,
+                csrf_token=_csrf(request),
+                # login_scripts already bundles Clerk JS; adding page_scripts
+                # too would load (and execute) clerk.browser.js twice.
+                page_scripts=page_scripts if login_scripts is None else None,
+                trailing_scripts=trailing,
+            )
         )
 
     @app.get("/", response_class=HTMLResponse)
@@ -1264,7 +1350,7 @@ def build_default_app(repo_root: Path | None = None) -> tuple[Any, WebSettings]:
     # import time, and tests/offline development use FakeAuthBackend instead.
     import airclerk
 
-    from .clerk_auth import ClerkAuthBackend, clerk_page_scripts
+    from .clerk_auth import ClerkAuthBackend, clerk_login_scripts, clerk_page_scripts
 
     auth_backend = ClerkAuthBackend(secret_key=airclerk.settings.CLERK_SECRET_KEY)
     executor = AgentRunExecutor(AgentExecutorConfig.from_env(root))
@@ -1280,6 +1366,7 @@ def build_default_app(repo_root: Path | None = None) -> tuple[Any, WebSettings]:
         executor.provenance,
         auth_backend=auth_backend,
         page_scripts=clerk_page_scripts,
+        login_scripts=clerk_login_scripts,
     )
     app.include_router(airclerk.router)
     return app, settings

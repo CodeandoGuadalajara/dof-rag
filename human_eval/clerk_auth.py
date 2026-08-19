@@ -9,6 +9,8 @@ environment variables at import time; tests and offline development use
 from __future__ import annotations
 
 import asyncio
+import html
+import json
 import time
 
 import airclerk
@@ -18,6 +20,16 @@ from clerk_backend_api.security.types import AuthenticateRequestOptions
 from starlette.requests import Request
 
 from .auth import ROLE_ADMIN, ROLE_USER, User
+
+
+def _json_script_value(value: str) -> str:
+    """Serialize a value for a JavaScript string inside an HTML script tag."""
+    return (
+        json.dumps(value)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
 
 
 class ClerkAuthBackend:
@@ -80,5 +92,57 @@ class ClerkAuthBackend:
 
 
 def clerk_page_scripts(user: User | None) -> str:
-    """Render Clerk JS tags that keep client/server auth state in sync."""
-    return str(airclerk.clerk_scripts(user))
+    """Render Clerk JS tags that keep client/server auth state in sync.
+
+    After an OAuth round-trip (or modal sign-in), Clerk's client sets the
+    first-party session cookie only once the page's JS runs, so the server
+    may render the anonymous version of a page for a signed-in user (or
+    vice versa). The inline script detects that mismatch and reloads once.
+    Unlike airclerk.clerk_scripts, the loop-guard flag is cleared whenever
+    the states match again, so a later sign-in/out in the same tab still
+    triggers its resync reload.
+    """
+    src = html.escape(airclerk.settings.CLERK_JS_SRC, quote=True)
+    key = html.escape(airclerk.settings.CLERK_PUBLISHABLE_KEY, quote=True)
+    server_has_user = "true" if user is not None else "false"
+    return (
+        f'<script src="{src}" crossorigin="anonymous" '
+        f'data-clerk-publishable-key="{key}"></script>'
+        "<script>document.addEventListener('DOMContentLoaded', async () => {"
+        "if (!window.Clerk) return;"
+        "await window.Clerk.load();"
+        f"const serverHasUser = {server_has_user};"
+        "const clerkHasUser = !!window.Clerk.user;"
+        "const reloadKey = 'clerk_auth_reloaded';"
+        "if (serverHasUser === clerkHasUser) {"
+        "sessionStorage.removeItem(reloadKey);"
+        "return;"
+        "}"
+        "if (!sessionStorage.getItem(reloadKey)) {"
+        "sessionStorage.setItem(reloadKey, '1');"
+        "window.location.reload();"
+        "}"
+        "});</script>"
+    )
+
+
+def clerk_login_scripts(next_url: str) -> str:
+    """Render Clerk JS plus the SignIn mount for the styled /login page.
+
+    ``next_url`` must already be sanitized to a same-origin path; it is
+    emitted through ``json.dumps`` so it is always a safe JS string literal.
+    """
+    src = html.escape(airclerk.settings.CLERK_JS_SRC, quote=True)
+    key = html.escape(airclerk.settings.CLERK_PUBLISHABLE_KEY, quote=True)
+    target = _json_script_value(next_url)
+    return (
+        f'<script src="{src}" crossorigin="anonymous" '
+        f'data-clerk-publishable-key="{key}"></script>'
+        "<script>document.addEventListener('DOMContentLoaded', async () => {"
+        "if (!window.Clerk) return;"
+        "await window.Clerk.load();"
+        f"if (window.Clerk.user) {{ window.location.assign({target}); return; }}"
+        "window.Clerk.mountSignIn(document.getElementById('sign-in'),"
+        f" {{ redirectUrl: {target} }});"
+        "});</script>"
+    )
