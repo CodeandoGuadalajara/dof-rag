@@ -255,20 +255,45 @@ class EvaluationStore:
             ).fetchone()
         return int(row[0])
 
-    def run_pending_feedback(self, user_id: str) -> dict[str, Any] | None:
-        """The user's latest succeeded run they have not evaluated yet."""
+    def has_review_since_last_submission(self, user_id: str) -> bool:
+        """Whether the user evaluated any answer after their latest question.
+
+        Users with no questions yet must have evaluated at least one answer
+        (the gate also applies to the first question).
+        """
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT r.run_id, r.question FROM runs r "
-                "JOIN run_events e ON e.run_id = r.run_id AND e.sequence = "
-                "(SELECT MAX(e2.sequence) FROM run_events e2 WHERE e2.run_id = r.run_id) "
-                "WHERE r.user_id = ? AND e.event_type = 'succeeded' "
-                "AND NOT EXISTS (SELECT 1 FROM feedback f "
-                "WHERE f.run_id = r.run_id AND f.user_id = ?) "
-                "ORDER BY r.created_at DESC LIMIT 1",
+                "SELECT 1 FROM feedback f WHERE f.user_id = ? "
+                "AND f.created_at > COALESCE((SELECT MAX(r.created_at) "
+                "FROM runs r WHERE r.user_id = ?), '') LIMIT 1",
                 (user_id, user_id),
             ).fetchone()
-        return {"run_id": row[0], "question": row[1]} if row else None
+        return row is not None
+
+    def next_answer_to_review(self, user_id: str) -> dict[str, Any] | None:
+        """An answer the user can review next: any published one, or their own
+        succeeded runs (which only they can evaluate), least-reviewed first."""
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT r.run_id, r.question, r.published_at FROM runs r "
+                "JOIN run_events e ON e.run_id = r.run_id AND e.sequence = "
+                "(SELECT MAX(e2.sequence) FROM run_events e2 WHERE e2.run_id = r.run_id) "
+                "WHERE e.event_type = 'succeeded' "
+                "AND (r.published_at IS NOT NULL OR r.user_id = ?) "
+                "AND NOT EXISTS (SELECT 1 FROM feedback f "
+                "WHERE f.run_id = r.run_id AND f.user_id = ?) "
+                "ORDER BY (r.published_at IS NULL) ASC, "
+                "(SELECT COUNT(*) FROM feedback f2 WHERE f2.run_id = r.run_id) ASC, "
+                "r.created_at ASC LIMIT 1",
+                (user_id, user_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "run_id": row[0],
+            "question": row[1],
+            "published": row[2] is not None,
+        }
 
     def has_feedback(self, run_id: str, user_id: str) -> bool:
         with self._connect() as connection:

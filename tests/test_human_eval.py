@@ -429,6 +429,7 @@ class ServiceTests(unittest.TestCase):
             created = service.submit(
                 RunRequest("pregunta válida", client_request_id="request-1"),
                 user_id="evaluator",
+                admin=True,
             )
             finished = wait_for_terminal(service, created["run_id"])
             self.assertEqual(finished["status"], "succeeded")
@@ -446,12 +447,14 @@ class ServiceTests(unittest.TestCase):
             repeated = service.submit(
                 RunRequest("pregunta válida", client_request_id="request-1"),
                 user_id="evaluator",
+                admin=True,
             )
             self.assertEqual(repeated["run_id"], created["run_id"])
             with self.assertRaises(IdempotencyConflictError):
                 service.submit(
                     RunRequest("otra pregunta", client_request_id="request-1"),
                     user_id="evaluator",
+                    admin=True,
                 )
         finally:
             service.close()
@@ -461,10 +464,14 @@ class ServiceTests(unittest.TestCase):
         service = EvaluationService(self.store, executor, executor.provenance)
         service.start()
         try:
-            service.submit(RunRequest("primera pregunta"), user_id="evaluator")
+            service.submit(
+                RunRequest("primera pregunta"), user_id="evaluator", admin=True
+            )
             self.assertTrue(executor.started.wait(timeout=1))
             with self.assertRaises(ActiveRunError):
-                service.submit(RunRequest("segunda pregunta"), user_id="evaluator")
+                service.submit(
+                    RunRequest("segunda pregunta"), user_id="evaluator", admin=True
+                )
             executor.release.set()
             service.queue.join()
         finally:
@@ -481,9 +488,9 @@ class ServiceTests(unittest.TestCase):
             shutdown_timeout=0.01,
         )
         service.start()
-        first = service.submit(RunRequest("primera"), user_id="one")
+        first = service.submit(RunRequest("primera"), user_id="one", admin=True)
         self.assertTrue(executor.started.wait(timeout=1))
-        second = service.submit(RunRequest("segunda"), user_id="two")
+        second = service.submit(RunRequest("segunda"), user_id="two", admin=True)
 
         started = time.monotonic()
         service.close()
@@ -593,6 +600,35 @@ class AirAppTestCase(unittest.TestCase):
             follow_redirects=False,
         )
 
+    def review_published(self, run_id: str, *, rating: str = "helpful"):
+        page = self.client.get(f"/answers/{run_id}")
+        self.assertEqual(page.status_code, 200)
+        return self.client.post(
+            f"/runs/{run_id}/feedback",
+            data={
+                "csrf_token": self.hidden(page, "csrf_token"),
+                "next": self.hidden(page, "next"),
+                "rating": rating,
+                "problem_types": [],
+                "comment": "",
+            },
+            follow_redirects=False,
+        )
+
+    def seed_and_unlock(self, user_id: str) -> str:
+        """Seed a published answer as admin and review it as ``user_id``.
+
+        Leaves the client identified as ``user_id`` with the review gate
+        satisfied for their next question.
+        """
+        self.as_user("root", admin=True)
+        seed_id = self.create_run("respuesta semilla publicada")
+        wait_for_terminal(self.service, seed_id)
+        self.assertEqual(self.publish(seed_id).status_code, 303)
+        self.as_user(user_id)
+        self.assertEqual(self.review_published(seed_id).status_code, 303)
+        return seed_id
+
     def publish(self, run_id: str):
         self.client.get("/")  # ensure a session csrf token exists
         return self.client.post(
@@ -604,7 +640,7 @@ class AirAppTestCase(unittest.TestCase):
 
 class AirAppTests(AirAppTestCase):
     def test_login_create_poll_and_feedback(self):
-        self.as_user("alice")
+        self.seed_and_unlock("alice")
         run_id = self.create_run()
         wait_for_terminal(self.service, run_id)
         page = self.client.get(f"/runs/{run_id}")
@@ -690,7 +726,7 @@ class AirAppTests(AirAppTestCase):
         self.assertEqual(rejected.status_code, 403)
 
     def test_anonymous_sees_only_published_answers(self):
-        self.as_user("alice")
+        self.seed_and_unlock("alice")
         run_id = self.create_run("pregunta aún privada")
         wait_for_terminal(self.service, run_id)
         self.as_anonymous()
@@ -713,7 +749,7 @@ class AirAppTests(AirAppTestCase):
         self.assertEqual(stream.status_code, 401)
 
     def test_users_cannot_read_each_others_private_runs(self):
-        self.as_user("alice")
+        self.seed_and_unlock("alice")
         run_id = self.create_run("pregunta privada")
         self.as_user("bob")
         redirected = self.client.get(f"/runs/{run_id}", follow_redirects=False)
@@ -725,31 +761,44 @@ class AirAppTests(AirAppTestCase):
         self.as_user("root", admin=True)
         self.assertEqual(self.client.get(f"/runs/{run_id}").status_code, 200)
 
-    def test_feedback_gate_blocks_until_own_answer_is_evaluated(self):
+    def test_review_gate_blocks_first_and_next_questions(self):
         self.as_user("alice")
-        run_id = self.create_run("primera pregunta de alice")
-        wait_for_terminal(self.service, run_id)
-
         home = self.client.get("/")
-        self.assertIn("Antes de hacer otra pregunta", home.text)
-        page = home
+        self.assertIn("Aún no hay respuestas publicadas", home.text)
+        self.assertNotIn('name="client_request_id"', home.text)
         blocked = self.client.post(
             "/runs",
             data={
-                "csrf_token": self.hidden(page, "csrf_token"),
+                "csrf_token": self.hidden(home, "csrf_token"),
                 "client_request_id": "gate-test",
-                "question": "segunda pregunta de alice",
+                "question": "pregunta bloqueada por la puerta",
                 "required_hops": "1",
             },
         )
         self.assertEqual(blocked.status_code, 422)
-        self.assertIn("Evalúa la respuesta de tu pregunta anterior", blocked.text)
+        self.assertIn("Evalúa una respuesta publicada", blocked.text)
 
+        self.as_user("root", admin=True)
+        seed_id = self.create_run("respuesta semilla publicada")
+        wait_for_terminal(self.service, seed_id)
+        self.assertEqual(self.publish(seed_id).status_code, 303)
+
+        self.as_user("alice")
+        home = self.client.get("/")
+        self.assertIn("Antes de hacer tu primera pregunta", home.text)
+        self.assertEqual(self.review_published(seed_id).status_code, 303)
+        self.assertIn('name="client_request_id"', self.client.get("/").text)
+
+        run_id = self.create_run("primera pregunta de alice")
+        wait_for_terminal(self.service, run_id)
+        home = self.client.get("/")
+        self.assertIn("Antes de hacer otra pregunta", home.text)
+        # Reviewing her own answer also unlocks the next question.
         self.assertEqual(self.submit_feedback(run_id).status_code, 303)
-        self.assertIn('name="question"', self.client.get("/").text)
+        self.assertIn('name="client_request_id"', self.client.get("/").text)
 
     def test_any_user_can_evaluate_a_published_answer(self):
-        self.as_user("alice")
+        self.seed_and_unlock("alice")
         run_id = self.create_run("respuesta que será pública")
         wait_for_terminal(self.service, run_id)
         self.as_user("root", admin=True)
@@ -795,7 +844,7 @@ class AirAppTests(AirAppTestCase):
         self.assertEqual(denied.status_code, 404)
 
     def test_moderation_queue_requires_admin_and_unpublish_hides(self):
-        self.as_user("alice")
+        self.as_user("root", admin=True)
         run_id = self.create_run("respuesta para moderar")
         wait_for_terminal(self.service, run_id)
 
@@ -841,9 +890,10 @@ class DailyQuotaTests(AirAppTestCase):
     daily_question_limit = 1
 
     def test_second_question_within_24h_is_rejected_but_admin_is_exempt(self):
-        self.as_user("alice")
+        self.seed_and_unlock("alice")
         run_id = self.create_run("única pregunta del día")
         wait_for_terminal(self.service, run_id)
+        # Reviewing her own answer clears the gate, leaving only the quota.
         self.assertEqual(self.submit_feedback(run_id).status_code, 303)
 
         blocked = self.client.post(

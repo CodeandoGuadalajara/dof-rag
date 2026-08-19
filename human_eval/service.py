@@ -49,12 +49,8 @@ class QuotaExceededError(RuntimeError):
     """The user already submitted the maximum questions in the window."""
 
 
-class FeedbackRequiredError(RuntimeError):
-    """The user must evaluate their previous answer before asking again."""
-
-    def __init__(self, run_id: str):
-        super().__init__("feedback required for the previous answer")
-        self.run_id = run_id
+class ReviewRequiredError(RuntimeError):
+    """The user must evaluate a published answer before asking a question."""
 
 
 class EvaluationService:
@@ -156,9 +152,10 @@ class EvaluationService:
             if self.store.has_active_run(user_id):
                 raise ActiveRunError("user already has an active run")
             if not admin:
-                pending = self.store.run_pending_feedback(user_id)
-                if pending is not None:
-                    raise FeedbackRequiredError(pending["run_id"])
+                if not self.store.has_review_since_last_submission(user_id):
+                    raise ReviewRequiredError(
+                        "a published-answer review is required before asking"
+                    )
                 if daily_question_limit >= 1:
                     cutoff = (
                         (datetime.now(timezone.utc) - timedelta(hours=24))

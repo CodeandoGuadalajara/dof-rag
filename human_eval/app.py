@@ -6,7 +6,8 @@ Authentication is provider-agnostic: ``create_app`` receives an
 
 Visibility model:
 - anonymous visitors can read published answers (terminal, published runs);
-- signed-in users can ask questions (rolling 24h quota, feedback gate) and
+- signed-in users can ask questions (rolling 24h quota; each question,
+  including the first, requires reviewing a published answer first) and can
   evaluate any published answer as well as their own;
 - admins (Clerk ``public_metadata.role == "admin"``) publish/unpublish
   answers and are exempt from the quota and the feedback gate.
@@ -50,10 +51,10 @@ from .contracts import ContractError, FeedbackRequest, RunRequest
 from .service import (
     ActiveRunError,
     EvaluationService,
-    FeedbackRequiredError,
     IdempotencyConflictError,
     QueueFullError,
     QuotaExceededError,
+    ReviewRequiredError,
 )
 from .store import SCHEMA_VERSION, EvaluationStore
 
@@ -450,7 +451,8 @@ def _home_page(
     user: User | None,
     published: list[dict[str, Any]],
     my_runs: list[dict[str, Any]] | None = None,
-    pending_feedback: dict[str, Any] | None = None,
+    needs_review: bool = False,
+    review_target: dict[str, Any] | None = None,
     quota_reached: bool = False,
     error: str | None = None,
     values: dict[str, Any] | None = None,
@@ -464,13 +466,26 @@ def _home_page(
 
     if user is None:
         ask_section = f"""<section class="panel"><h2>Participa</h2>{error_html}
-<p class="lede">Crea una cuenta para hacer una pregunta al día. Te pedimos evaluar la respuesta
-que recibas antes de hacer una nueva: tu evaluación es lo que mejora este piloto.</p>
+<p class="lede">Crea una cuenta, evalúa una respuesta publicada y desbloquea tu primera
+pregunta. Cada pregunta nueva pide una evaluación más: tu participación es lo que
+mejora este piloto.</p>
 <p><a class="button" href="/login">Entrar o crear cuenta</a></p></section>"""
-    elif pending_feedback is not None:
-        ask_section = f"""<section class="panel"><h2>Nueva pregunta</h2>{error_html}
-<p class="warning">Antes de hacer otra pregunta, evalúa la respuesta de tu pregunta anterior:
-<a href="/runs/{_escape(pending_feedback["run_id"])}">{_escape(pending_feedback["question"])}</a></p></section>"""
+    elif needs_review:
+        first = not my_runs
+        if review_target is not None:
+            base = "/answers" if review_target["published"] else "/runs"
+            review_html = (
+                f'<p class="warning">Antes de hacer {"tu primera" if first else "otra"} '
+                "pregunta, evalúa una respuesta, por ejemplo: "
+                f'<a href="{base}/{_escape(review_target["run_id"])}">'
+                f"{_escape(review_target['question'])}</a></p>"
+            )
+        else:
+            review_html = (
+                '<p class="warning">Aún no hay respuestas publicadas disponibles '
+                "para evaluar. Vuelve a intentarlo pronto.</p>"
+            )
+        ask_section = f'<section class="panel"><h2>Nueva pregunta</h2>{error_html}{review_html}</section>'
     elif quota_reached:
         ask_section = f"""<section class="panel"><h2>Nueva pregunta</h2>{error_html}
 <p class="notice">Ya enviaste tu pregunta de este periodo de 24 horas. Vuelve a intentar más tarde.</p></section>"""
@@ -852,13 +867,18 @@ def create_app(
     ) -> HTMLResponse:
         published = service.store.published_runs()
         my_runs = None
-        pending = None
+        needs_review = False
+        review_target = None
         quota_reached = False
         if user is not None:
             my_runs = service.store.runs_for_user(user.id)
             if not user.is_admin:
-                pending = service.store.run_pending_feedback(user.id)
-                if pending is None and settings.daily_question_limit >= 1:
+                needs_review = not service.store.has_review_since_last_submission(
+                    user.id
+                )
+                if needs_review:
+                    review_target = service.store.next_answer_to_review(user.id)
+                elif settings.daily_question_limit >= 1:
                     cutoff = (
                         (datetime.now(timezone.utc) - timedelta(hours=24))
                         .isoformat()
@@ -874,7 +894,8 @@ def create_app(
                 user=user,
                 published=published,
                 my_runs=my_runs,
-                pending_feedback=pending,
+                needs_review=needs_review,
+                review_target=review_target,
                 quota_reached=quota_reached,
                 error=error,
                 values=values,
@@ -930,13 +951,13 @@ def create_app(
             return render_home(
                 request, user, error=str(exc), values=values, status_code=422
             )
-        except FeedbackRequiredError:
+        except ReviewRequiredError:
             return render_home(
                 request,
                 user,
                 error=(
-                    "Evalúa la respuesta de tu pregunta anterior antes de "
-                    "hacer una nueva."
+                    "Evalúa una respuesta publicada para desbloquear tu "
+                    "siguiente pregunta."
                 ),
                 values=values,
                 status_code=422,

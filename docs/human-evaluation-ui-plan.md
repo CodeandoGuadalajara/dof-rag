@@ -388,10 +388,11 @@ piloto en una app con tres audiencias:
 - **Usuarios con cuenta** (Clerk, vía AirClerk) pueden preguntar y evaluar.
   Límites: una pregunta por ventana móvil de 24 h
   (`DOF_DAILY_QUESTION_LIMIT`, las ejecuciones cuentan aunque fallen) y una
-  puerta de participación: antes de preguntar de nuevo hay que evaluar la
-  respuesta propia anterior; las ejecuciones fallidas no bloquean. Cualquier
-  usuario puede evaluar cualquier respuesta publicada; cada evaluación guarda
-  el `user_id` de quien la emitió.
+  puerta de participación: cada pregunta —incluida la primera— requiere haber
+  evaluado alguna respuesta (cualquiera publicada, o la propia aunque no se
+  haya publicado) desde la pregunta anterior. Cualquier usuario puede evaluar
+  cualquier respuesta publicada; cada evaluación guarda el `user_id` de quien
+  la emitió.
 - **Administradores** (`public_metadata.role == "admin"` en Clerk) publican o
   retiran respuestas desde `/admin/queue` o desde la propia ejecución.
   Publicar convierte la pregunta y la respuesta en contenido público, así que
