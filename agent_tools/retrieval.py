@@ -160,6 +160,27 @@ def _apply_recency_to_ranked(
     )
 
 
+FRAGMENT_TITLE_RE = re.compile(
+    r"^(?:[IVXLCDM]{1,6}\.|[A-Z]\.|secci[oó]n\b|cap[ií]tulo\b|apartado\b|"
+    r"numeral\b|transitorio)",
+    re.I,
+)
+
+
+def _title_is_fragment(title: str | None) -> bool:
+    """Detect fast heading-based titles that are document-body fragments.
+
+    The fast header path takes the first chunk heading as the title, which for
+    many documents yields meaningless fragments like "II. DEL PROGRAMA" or
+    "II. Se deroga;". Those hide the instrument name from the agent, so the
+    caller should fall back to full header extraction.
+    """
+    if title is None:
+        return True
+    stripped = title.strip()
+    return len(stripped) < 20 or bool(FRAGMENT_TITLE_RE.match(stripped))
+
+
 def _document_name_phrases(query: str) -> list[str]:
     """Extract explicit legal-instrument names for an exact-phrase lookup."""
     phrases: list[str] = []
@@ -782,6 +803,8 @@ class DofRetriever:
             (document_id,),
         ).fetchall()
         header = self._document_header(document_id)
+        if _title_is_fragment(header.title):
+            header = self._document_header(document_id, full=True)
         return DocumentOutline(
             document_id=int(row[0]),
             path=row[1],
@@ -986,7 +1009,7 @@ class DofRetriever:
             if doc_id not in doc_info:
                 continue
             header = headers[doc_id]
-            if header.title is None:
+            if _title_is_fragment(header.title):
                 header = self._document_header(doc_id, full=True)
             documents.append(
                 DocumentHit(

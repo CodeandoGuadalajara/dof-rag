@@ -39,6 +39,7 @@ from agent_tools.retrieval import (
     _normative_title_boost,
     _recency_boosts,
     _rrf,
+    _title_is_fragment,
 )
 from scripts.eval_v4_agent import (
     calculate_metrics,
@@ -326,6 +327,15 @@ class AgentToolsTests(unittest.TestCase):
         )
         prefer_recent = search["parameters"]["properties"]["prefer_recent"]
         self.assertEqual(prefer_recent["type"], ["boolean", "null"])
+
+    def test_fragment_titles_trigger_full_header_extraction(self):
+        for fragment in (None, "II. DEL PROGRAMA", "II. Se deroga;", "B. DOCUMENTACIÓN", "corto"):
+            self.assertTrue(_title_is_fragment(fragment), fragment)
+        for real in (
+            "REGLAS DE OPERACION DEL PROGRAMA DE APOYO AL EMPLEO",
+            "ACUERDO por el que se modifica el diverso",
+        ):
+            self.assertFalse(_title_is_fragment(real), real)
 
     def test_comparison_years_are_explicit_coverage_requirements(self):
         self.assertEqual(
