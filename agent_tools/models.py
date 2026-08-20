@@ -88,6 +88,7 @@ class DocumentHit:
     title: str | None = None
     institution: str | None = None
     title_boost: float = 0.0
+    recency_boost: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -103,6 +104,7 @@ class EvidenceHit:
     score: float
     source: str
     rank: int = 0
+    title: str | None = None
 
 
 @dataclass(frozen=True)

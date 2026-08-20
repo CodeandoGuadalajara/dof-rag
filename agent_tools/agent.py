@@ -23,6 +23,8 @@ from .retrieval import DofRetriever, QueryEmbedder
 
 LOGGER = logging.getLogger(__name__)
 
+MAX_DOCUMENT_SEARCH_CALLS = 3
+
 YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
 YEAR_COMPARISON_RE = re.compile(
     r"\b(?:de\s+((?:19|20)\d{2})\s+a|entre\s+((?:19|20)\d{2})\s+y)\s+"
@@ -247,18 +249,34 @@ read_chunks y debes incluir al menos una cita válida. Si la evidencia es
 insuficiente, dilo. Marca una premisa como false únicamente cuando los chunks
 citados establezcan la corrección y exprésala de forma afirmativa. "No se encontró"
 no demuestra que una premisa sea falsa; si no puedes documentar la corrección,
-usa unclear. Mantén la respuesta concreta.
+usa unclear. Mantén la respuesta concreta. Indica la fecha de publicación de las
+fuentes que sostienen tu respuesta y, si la evidencia más reciente disponible es
+antigua, advierte que la regla o el programa pudo haber cambiado.
 Al terminar devuelve SOLO JSON con la forma
 {"answer":"...","citations":[123],"premise_status":"supported|false|unclear"}.
 
 Política de herramientas:
 - Haz una sola llamada por turno y usa la ruta más corta: search_documents,
   search_evidence, read_chunks y respuesta.
-- No repitas la misma búsqueda con variaciones menores.
+- No repitas búsquedas con variaciones menores: tras una o dos search_documents
+  entra a la evidencia (search_evidence, get_document_outline, read_chunks).
+  La vigencia se verifica leyendo los documentos, no con más búsquedas.
+  search_documents se desactiva después de unas pocas llamadas.
+- Cuando search_evidence muestre chunks de documentos recientes, incluye al
+  menos el mejor chunk de cada documento reciente en tu read_chunks antes de
+  descartarlo por su fragmento; el título del documento acompaña a cada chunk.
 - Usa get_document_outline sólo para estructura o referencias cruzadas, y
   list_publications cuando la fecha de publicación sea el dato de entrada.
 - El año sobre el que rige una norma o cantidad no implica que se publicara ese
   año. No fijes date_from sólo a partir del año mencionado en la pregunta.
+- Si la pregunta trata sobre programas, apoyos, requisitos o reglas vigentes y
+  no fija una fecha histórica, usa prefer_recent=true en search_documents y
+  search_evidence, y comprueba si el instrumento encontrado fue reformado,
+  derogado o sustituido con posterioridad antes de responder. Lee evidencia de
+  los candidatos más recientes que traten el tema antes de cerrar con documentos
+  antiguos; si los documentos recientes no tratan el tema, dilo explícitamente.
+  No uses un date_from rígido que excluya la ley o programa base todavía
+  vigente.
 - Conserva todas las partes de la pregunta desde la primera búsqueda. En una
   comparación entre años, busca evidencia para ambos años antes de responder.
 """
@@ -432,6 +450,7 @@ class DofToolbox:
         self.coverage_requirements: set[str] = set()
         self.covered_requirements: set[str] = set()
         self.required_hops = 1
+        self.search_document_calls = 0
         self._vector_cache: dict[str, bytes] = {}
         self._schemas = self._build_schemas()
 
@@ -461,6 +480,7 @@ class DofToolbox:
         self.coverage_requirements = set(coverage_requirements or [])
         self.covered_requirements.clear()
         self.required_hops = required_hops
+        self.search_document_calls = 0
         self._vector_cache.clear()
 
     @property
@@ -604,6 +624,13 @@ class DofToolbox:
                     "query": {"type": "string", "minLength": 1, "maxLength": 1000},
                     "strategy": strategy,
                     **filters,
+                    "prefer_recent": _nullable("boolean")
+                    | {
+                        "description": (
+                            "true da prioridad a las publicaciones más recientes; "
+                            "úsalo para preguntas sobre la situación vigente."
+                        )
+                    },
                     "top_k": {"type": "integer", "minimum": 1, "maximum": 10},
                 }
             ),
@@ -617,6 +644,13 @@ class DofToolbox:
                         "maxItems": 10,
                     },
                     "strategy": strategy,
+                    "prefer_recent": _nullable("boolean")
+                    | {
+                        "description": (
+                            "true da visibilidad a chunks de documentos más "
+                            "recientes dentro de los candidatos."
+                        )
+                    },
                     "top_k": {"type": "integer", "minimum": 1, "maximum": 10},
                 }
             ),
@@ -643,7 +677,10 @@ class DofToolbox:
     def tool_definitions(self) -> list[dict[str, Any]]:
         descriptions = {
             "list_publications": "Lista publicaciones por fecha y sección sin buscar texto.",
-            "search_documents": "Encuentra documentos candidatos. No devuelve evidencia citable.",
+            "search_documents": (
+                "Encuentra documentos candidatos con su fecha de publicación. "
+                "No devuelve evidencia citable."
+            ),
             "search_evidence": "Busca chunks relevantes dentro de documentos candidatos.",
             "get_document_outline": "Muestra encabezados y chunks de un documento sin leer su texto.",
             "read_chunks": "Lee texto verificable. Sólo los IDs leídos pueden citarse al responder.",
@@ -726,6 +763,7 @@ class DofToolbox:
         }
 
     def _call_search_documents(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        self.search_document_calls += 1
         strategy = arguments["strategy"]
         filters = self._filters(arguments)
         result = self.retriever.search_documents(
@@ -736,6 +774,7 @@ class DofToolbox:
             bm25_depth=100,
             vector_k=300,
             top_k=arguments["top_k"],
+            prefer_recent=bool(arguments.get("prefer_recent")),
         )
         self._remember_documents(result.documents)
         return result.to_dict()
@@ -755,6 +794,7 @@ class DofToolbox:
             top_k=arguments["top_k"],
             candidate_depth=300,
             vector_k=300,
+            prefer_recent=bool(arguments.get("prefer_recent")),
         )
         self.visible_chunk_ids.update(result.evidence_ids)
         data = result.to_dict()
@@ -1141,21 +1181,17 @@ class AgentRunner:
         if self.toolbox.read_chunk_ids and not self.toolbox.missing_coverage:
             return []
         if self.toolbox.read_chunk_ids:
-            return [
-                definitions[name]
-                for name in ("search_documents", "search_evidence", "read_chunks")
-            ]
+            names = ["search_evidence", "read_chunks"]
+            if self.toolbox.search_document_calls < MAX_DOCUMENT_SEARCH_CALLS:
+                names.insert(0, "search_documents")
+            return [definitions[name] for name in names]
         if self.toolbox.visible_chunk_ids:
             return [definitions["read_chunks"]]
         if self.toolbox.visible_document_ids:
-            return [
-                definitions[name]
-                for name in (
-                    "search_documents",
-                    "search_evidence",
-                    "get_document_outline",
-                )
-            ]
+            names = ["search_evidence", "get_document_outline"]
+            if self.toolbox.search_document_calls < MAX_DOCUMENT_SEARCH_CALLS:
+                names.insert(0, "search_documents")
+            return [definitions[name] for name in names]
         return [definitions[name] for name in ("list_publications", "search_documents")]
 
     def run(
@@ -1235,6 +1271,7 @@ class AgentRunner:
                     "available_tools": [tool["name"] for tool in available_tools],
                 },
             )
+            available_names = {tool["name"] for tool in available_tools}
             turn = self.backend.create_turn(
                 input_items=turn_input,
                 tools=available_tools,
@@ -1282,6 +1319,19 @@ class AgentRunner:
                             "error": {
                                 "type": "tool_limit",
                                 "message": f"maximum {self.max_tool_calls} tool calls reached",
+                            },
+                        }
+                        elapsed_ms = 0.0
+                    elif call.name not in available_names:
+                        output = {
+                            "ok": False,
+                            "error": {
+                                "type": "tool_unavailable",
+                                "message": (
+                                    f"{call.name} no está disponible en este turno; "
+                                    "usa una de: "
+                                    + ", ".join(sorted(available_names))
+                                ),
                             },
                         }
                         elapsed_ms = 0.0

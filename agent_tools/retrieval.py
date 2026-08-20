@@ -108,6 +108,79 @@ def _normative_title_boost(query: str, title: str | None) -> float:
     return boost
 
 
+def _recency_boosts(
+    candidates: list[tuple[int, str | None]], weight: float
+) -> dict[int, float]:
+    """Rank-based recency bonus: the newest dated candidate gets ``weight``.
+
+    Boosts decay linearly by recency rank so relevance still dominates, and
+    undated documents receive no bonus. Ordering by ``(-date, document_id)``
+    keeps the result deterministic for a static corpus.
+    """
+    dated = sorted(
+        ((date, document_id) for document_id, date in candidates if date),
+        key=lambda item: (item[0], -item[1]),
+        reverse=True,
+    )
+    n = len(dated)
+    return {
+        document_id: weight * (n - rank) / n
+        for rank, (_, document_id) in enumerate(dated)
+    }
+
+
+def _apply_recency_to_ranked(
+    ranked_ids: list[int],
+    dates: dict[int, str | None],
+    weight: float,
+) -> list[int]:
+    """Blend rank-based relevance with document recency.
+
+    The goal is visibility, not dominance: the best chunk from a recent
+    document should reach the top-k so the agent can judge it, without
+    pushing irrelevant recent chunks above highly relevant older ones.
+    """
+    n = len(ranked_ids)
+    if not n or weight <= 0.0:
+        return ranked_ids
+    relevance = {chunk_id: (n - rank) / n for rank, chunk_id in enumerate(ranked_ids)}
+    recency = _recency_boosts(
+        [(chunk_id, dates.get(chunk_id)) for chunk_id in ranked_ids], 1.0
+    )
+    return sorted(
+        ranked_ids,
+        key=lambda chunk_id: (
+            -(
+                (1.0 - weight) * relevance[chunk_id]
+                + weight * recency.get(chunk_id, 0.0)
+            ),
+            -relevance[chunk_id],
+            chunk_id,
+        ),
+    )
+
+
+FRAGMENT_TITLE_RE = re.compile(
+    r"^(?:[IVXLCDM]{1,6}\.|[A-Z]\.|secci[oó]n\b|cap[ií]tulo\b|apartado\b|"
+    r"numeral\b|transitorio)",
+    re.I,
+)
+
+
+def _title_is_fragment(title: str | None) -> bool:
+    """Detect fast heading-based titles that are document-body fragments.
+
+    The fast header path takes the first chunk heading as the title, which for
+    many documents yields meaningless fragments like "II. DEL PROGRAMA" or
+    "II. Se deroga;". Those hide the instrument name from the agent, so the
+    caller should fall back to full header extraction.
+    """
+    if title is None:
+        return True
+    stripped = title.strip()
+    return len(stripped) < 20 or bool(FRAGMENT_TITLE_RE.match(stripped))
+
+
 def _document_name_phrases(query: str) -> list[str]:
     """Extract explicit legal-instrument names for an exact-phrase lookup."""
     phrases: list[str] = []
@@ -730,6 +803,8 @@ class DofRetriever:
             (document_id,),
         ).fetchall()
         header = self._document_header(document_id)
+        if _title_is_fragment(header.title):
+            header = self._document_header(document_id, full=True)
         return DocumentOutline(
             document_id=int(row[0]),
             path=row[1],
@@ -747,6 +822,19 @@ class DofRetriever:
             title=header.title,
             institution=header.institution,
         )
+
+    def _evidence_titles(
+        self, document_ids: list[int]
+    ) -> dict[int, str | None]:
+        """Resolve readable titles for evidence hits (full header on fragments)."""
+        headers = self._document_headers(document_ids)
+        titles: dict[int, str | None] = {}
+        for document_id in document_ids:
+            header = headers[document_id]
+            if _title_is_fragment(header.title):
+                header = self._document_header(document_id, full=True)
+            titles[document_id] = header.title
+        return titles
 
     def read_chunks(
         self, chunk_ids: list[int], *, neighbor_window: int = 0
@@ -783,6 +871,9 @@ class DofRetriever:
         ordered = sorted(
             records.values(), key=lambda item: (item.document_id, item.chunk_index)
         )
+        titles = self._evidence_titles(
+            list({record.document_id for record in ordered})
+        )
         return [
             EvidenceHit(
                 chunk_id=record.chunk_id,
@@ -796,6 +887,7 @@ class DofRetriever:
                 score=0.0,
                 source="read",
                 rank=rank,
+                title=titles.get(record.document_id),
             )
             for rank, (record, text) in enumerate(self._reconstruct_records(ordered), 1)
         ]
@@ -811,6 +903,8 @@ class DofRetriever:
         vector_k: int = 200,
         top_k: int = 20,
         bm25_weight: float = 0.75,
+        prefer_recent: bool = False,
+        recency_weight: float = 0.15,
     ) -> DocumentSearchResult:
         """Find candidate documents using lexical, vector, or hybrid ranking."""
         started = perf_counter()
@@ -906,7 +1000,20 @@ class DofRetriever:
                     fused_rank,
                 )
             )
-        reranked.sort(key=lambda row: (-(row[1] + row[4]), row[5], row[0]))
+        recency = (
+            _recency_boosts(
+                [
+                    (row[0], doc_info.get(row[0], (None, None, None))[1])
+                    for row in reranked
+                ],
+                recency_weight * max((row[1] for row in reranked), default=0.0),
+            )
+            if prefer_recent and reranked
+            else {}
+        )
+        reranked.sort(
+            key=lambda row: (-(row[1] + row[4] + recency.get(row[0], 0.0)), row[5], row[0])
+        )
         documents = []
         for rank, (
             doc_id,
@@ -919,7 +1026,7 @@ class DofRetriever:
             if doc_id not in doc_info:
                 continue
             header = headers[doc_id]
-            if header.title is None:
+            if _title_is_fragment(header.title):
                 header = self._document_header(doc_id, full=True)
             documents.append(
                 DocumentHit(
@@ -927,13 +1034,14 @@ class DofRetriever:
                     path=doc_info[doc_id][0],
                     publication_date=doc_info[doc_id][1],
                     section=doc_info[doc_id][2],
-                    score=score + title_boost,
+                    score=score + title_boost + recency.get(doc_id, 0.0),
                     bm25_score=bm25_score,
                     vector_score=vector_score,
                     rank=rank,
                     title=header.title or headers[doc_id].title,
                     institution=header.institution,
                     title_boost=title_boost,
+                    recency_boost=recency.get(doc_id, 0.0),
                 )
             )
         return DocumentSearchResult(
@@ -953,6 +1061,8 @@ class DofRetriever:
                 "normative_title_rerank": True,
                 "dated_heading_candidates": bool(heading_titles),
                 "exact_title_candidates": bool(exact_titles),
+                "prefer_recent": prefer_recent,
+                "recency_weight": recency_weight if prefer_recent else 0.0,
             },
         )
 
@@ -966,6 +1076,8 @@ class DofRetriever:
         top_k: int = 20,
         candidate_depth: int = 200,
         vector_k: int = 200,
+        prefer_recent: bool = False,
+        recency_weight: float = 0.25,
     ) -> EvidenceSearchResult:
         """Search deeply for citable chunks inside candidate documents."""
         started = perf_counter()
@@ -1020,8 +1132,19 @@ class DofRetriever:
             ranked_ids = vector_ids
         else:
             ranked_ids = _rrf([lexical_ids, vector_ids])
+        if prefer_recent:
+            ranked_ids = _apply_recency_to_ranked(
+                ranked_ids,
+                {
+                    chunk_id: by_id[chunk_id][0].publication_date
+                    for chunk_id in ranked_ids
+                    if chunk_id in by_id
+                },
+                recency_weight,
+            )
         ranked_ids = ranked_ids[:top_k]
 
+        titles = self._evidence_titles(document_ids)
         evidence: list[EvidenceHit] = []
         for rank, chunk_id in enumerate(ranked_ids, 1):
             item = by_id.get(chunk_id)
@@ -1046,6 +1169,7 @@ class DofRetriever:
                     score=score_by_id.get(chunk_id, vector_score.get(chunk_id, 0.0)),
                     source=source,
                     rank=rank,
+                    title=titles.get(record.document_id),
                 )
             )
         return EvidenceSearchResult(
@@ -1062,6 +1186,8 @@ class DofRetriever:
                 "vector_k": vector_k,
                 "vector_filtering": "post_filter",
                 "lexical_ranker": "bounded_bm25",
+                "prefer_recent": prefer_recent,
+                "recency_weight": recency_weight if prefer_recent else 0.0,
             },
         )
 

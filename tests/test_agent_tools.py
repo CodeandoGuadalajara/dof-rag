@@ -20,7 +20,9 @@ from agent_tools.agent import (
 from agent_tools.headers import extract_document_header
 from agent_tools.llm import _parse_json, answer_with_context
 from agent_tools.models import (
+    DocumentHit,
     DocumentOutline,
+    DocumentSearchResult,
     EvidenceHit,
     EvidenceSearchResult,
     IndexVersions,
@@ -31,11 +33,14 @@ from agent_tools.models import (
     SearchResult,
 )
 from agent_tools.retrieval import (
+    _apply_recency_to_ranked,
     _bm25_chunk_scores,
     _document_name_phrases,
     _fuse_documents,
     _normative_title_boost,
+    _recency_boosts,
     _rrf,
+    _title_is_fragment,
 )
 from scripts.eval_v4_agent import (
     calculate_metrics,
@@ -109,6 +114,8 @@ class MultiDocumentFakeRetriever(FakeRetriever):
         top_k=10,
         candidate_depth=300,
         vector_k=300,
+        prefer_recent=False,
+        recency_weight=0.25,
     ):
         hits = [
             EvidenceHit(
@@ -242,6 +249,143 @@ class AgentToolsTests(unittest.TestCase):
             ),
             ["Ley General de Aguas"],
         )
+
+    def test_recency_boosts_favor_newest_and_skip_undated(self):
+        boosts = _recency_boosts(
+            [(1, "2009-06-01"), (2, "2024-03-15"), (3, None), (4, "2018-11-30")],
+            0.3,
+        )
+        self.assertNotIn(3, boosts)
+        self.assertAlmostEqual(boosts[2], 0.3)
+        self.assertGreater(boosts[2], boosts[4])
+        self.assertGreater(boosts[4], boosts[1])
+        self.assertEqual(boosts, _recency_boosts([(4, "2018-11-30"), (3, None), (2, "2024-03-15"), (1, "2009-06-01")], 0.3))
+
+    def test_search_documents_tool_exposes_prefer_recent(self):
+        toolbox = DofToolbox(FakeRetriever())
+        search = next(
+            tool
+            for tool in toolbox.tool_definitions()
+            if tool["name"] == "search_documents"
+        )
+        prefer_recent = search["parameters"]["properties"]["prefer_recent"]
+        self.assertEqual(prefer_recent["type"], ["boolean", "null"])
+
+    def test_toolbox_passes_prefer_recent_to_the_retriever(self):
+        class RecordingRetriever(FakeRetriever):
+            def __init__(self):
+                self.calls = []
+
+            def search_documents(self, query, **kwargs):
+                self.calls.append((query, kwargs))
+                return DocumentSearchResult(
+                    query=query,
+                    strategy=RetrievalStrategy(kwargs["strategy"]),
+                    filters=kwargs["filters"],
+                    versions=self.versions,
+                )
+
+        retriever = RecordingRetriever()
+        toolbox = DofToolbox(retriever)
+        toolbox.begin(as_of=None)
+        output = toolbox.call(
+            "search_documents",
+            {
+                "query": "apoyos para desempleo",
+                "strategy": "lexical",
+                "as_of": None,
+                "date_from": None,
+                "date_to": None,
+                "section": None,
+                "prefer_recent": True,
+                "top_k": 5,
+            },
+        )
+        self.assertTrue(output["ok"])
+        self.assertTrue(retriever.calls[0][1]["prefer_recent"])
+
+    def test_recency_rerank_gives_recent_chunks_visibility_without_dominance(self):
+        ranked = [10, 11, 12, 13, 14]
+        dates = {
+            10: "2009-12-29",
+            11: "2009-12-29",
+            12: "2009-12-29",
+            13: "2008-07-04",
+            14: "2021-03-19",
+        }
+        reordered = _apply_recency_to_ranked(ranked, dates, 0.25)
+        self.assertEqual(reordered[0], 10)
+        self.assertLess(reordered.index(14), reordered.index(13))
+        self.assertEqual(ranked, [10, 11, 12, 13, 14])
+        self.assertEqual(_apply_recency_to_ranked(ranked, dates, 0.0), ranked)
+
+    def test_search_evidence_tool_exposes_prefer_recent(self):
+        toolbox = DofToolbox(FakeRetriever())
+        search = next(
+            tool
+            for tool in toolbox.tool_definitions()
+            if tool["name"] == "search_evidence"
+        )
+        prefer_recent = search["parameters"]["properties"]["prefer_recent"]
+        self.assertEqual(prefer_recent["type"], ["boolean", "null"])
+
+    def test_fragment_titles_trigger_full_header_extraction(self):
+        for fragment in (None, "II. DEL PROGRAMA", "II. Se deroga;", "B. DOCUMENTACIÓN", "corto"):
+            self.assertTrue(_title_is_fragment(fragment), fragment)
+        for real in (
+            "REGLAS DE OPERACION DEL PROGRAMA DE APOYO AL EMPLEO",
+            "ACUERDO por el que se modifica el diverso",
+        ):
+            self.assertFalse(_title_is_fragment(real), real)
+
+    def test_agent_document_search_budget_forces_drill_down(self):
+        class SearchingRetriever(FakeRetriever):
+            def search_documents(self, query, **kwargs):
+                return DocumentSearchResult(
+                    query=query,
+                    strategy=RetrievalStrategy(kwargs["strategy"]),
+                    filters=kwargs["filters"],
+                    documents=[
+                        DocumentHit(
+                            document_id=2,
+                            path="doc.md",
+                            publication_date="2025-01-01",
+                            section="MAT",
+                            score=1.0,
+                            title="Documento",
+                        )
+                    ],
+                    versions=self.versions,
+                )
+
+        search_call = ToolCall(
+            call_id="call-search",
+            name="search_documents",
+            arguments={
+                "query": "apoyos desempleo",
+                "strategy": "lexical",
+                "as_of": None,
+                "date_from": None,
+                "date_to": None,
+                "section": None,
+                "prefer_recent": True,
+                "top_k": 5,
+            },
+        )
+        backend = ScriptedBackend(
+            [
+                ModelTurn(response_id=str(i), output_items=[], tool_calls=[search_call])
+                for i in range(4)
+            ]
+            + [ModelTurn(response_id="final", output_items=[], final_text="{}")]
+        )
+        toolbox = DofToolbox(SearchingRetriever())
+        run = AgentRunner(backend, toolbox, max_model_turns=5).run("pregunta")
+        self.assertEqual(toolbox.search_document_calls, 3)
+        self.assertEqual(run.tool_calls, 3)
+        fourth_turn_tools = {tool["name"] for tool in backend.calls[3]["tools"]}
+        self.assertNotIn("search_documents", fourth_turn_tools)
+        self.assertIn("search_evidence", fourth_turn_tools)
 
     def test_comparison_years_are_explicit_coverage_requirements(self):
         self.assertEqual(
@@ -814,6 +958,7 @@ class AgentToolsTests(unittest.TestCase):
                                 "query": "evidencia",
                                 "document_ids": [2, 3],
                                 "strategy": "lexical",
+                                "prefer_recent": None,
                                 "top_k": 5,
                             },
                         )
