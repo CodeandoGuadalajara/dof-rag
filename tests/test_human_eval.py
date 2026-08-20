@@ -1446,6 +1446,42 @@ class AirAppTests(AirAppTestCase):
         self.assertEqual(response.status_code, 303)
         self.assertEqual(response.headers["location"], "/admin")
 
+    def test_unknown_page_renders_styled_404(self):
+        response = self.client.get("/pagina-inexistente")
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("text/html", response.headers["content-type"])
+        self.assertIn("Página no encontrada", response.text)
+        self.assertIn("Error 404", response.text)
+        self.assertIn("Agente del Diario", response.text)
+        self.assertIn('href="/"', response.text)
+
+    def test_unknown_answer_renders_styled_404(self):
+        response = self.client.get("/answers/no-existe")
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("Respuesta no encontrada", response.text)
+        self.assertIn("Agente del Diario", response.text)
+        self.assertIn('href="/"', response.text)
+
+    def test_unknown_run_renders_styled_404_for_admin(self):
+        # Non-owners are redirected to /answers/; only owners and admins
+        # reach the run page itself.
+        self.as_user("root", admin=True)
+        response = self.client.get("/runs/no-existe")
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("Ejecución no encontrada", response.text)
+        self.assertIn("Agente del Diario", response.text)
+        self.assertIn('<a href="/admin">admin</a>', response.text)
+
+    def test_unknown_api_route_returns_json_404(self):
+        response = self.client.get("/api/v1/inexistente")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {"detail": "Not Found"})
+
+    def test_method_not_allowed_keeps_plain_text_response(self):
+        response = self.client.post("/api/v1/health")
+        self.assertEqual(response.status_code, 405)
+        self.assertNotIn("text/html", response.headers["content-type"])
+
     def test_health_and_capabilities_are_public_but_reveal_no_paths(self):
         health = self.client.get("/api/v1/health")
         self.assertEqual(health.json(), {"status": "ok"})

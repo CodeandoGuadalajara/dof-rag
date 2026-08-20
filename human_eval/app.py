@@ -934,6 +934,27 @@ visitante. Revisa cada pregunta antes de publicarla: se vuelve contenido públic
     )
 
 
+def _not_found_page(
+    title: str,
+    lede: str,
+    *,
+    user: User | None = None,
+    csrf_token: str = "",
+    page_scripts: Callable[[User | None], str] | None = None,
+) -> str:
+    body = f"""<section class="panel">
+<p class="eyebrow">Error 404</p><h2>{_escape(title)}</h2>
+<p class="lede">{_escape(lede)}</p>
+<p><a class="button secondary" href="/">← Ir a la portada</a></p></section>"""
+    return _page(
+        title,
+        body,
+        user=user,
+        csrf_token=csrf_token,
+        page_scripts=page_scripts,
+    )
+
+
 def _sanitize_login_next(raw: str | None) -> str:
     """Allow only same-origin absolute paths (open-redirect guard)."""
     if not raw:
@@ -1217,7 +1238,17 @@ def create_app(
                 admin=bool(user and user.is_admin),
             )
         except KeyError:
-            return HTMLResponse("Respuesta no encontrada.", status_code=404)
+            return HTMLResponse(
+                _not_found_page(
+                    "Respuesta no encontrada",
+                    "La respuesta que buscas no existe, fue retirada de la "
+                    "vista pública o todavía no se ha publicado.",
+                    user=user,
+                    csrf_token=_csrf(request) if user is not None else "",
+                    page_scripts=page_scripts,
+                ),
+                status_code=404,
+            )
         if run["status"] != "succeeded" or run.get("published_at") is None:
             # Owners/admins looking at their private run belong on /runs/.
             return RedirectResponse(f"/runs/{run_id}", status_code=303)
@@ -1254,7 +1285,16 @@ Publicada: {_escape(run.get("published_at"))}</p></section>
         try:
             run = service.public_run(run_id, user_id=user.id, admin=True)
         except KeyError:
-            return HTMLResponse("Ejecución no encontrada.", status_code=404)
+            return HTMLResponse(
+                _not_found_page(
+                    "Ejecución no encontrada",
+                    "La ejecución que buscas no existe o fue eliminada.",
+                    user=user,
+                    csrf_token=_csrf(request),
+                    page_scripts=page_scripts,
+                ),
+                status_code=404,
+            )
         csrf_token = _csrf(request)
         feedback_recorded = request.query_params.get("feedback") == "recorded"
         fragment = _status_fragment(
@@ -1492,6 +1532,28 @@ Publicada: {_escape(run.get("published_at"))}</p></section>
                     "active_runs_per_user": 1,
                 },
             }
+        )
+
+    @app.exception_handler(404)
+    async def not_found_handler(request: Request, exc: Exception) -> Response:
+        # Air registers its own default status-code handlers, which take
+        # precedence over class handlers, so 404 is customized by code.
+        # Browser paths get a styled page; the API keeps JSON responses.
+        detail = getattr(exc, "detail", "Not Found")
+        headers = getattr(exc, "headers", None)
+        if request.url.path.startswith("/api/"):
+            return JSONResponse({"detail": detail}, status_code=404, headers=headers)
+        user = await current_user(request)
+        return HTMLResponse(
+            _not_found_page(
+                "Página no encontrada",
+                "La dirección que buscas no corresponde a ninguna página del piloto.",
+                user=user,
+                csrf_token=_csrf(request) if user is not None else "",
+                page_scripts=page_scripts,
+            ),
+            status_code=404,
+            headers=headers,
         )
 
     return app
