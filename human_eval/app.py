@@ -210,6 +210,8 @@ button,.button { display:inline-block; border:0; border-radius:3px; color:white;
   cursor:pointer; font-weight:750; padding:.72rem 1rem; text-decoration:none; }
 button:hover,.button:hover { background:var(--accent-dark); }
 .secondary { background:transparent; border:1px solid var(--line); color:var(--ink); }
+.danger { background:var(--warn); }
+.danger:hover { background:#6d3013; }
 .status { border-left:5px solid var(--accent); }
 .status[data-state="failed"],.warning { border-left-color:var(--warn); }
 .meta { color:var(--muted); font-size:.86rem; }
@@ -472,7 +474,7 @@ def _page(
     if user is not None:
         session_area = (
             f'<span class="meta">{_escape(user.email or user.id)}'
-            f"{' · admin' if user.is_admin else ''}</span>"
+            f"{' · <a href="/admin">admin</a>' if user.is_admin else ''}</span>"
             f'<form method="post" action="/logout"><input type="hidden" name="csrf_token" '
             f'value="{_escape(csrf_token)}"><button class="secondary" type="submit">Salir</button></form>'
         )
@@ -811,26 +813,83 @@ No cambia esta respuesta ni el conjunto v4.</p>
 <button type="submit">Guardar evaluación</button></form></section>"""
 
 
+def _delete_run_form(run_id: str, csrf_token: str, *, next_url: str) -> str:
+    return f"""<form method="post" action="/admin/runs/{_escape(run_id)}/delete" style="margin-top:.4rem"
+onsubmit="return confirm('¿Eliminar esta pregunta y todos sus datos? Esta acción no se puede deshacer.');">
+<input type="hidden" name="csrf_token" value="{_escape(csrf_token)}">
+<input type="hidden" name="next" value="{_escape(next_url)}">
+<button class="danger" type="submit">Eliminar pregunta y datos</button></form>"""
+
+
 def _admin_panel(run: dict[str, Any], csrf_token: str) -> str:
     run_id = _escape(run["run_id"])
     published_at = run.get("published_at")
     next_url = _escape(f"/runs/{run['run_id']}")
+    delete_form = _delete_run_form(run["run_id"], csrf_token, next_url="/admin")
     if published_at:
         return f"""<section class="panel"><h2>Moderación</h2>
 <p class="meta">Publicada {_escape(published_at)} por {_escape(run.get("published_by") or "admin")}.</p>
 <form method="post" action="/admin/runs/{run_id}/unpublish">
 <input type="hidden" name="csrf_token" value="{_escape(csrf_token)}">
 <input type="hidden" name="next" value="{next_url}">
-<button class="secondary" type="submit">Retirar de la vista pública</button></form></section>"""
-    if run["status"] != "succeeded":
+<button class="secondary" type="submit">Retirar de la vista pública</button></form>
+{delete_form}</section>"""
+    if run["status"] not in ("succeeded", "failed"):
         return ""
+    if run["status"] == "failed":
+        return f"""<section class="panel"><h2>Moderación</h2>
+<p class="meta">La ejecución falló; solo puede eliminarse.</p>
+{delete_form}</section>"""
     return f"""<section class="panel"><h2>Moderación</h2>
 <p class="lede">Publicar hace visible la pregunta y la respuesta para cualquier visitante.
 Revisa que la pregunta no contenga datos personales antes de publicar.</p>
 <form method="post" action="/admin/runs/{run_id}/publish">
 <input type="hidden" name="csrf_token" value="{_escape(csrf_token)}">
 <input type="hidden" name="next" value="{next_url}">
-<button type="submit">Publicar respuesta</button></form></section>"""
+<button type="submit">Publicar respuesta</button></form>
+{delete_form}</section>"""
+
+
+def _admin_dashboard_page(
+    runs: list[dict[str, Any]],
+    *,
+    user: User,
+    csrf_token: str,
+    page_scripts: Callable[[User | None], str] | None = None,
+) -> str:
+    rows = []
+    for run in runs:
+        state = _escape(STATUS_LABELS.get(run["status"], run["status"]))
+        if run["published_at"]:
+            state += f" · Publicada {_escape(run['published_at'])}"
+        delete = ""
+        if run["status"] not in ("queued", "running"):
+            delete = _delete_run_form(run["run_id"], csrf_token, next_url="/admin")
+        rows.append(
+            f"""<li><a href="/runs/{_escape(run["run_id"])}">{_escape(run["question"])}</a>
+<span class="meta">{state} · {_escape(run["created_at"])} · {_escape(run["user_id"])}</span>{delete}</li>"""
+        )
+    items = (
+        "".join(rows)
+        or '<li><span class="meta">No hay preguntas registradas.</span></li>'
+    )
+    body = f"""<p><a href="/">← Portada</a></p><section><p class="eyebrow">Administración</p>
+<h1>Panel de administración</h1><p class="lede">Acciones editoriales del piloto.
+Las cuentas y los roles se gestionan en Clerk.</p></section>
+<section class="panel"><h2>Moderación</h2>
+<p class="meta">Publica o retira respuestas de la vista pública.</p>
+<p><a href="/admin/queue">Cola de publicación →</a></p></section>
+<section class="panel"><h2>Preguntas</h2>
+<p class="meta">Eliminar borra la pregunta, la respuesta, la evidencia registrada y las
+evaluaciones asociadas. Las ejecuciones en curso no pueden eliminarse. Esta acción no se puede deshacer.</p>
+<ul class="run-list">{items}</ul></section>"""
+    return _page(
+        "Administración",
+        body,
+        user=user,
+        csrf_token=csrf_token,
+        page_scripts=page_scripts,
+    )
 
 
 def _moderation_page(
@@ -862,7 +921,7 @@ def _moderation_page(
         "".join(rows)
         or '<li><span class="meta">No hay respuestas por moderar.</span></li>'
     )
-    body = f"""<p><a href="/">← Portada</a></p><section><p class="eyebrow">Moderación</p>
+    body = f"""<p><a href="/admin">← Panel de administración</a></p><section><p class="eyebrow">Moderación</p>
 <h1>Cola de publicación</h1><p class="lede">Las respuestas publicadas son visibles para cualquier
 visitante. Revisa cada pregunta antes de publicarla: se vuelve contenido público.</p></section>
 <section class="panel"><ul class="run-list">{items}</ul></section>"""
@@ -1326,6 +1385,22 @@ Publicada: {_escape(run.get("published_at"))}</p></section>
             f"{next_url}{separator}feedback=recorded", status_code=303
         )
 
+    @app.get("/admin", response_class=HTMLResponse)
+    async def admin_dashboard(request: Request) -> Response:
+        user = await current_user(request)
+        if user is None:
+            return login_redirect(request)
+        if not user.is_admin:
+            return HTMLResponse("Solo administradores.", status_code=403)
+        return HTMLResponse(
+            _admin_dashboard_page(
+                service.store.admin_runs(),
+                user=user,
+                csrf_token=_csrf(request),
+                page_scripts=page_scripts,
+            )
+        )
+
     @app.get("/admin/queue", response_class=HTMLResponse)
     async def moderation_queue(request: Request) -> Response:
         user = await current_user(request)
@@ -1369,6 +1444,27 @@ Publicada: {_escape(run.get("published_at"))}</p></section>
         except ValueError as exc:
             return HTMLResponse(_escape(str(exc)), status_code=422)
         next_url = _safe_next(form.get("next"), "/admin/queue")
+        return RedirectResponse(next_url, status_code=303)
+
+    @app.post("/admin/runs/{run_id}/delete")
+    async def delete_run(request: Request, run_id: str) -> Response:
+        user = await current_user(request)
+        if user is None:
+            return login_redirect(request)
+        if not user.is_admin:
+            return HTMLResponse("Solo administradores.", status_code=403)
+        form = await _form(request)
+        if not _csrf_valid(request, form.get("csrf_token")):
+            return HTMLResponse("La sesión del formulario venció.", status_code=403)
+        try:
+            service.delete_run(run_id)
+        except KeyError:
+            return HTMLResponse("Ejecución no encontrada.", status_code=404)
+        except ValueError as exc:
+            return HTMLResponse(_escape(str(exc)), status_code=422)
+        next_url = _safe_next(form.get("next"), "/admin")
+        if next_url in {f"/runs/{run_id}", f"/answers/{run_id}"}:
+            next_url = "/admin"
         return RedirectResponse(next_url, status_code=303)
 
     @app.get("/api/v1/health")

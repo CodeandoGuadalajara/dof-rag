@@ -253,6 +253,10 @@ class EvaluationService:
     def unpublish(self, run_id: str) -> None:
         self.store.unpublish_run(run_id)
 
+    def delete_run(self, run_id: str) -> None:
+        """Delete a terminal run and all its data (admin-only action)."""
+        self.store.delete_run(run_id)
+
     def _worker_loop(self) -> None:
         try:
             while not self._closing.is_set():

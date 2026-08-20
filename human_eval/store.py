@@ -386,6 +386,56 @@ class EvaluationStore:
             if cursor.rowcount == 0:
                 raise KeyError(run_id)
 
+    def admin_runs(self, *, limit: int = 200) -> list[dict[str, Any]]:
+        """All runs for the admin dashboard, newest first, with latest status."""
+        if not 1 <= limit <= 500:
+            raise ValueError("limit must be between 1 and 500")
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT r.run_id, r.question, r.created_at, r.published_at, "
+                "e.event_type, r.user_id "
+                "FROM runs r JOIN run_events e ON e.run_id = r.run_id "
+                "AND e.sequence = (SELECT MAX(e2.sequence) FROM run_events e2 "
+                "WHERE e2.run_id = r.run_id) "
+                "ORDER BY r.created_at DESC, r.run_id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "run_id": row[0],
+                "question": row[1],
+                "created_at": row[2],
+                "published_at": row[3],
+                "status": "running" if row[4] == "started" else row[4],
+                "user_id": row[5],
+            }
+            for row in rows
+        ]
+
+    def delete_run(self, run_id: str) -> None:
+        """Delete a terminal run with its events, progress, and feedback.
+
+        Active runs (queued/running) are refused: the worker may still be
+        writing events for them, and the foreign keys to ``runs`` would make
+        those writes fail.
+        """
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            exists = connection.execute(
+                "SELECT 1 FROM runs WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if exists is None:
+                raise KeyError(run_id)
+            latest = connection.execute(
+                "SELECT event_type FROM run_events WHERE run_id = ? "
+                "ORDER BY sequence DESC LIMIT 1",
+                (run_id,),
+            ).fetchone()
+            if latest is not None and latest[0] in ("queued", "started"):
+                raise ValueError("active runs cannot be deleted")
+            for table in ("run_progress", "run_events", "feedback", "runs"):
+                connection.execute(f"DELETE FROM {table} WHERE run_id = ?", (run_id,))
+
     def check_health(self) -> bool:
         try:
             with self._connect() as connection:
