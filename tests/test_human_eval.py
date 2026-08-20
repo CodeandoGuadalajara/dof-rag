@@ -594,6 +594,72 @@ class StoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.delete_seed_run(second["run_id"], user_prefix="evaluator")
 
+    def test_delete_run_removes_run_and_related_data(self):
+        run, _ = self.store.create_run(
+            RunRequest("pregunta a borrar"), user_id="evaluator", provenance=PROVENANCE
+        )
+        self.store.append_event(run["run_id"], "started")
+        self.store.append_progress(
+            run["run_id"], "agent_started", {"message": "inicio"}
+        )
+        self.store.append_event(run["run_id"], "succeeded", {"answer": {}})
+        self.store.add_feedback(
+            run["run_id"], FeedbackRequest("helpful", (), ""), user_id="evaluator"
+        )
+
+        self.store.delete_run(run["run_id"])
+
+        self.assertIsNone(self.store.get_run(run["run_id"]))
+        self.assertEqual(self.store.progress_for_run(run["run_id"]), [])
+        self.assertEqual(self.store.feedback_for_run(run["run_id"]), [])
+        with sqlite3.connect(self.path) as connection:
+            for table in ("runs", "run_events", "run_progress", "feedback"):
+                count = connection.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE run_id = ?",
+                    (run["run_id"],),
+                ).fetchone()[0]
+                self.assertEqual(count, 0, table)
+        with self.assertRaises(KeyError):
+            self.store.delete_run(run["run_id"])
+
+    def test_delete_run_refuses_active_runs(self):
+        run, _ = self.store.create_run(
+            RunRequest("pregunta en curso"), user_id="evaluator", provenance=PROVENANCE
+        )
+        with self.assertRaises(ValueError):
+            self.store.delete_run(run["run_id"])  # queued
+        self.store.append_event(run["run_id"], "started")
+        with self.assertRaises(ValueError):
+            self.store.delete_run(run["run_id"])  # running
+        self.assertIsNotNone(self.store.get_run(run["run_id"]))
+
+        self.store.append_event(run["run_id"], "failed", {"code": "x", "message": "y"})
+        self.store.delete_run(run["run_id"])
+        self.assertIsNone(self.store.get_run(run["run_id"]))
+
+    def test_admin_runs_lists_all_runs_with_status(self):
+        first, _ = self.store.create_run(
+            RunRequest("primera pregunta"), user_id="evaluator", provenance=PROVENANCE
+        )
+        second, _ = self.store.create_run(
+            RunRequest("segunda pregunta"), user_id="otra", provenance=PROVENANCE
+        )
+        self.store.append_event(first["run_id"], "started")
+        self.store.append_event(first["run_id"], "succeeded", {"answer": {}})
+        self.store.publish_run(first["run_id"], publisher_id="root")
+
+        runs = self.store.admin_runs()
+        self.assertEqual(
+            [run["run_id"] for run in runs], [second["run_id"], first["run_id"]]
+        )
+        self.assertEqual(runs[0]["status"], "queued")
+        self.assertEqual(runs[0]["user_id"], "otra")
+        self.assertIsNone(runs[0]["published_at"])
+        self.assertEqual(runs[1]["status"], "succeeded")
+        self.assertIsNotNone(runs[1]["published_at"])
+        with self.assertRaises(ValueError):
+            self.store.admin_runs(limit=0)
+
     def test_failed_seed_run_is_retried_on_the_next_attempt(self):
         class FlakySeedExecutor:
             def __init__(self):
@@ -1302,6 +1368,83 @@ class AirAppTests(AirAppTestCase):
         self.assertEqual(unpublished.status_code, 303)
         self.as_anonymous()
         self.assertEqual(self.client.get(f"/answers/{run_id}").status_code, 404)
+
+    def test_admin_dashboard_and_delete_question(self):
+        self.as_user("root", admin=True)
+        run_id = self.create_run("pregunta que se eliminará")
+        wait_for_terminal(self.service, run_id)
+        self.assertEqual(self.publish(run_id).status_code, 303)
+
+        # Anonymous visitors see the published answer but not the dashboard.
+        self.as_anonymous()
+        self.assertEqual(self.client.get(f"/answers/{run_id}").status_code, 200)
+        anon = self.client.get("/admin", follow_redirects=False)
+        self.assertEqual(anon.status_code, 303)
+
+        # Non-admins cannot see the dashboard nor delete.
+        self.as_user("bob")
+        home = self.client.get("/")
+        self.assertNotIn('<a href="/admin">admin</a>', home.text)
+        self.assertEqual(self.client.get("/admin").status_code, 403)
+        denied = self.client.post(
+            f"/admin/runs/{run_id}/delete",
+            data={"csrf_token": self.csrf(), "next": "/admin"},
+            follow_redirects=False,
+        )
+        self.assertEqual(denied.status_code, 403)
+        self.assertIsNotNone(self.service.store.get_run(run_id))
+
+        # Admins get a header link and the dashboard lists the run.
+        self.as_user("root", admin=True)
+        home = self.client.get("/")
+        self.assertIn('<a href="/admin">admin</a>', home.text)
+        dashboard = self.client.get("/admin")
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertIn("Panel de administración", dashboard.text)
+        self.assertIn("pregunta que se eliminará", dashboard.text)
+        self.assertIn("/admin/queue", dashboard.text)
+
+        # CSRF is enforced.
+        rejected = self.client.post(
+            f"/admin/runs/{run_id}/delete",
+            data={"csrf_token": "wrong", "next": "/admin"},
+            follow_redirects=False,
+        )
+        self.assertEqual(rejected.status_code, 403)
+        self.assertIsNotNone(self.service.store.get_run(run_id))
+
+        # Deletion removes the run and its public answer.
+        deleted = self.client.post(
+            f"/admin/runs/{run_id}/delete",
+            data={"csrf_token": self.csrf(), "next": "/admin"},
+            follow_redirects=False,
+        )
+        self.assertEqual(deleted.status_code, 303)
+        self.assertEqual(deleted.headers["location"], "/admin")
+        self.assertIsNone(self.service.store.get_run(run_id))
+        self.as_anonymous()
+        self.assertEqual(self.client.get(f"/answers/{run_id}").status_code, 404)
+
+    def test_delete_unknown_or_missing_run(self):
+        self.as_user("root", admin=True)
+        missing = self.client.post(
+            "/admin/runs/no-existe/delete",
+            data={"csrf_token": self.csrf(), "next": "/admin"},
+            follow_redirects=False,
+        )
+        self.assertEqual(missing.status_code, 404)
+
+    def test_delete_redirects_away_from_removed_run_page(self):
+        self.as_user("root", admin=True)
+        run_id = self.create_run("pregunta efímera")
+        wait_for_terminal(self.service, run_id)
+        response = self.client.post(
+            f"/admin/runs/{run_id}/delete",
+            data={"csrf_token": self.csrf(), "next": f"/runs/{run_id}"},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], "/admin")
 
     def test_health_and_capabilities_are_public_but_reveal_no_paths(self):
         health = self.client.get("/api/v1/health")
