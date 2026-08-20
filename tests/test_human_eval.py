@@ -19,12 +19,15 @@ from human_eval.agent_executor import (
 )
 from human_eval.app import (
     WebSettings,
+    _attach_chunk_html,
+    _progress_chunk_html,
     _progress_timeline,
     _sanitize_login_next,
     create_app,
 )
 from human_eval.auth import FakeAuthBackend, User
 from human_eval.contracts import ContractError, FeedbackRequest, RunRequest
+from human_eval.markdown_render import render_markdown_html
 from human_eval.service import (
     ActiveRunError,
     EvaluationService,
@@ -283,9 +286,7 @@ class AgentExecutorConfigTests(unittest.TestCase):
         default_vec0.touch()
         gguf = self.root / "model.gguf"
         gguf.touch()
-        config = self._config(
-            DOF_RETRIEVAL_MODE="hybrid", DOF_GGUF_MODEL=str(gguf)
-        )
+        config = self._config(DOF_RETRIEVAL_MODE="hybrid", DOF_GGUF_MODEL=str(gguf))
         self.assertEqual(config.vec0_db, default_vec0)
 
     def test_rejects_unknown_retrieval_mode(self):
@@ -548,7 +549,9 @@ class StoreTests(unittest.TestCase):
 
     def test_delete_seed_runs_removes_only_seed_fixtures(self):
         seed_run, _ = self.store.create_run(
-            RunRequest("pregunta semilla"), user_id="seed:eval-v4", provenance=PROVENANCE
+            RunRequest("pregunta semilla"),
+            user_id="seed:eval-v4",
+            provenance=PROVENANCE,
         )
         self.store.append_event(seed_run["run_id"], "started")
         self.store.append_progress(
@@ -613,9 +616,7 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(
             seed_live_run(self.store, executor, item, publish=False), "created"
         )
-        record = self.store.find_idempotent_run(
-            SEED_USER, "eval-v4-hybrid:LI-001"
-        )
+        record = self.store.find_idempotent_run(SEED_USER, "eval-v4-hybrid:LI-001")
         self.assertEqual(record["status"], "succeeded")
         self.assertEqual(executor.calls, 2)
 
@@ -929,6 +930,142 @@ class AirAppTestCase(unittest.TestCase):
         )
 
 
+class MarkdownRenderTests(unittest.TestCase):
+    def test_preserves_newlines_and_paragraphs(self):
+        rendered = render_markdown_html("Primera línea\nSegunda línea\n\nNuevo párrafo")
+        self.assertIn("Primera línea<br>", rendered)
+        self.assertEqual(rendered.count("<p>"), 2)
+        self.assertIn("Nuevo párrafo", rendered)
+
+    def test_renders_headings_and_emphasis(self):
+        rendered = render_markdown_html(
+            "# PODER EJECUTIVO\n\n## SECRETARIA DE SALUD\n\nTexto **negrita** y *cursiva*."
+        )
+        self.assertIn("<h1>PODER EJECUTIVO</h1>", rendered)
+        self.assertIn("<h2>SECRETARIA DE SALUD</h2>", rendered)
+        self.assertIn("<strong>negrita</strong>", rendered)
+        self.assertIn("<em>cursiva</em>", rendered)
+
+    def test_renders_lists_and_blockquotes(self):
+        rendered = render_markdown_html("- primero\n- segundo\n\n> cita textual")
+        self.assertIn("<li>primero</li>", rendered)
+        self.assertIn("<li>segundo</li>", rendered)
+        self.assertIn("<blockquote>", rendered)
+        self.assertIn("cita textual", rendered)
+
+    def test_renders_code_and_links(self):
+        rendered = render_markdown_html("`código` y [dof](https://www.dof.gob.mx/nota)")
+        self.assertIn("<code>código</code>", rendered)
+        self.assertIn('<a href="https://www.dof.gob.mx/nota"', rendered)
+
+    def test_escapes_and_sanitizes_unsafe_markup(self):
+        rendered = render_markdown_html(
+            '<script>alert("xss")</script>\n\n'
+            "[enlace](javascript:alert(1))\n\n"
+            '<img src="x" onerror="alert(1)">'
+        )
+        # Unsafe markup is rendered as inert escaped text: no live tags and
+        # no dangerous hrefs remain (the literal source text stays visible).
+        self.assertNotIn("<script", rendered)
+        self.assertNotIn("<img", rendered)
+        self.assertNotIn('href="javascript:', rendered)
+        self.assertIn("&lt;script&gt;", rendered)
+        self.assertIn("&lt;img", rendered)
+
+    def test_preserves_inline_safe_markup(self):
+        rendered = render_markdown_html("Texto con **realce** inline.")
+        self.assertIn("<strong>realce</strong>", rendered)
+
+    def test_empty_and_none_input(self):
+        self.assertEqual(render_markdown_html(None), "")
+        self.assertEqual(render_markdown_html(""), "")
+        self.assertEqual(render_markdown_html("   \n  "), "")
+
+    def test_plain_text_fallback_when_rendering_fails(self):
+        with mock.patch(
+            "human_eval.markdown_render._markdown_renderer",
+            side_effect=RuntimeError("boom"),
+        ):
+            rendered = render_markdown_html("Texto <plano>\nsegunda línea")
+        self.assertEqual(
+            rendered, '<p class="chunk-text">Texto &lt;plano&gt;\nsegunda línea</p>'
+        )
+
+
+class ChunkHtmlTests(unittest.TestCase):
+    def test_progress_chunk_renders_markdown_excerpt(self):
+        rendered = _progress_chunk_html(
+            {
+                "chunk_id": 7,
+                "document_id": 9,
+                "path": "2024/acuerdo.md",
+                "excerpt": "# ACUERDO\n\nPrimera línea\nSegunda línea",
+            }
+        )
+        self.assertIn('class="markdown-body"', rendered)
+        self.assertIn("<h1>ACUERDO</h1>", rendered)
+        self.assertIn("Primera línea<br>", rendered)
+        self.assertIn('data-chunk-id="7"', rendered)
+
+    def test_progress_chunk_sanitizes_excerpt(self):
+        rendered = _progress_chunk_html(
+            {
+                "chunk_id": 7,
+                "document_id": 9,
+                "excerpt": "<script>alert(1)</script>\n\n[x](javascript:alert(1))",
+            }
+        )
+        self.assertNotIn("<script", rendered)
+        self.assertNotIn('href="javascript:', rendered)
+
+    def test_progress_chunk_truncation_marker(self):
+        rendered = _progress_chunk_html(
+            {
+                "chunk_id": 7,
+                "document_id": 9,
+                "excerpt": "Pasaje largo.",
+                "excerpt_truncated": True,
+            }
+        )
+        self.assertIn('class="meta chunk-truncated"', rendered)
+        self.assertIn("…", rendered)
+
+    def test_progress_chunk_without_excerpt_stays_empty(self):
+        rendered = _progress_chunk_html({"chunk_id": 7, "document_id": 9})
+        self.assertNotIn("markdown-body", rendered)
+        self.assertIn("Ruta no disponible", rendered)
+
+    def test_attach_chunk_html_adds_sanitized_html(self):
+        event = {
+            "payload": {
+                "chunks": [
+                    {
+                        "chunk_id": 1,
+                        "excerpt": "# Título\n\n<script>alert(1)</script>",
+                    },
+                    {"chunk_id": 2, "snippet": "Texto **plano**."},
+                    {"chunk_id": 3},
+                    "not-a-dict",
+                ]
+            }
+        }
+        _attach_chunk_html(event)
+        chunks = event["payload"]["chunks"]
+        self.assertIn("<h1>Título</h1>", chunks[0]["excerpt_html"])
+        self.assertNotIn("<script", chunks[0]["excerpt_html"])
+        self.assertIn("<strong>plano</strong>", chunks[1]["excerpt_html"])
+        self.assertNotIn("excerpt_html", chunks[2])
+
+    def test_attach_chunk_html_preserves_existing_html(self):
+        event = {"payload": {"chunks": [{"excerpt": "x", "excerpt_html": "<p>ok</p>"}]}}
+        _attach_chunk_html(event)
+        self.assertEqual(event["payload"]["chunks"][0]["excerpt_html"], "<p>ok</p>")
+
+    def test_attach_chunk_html_ignores_non_dict_payload(self):
+        _attach_chunk_html({"payload": None})
+        _attach_chunk_html({})
+
+
 class AirAppTests(AirAppTestCase):
     def test_login_create_poll_and_feedback(self):
         self.seed_and_unlock("alice")
@@ -950,6 +1087,7 @@ class AirAppTests(AirAppTestCase):
             streamed.headers["content-type"], "text/event-stream; charset=utf-8"
         )
         self.assertIn("event: progress", streamed.text)
+        self.assertIn('"excerpt_html"', streamed.text)
         self.assertIn("event: terminal", streamed.text)
         self.assertNotIn("reasoning", streamed.text)
         resumed = self.client.get(
@@ -990,6 +1128,7 @@ class AirAppTests(AirAppTestCase):
         self.assertIn('class="chunk-link"', rendered)
         self.assertIn("Chunk 123 · documento 45", rendered)
         self.assertIn("Acuerdo › Artículo 2", rendered)
+        self.assertIn('class="markdown-body"', rendered)
         self.assertIn("Texto &lt;verificable&gt;.", rendered)
         self.assertNotIn("Ver datos públicos", rendered)
 

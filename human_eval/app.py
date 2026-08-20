@@ -48,6 +48,7 @@ from starlette.responses import (
 from .agent_executor import AgentExecutorConfig, AgentRunExecutor
 from .auth import AuthBackend, User
 from .contracts import ContractError, FeedbackRequest, RunRequest
+from .markdown_render import render_markdown_html
 from .service import (
     ActiveRunError,
     EvaluationService,
@@ -247,7 +248,29 @@ pre { background:#18201c; color:#e9eee9; border-radius:3px; max-height:28rem; ov
 .activity .chunk-link summary { color:var(--accent-dark); padding:.55rem .65rem; text-decoration:underline;
   text-decoration-thickness:1px; text-underline-offset:3px; }
 .chunk-content { border-top:1px solid #d9e2da; padding:.15rem .65rem .65rem; }
-.chunk-content p { margin:.45rem 0 0; white-space:pre-wrap; }
+.chunk-content > p { margin:.45rem 0 0; white-space:pre-wrap; }
+.chunk-text { white-space:pre-wrap; }
+.chunk-truncated { display:block; margin-top:.35rem; }
+.markdown-body { max-width:100%; overflow-wrap:anywhere; }
+.markdown-body > :first-child { margin-top:.45rem; }
+.markdown-body p, .markdown-body ul, .markdown-body ol, .markdown-body blockquote,
+.markdown-body pre, .markdown-body table { margin:.55rem 0 .2rem; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4,
+.markdown-body h5, .markdown-body h6 { font-family:Georgia,"Times New Roman",serif;
+  font-weight:600; line-height:1.3; margin:.9rem 0 .3rem; }
+.markdown-body h1 { font-size:1.12rem; } .markdown-body h2 { font-size:1.06rem; }
+.markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6 { font-size:1rem; }
+.markdown-body blockquote { border-left:3px solid var(--line); color:var(--muted);
+  padding-left:.7rem; }
+.markdown-body pre { background:#eef2ec; border:1px solid var(--line); border-radius:3px;
+  color:var(--ink); max-height:24rem; overflow:auto; padding:.55rem .7rem; }
+.markdown-body code { font-size:.86em; }
+.markdown-body p code, .markdown-body li code { background:#eef2ec; border-radius:3px;
+  padding:.08rem .3rem; }
+.markdown-body table { border-collapse:collapse; display:block; overflow-x:auto; }
+.markdown-body th, .markdown-body td { border:1px solid var(--line); padding:.25rem .5rem;
+  text-align:left; }
+.markdown-body a { color:var(--accent-dark); }
 .activity .citation-tags { margin:.55rem 0 0; }
 .process-archive { border:1px solid var(--line); border-radius:3px; padding:.75rem 1rem; }
 .process-archive > summary { color:var(--accent-dark); font-family:Georgia,"Times New Roman",serif;
@@ -340,9 +363,22 @@ STREAM_SCRIPT = """
         location.textContent = chunk.path || 'Ruta no disponible';
         content.appendChild(location);
         const excerpt = chunk.excerpt || chunk.snippet;
-        if (excerpt) {
+        const truncated = chunk.excerpt_truncated || chunk.snippet_truncated;
+        if (chunk.excerpt_html) {
+          // Server-rendered and sanitized Markdown (see human_eval/markdown_render.py).
+          const body = document.createElement('div');
+          body.className = 'markdown-body';
+          body.innerHTML = chunk.excerpt_html;
+          content.appendChild(body);
+          if (truncated) {
+            const more = document.createElement('span');
+            more.className = 'meta chunk-truncated';
+            more.textContent = '…';
+            content.appendChild(more);
+          }
+        } else if (excerpt) {
           const text = document.createElement('p');
-          text.textContent = `${excerpt}${chunk.excerpt_truncated || chunk.snippet_truncated ? '…' : ''}`;
+          text.textContent = `${excerpt}${truncated ? '…' : ''}`;
           content.appendChild(text);
         }
         details.append(summary, content);
@@ -628,7 +664,7 @@ data-last-event-id="{_escape(last_event_id)}" aria-live="polite">
         "".join(
             f"""<details id="chunk-{_escape(item.get("chunk_id"))}"><summary>{"Citado · " if item.get("cited") else ""}chunk {_escape(item.get("chunk_id"))}</summary>
 <p class="meta">Documento {_escape(item.get("document_id"))} · {_escape(item.get("path"))}</p>
-<p>{_escape(item.get("text"))}</p></details>"""
+<div class="markdown-body">{render_markdown_html(item.get("text"))}</div></details>"""
             for item in result.get("evidence", [])
         )
         or '<p class="meta">No se registraron pasajes leídos.</p>'
@@ -726,12 +762,33 @@ def _progress_chunk_html(chunk: dict[str, Any]) -> str:
     heading_suffix = f" · {_escape(heading)}" if heading else ""
     excerpt = chunk.get("excerpt") or chunk.get("snippet") or ""
     truncated = chunk.get("excerpt_truncated") or chunk.get("snippet_truncated")
-    excerpt_html = (
-        f"<p>{_escape(excerpt)}{'…' if truncated else ''}</p>" if excerpt else ""
-    )
+    excerpt_html = ""
+    if excerpt:
+        truncation = '<span class="meta chunk-truncated">…</span>' if truncated else ""
+        excerpt_html = (
+            f'<div class="markdown-body">{render_markdown_html(excerpt)}</div>'
+            f"{truncation}"
+        )
     return f"""<details class="chunk-link" data-chunk-id="{_escape(chunk.get("chunk_id"))}">
 <summary>Chunk {_escape(chunk.get("chunk_id"))} · documento {_escape(chunk.get("document_id"))}{heading_suffix}</summary>
 <div class="chunk-content"><span class="meta">{_escape(chunk.get("path") or "Ruta no disponible")}</span>{excerpt_html}</div></details>"""
+
+
+def _attach_chunk_html(event: dict[str, Any]) -> None:
+    """Add server-rendered, sanitized Markdown HTML to streamed chunk payloads.
+
+    The live-stream client injects ``excerpt_html`` via ``innerHTML``, so the
+    HTML must already be sanitized here (see ``markdown_render``).
+    """
+    payload = event.get("payload")
+    if not isinstance(payload, dict):
+        return
+    for chunk in payload.get("chunks") or []:
+        if not isinstance(chunk, dict) or "excerpt_html" in chunk:
+            continue
+        excerpt = chunk.get("excerpt") or chunk.get("snippet") or ""
+        if excerpt:
+            chunk["excerpt_html"] = render_markdown_html(excerpt)
 
 
 def _feedback_form(run_id: str, csrf_token: str, *, next_url: str) -> str:
@@ -1210,6 +1267,7 @@ Publicada: {_escape(run.get("published_at"))}</p></section>
                 )
                 for event in events:
                     cursor = event["sequence"]
+                    _attach_chunk_html(event)
                     data = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
                     yield f"id: {cursor}\nevent: progress\ndata: {data}\n\n"
                     heartbeat_at = time.monotonic()
