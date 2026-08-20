@@ -34,6 +34,8 @@ dependencies = [
     "python-multipart>=0.0.20,<1",
     "uvicorn>=0.35,<1",
     "airclerk>=0.2.0",
+    "markdown-it-py>=3.0.0,<4",
+    "nh3>=0.3.6,<1",
 ]
 
 [tool.ruff]
