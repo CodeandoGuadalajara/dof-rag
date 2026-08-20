@@ -823,6 +823,19 @@ class DofRetriever:
             institution=header.institution,
         )
 
+    def _evidence_titles(
+        self, document_ids: list[int]
+    ) -> dict[int, str | None]:
+        """Resolve readable titles for evidence hits (full header on fragments)."""
+        headers = self._document_headers(document_ids)
+        titles: dict[int, str | None] = {}
+        for document_id in document_ids:
+            header = headers[document_id]
+            if _title_is_fragment(header.title):
+                header = self._document_header(document_id, full=True)
+            titles[document_id] = header.title
+        return titles
+
     def read_chunks(
         self, chunk_ids: list[int], *, neighbor_window: int = 0
     ) -> list[EvidenceHit]:
@@ -858,6 +871,9 @@ class DofRetriever:
         ordered = sorted(
             records.values(), key=lambda item: (item.document_id, item.chunk_index)
         )
+        titles = self._evidence_titles(
+            list({record.document_id for record in ordered})
+        )
         return [
             EvidenceHit(
                 chunk_id=record.chunk_id,
@@ -871,6 +887,7 @@ class DofRetriever:
                 score=0.0,
                 source="read",
                 rank=rank,
+                title=titles.get(record.document_id),
             )
             for rank, (record, text) in enumerate(self._reconstruct_records(ordered), 1)
         ]
@@ -1127,6 +1144,7 @@ class DofRetriever:
             )
         ranked_ids = ranked_ids[:top_k]
 
+        titles = self._evidence_titles(document_ids)
         evidence: list[EvidenceHit] = []
         for rank, chunk_id in enumerate(ranked_ids, 1):
             item = by_id.get(chunk_id)
@@ -1151,6 +1169,7 @@ class DofRetriever:
                     score=score_by_id.get(chunk_id, vector_score.get(chunk_id, 0.0)),
                     source=source,
                     rank=rank,
+                    title=titles.get(record.document_id),
                 )
             )
         return EvidenceSearchResult(

@@ -104,6 +104,7 @@ class EvidenceHit:
     score: float
     source: str
     rank: int = 0
+    title: str | None = None
 
 
 @dataclass(frozen=True)

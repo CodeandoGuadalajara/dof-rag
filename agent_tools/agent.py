@@ -262,6 +262,9 @@ Política de herramientas:
   entra a la evidencia (search_evidence, get_document_outline, read_chunks).
   La vigencia se verifica leyendo los documentos, no con más búsquedas.
   search_documents se desactiva después de unas pocas llamadas.
+- Cuando search_evidence muestre chunks de documentos recientes, incluye al
+  menos el mejor chunk de cada documento reciente en tu read_chunks antes de
+  descartarlo por su fragmento; el título del documento acompaña a cada chunk.
 - Usa get_document_outline sólo para estructura o referencias cruzadas, y
   list_publications cuando la fecha de publicación sea el dato de entrada.
 - El año sobre el que rige una norma o cantidad no implica que se publicara ese
