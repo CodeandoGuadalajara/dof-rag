@@ -263,9 +263,12 @@ Política de herramientas:
   año. No fijes date_from sólo a partir del año mencionado en la pregunta.
 - Si la pregunta trata sobre programas, apoyos, requisitos o reglas vigentes y
   no fija una fecha histórica, usa prefer_recent=true en search_documents y
-  comprueba si el instrumento encontrado fue reformado, derogado o sustituido
-  con posterioridad antes de responder. No uses un date_from rígido que excluya
-  la ley o programa base todavía vigente.
+  search_evidence, y comprueba si el instrumento encontrado fue reformado,
+  derogado o sustituido con posterioridad antes de responder. Lee evidencia de
+  los candidatos más recientes que traten el tema antes de cerrar con documentos
+  antiguos; si los documentos recientes no tratan el tema, dilo explícitamente.
+  No uses un date_from rígido que excluya la ley o programa base todavía
+  vigente.
 - Conserva todas las partes de la pregunta desde la primera búsqueda. En una
   comparación entre años, busca evidencia para ambos años antes de responder.
 """
@@ -631,6 +634,13 @@ class DofToolbox:
                         "maxItems": 10,
                     },
                     "strategy": strategy,
+                    "prefer_recent": _nullable("boolean")
+                    | {
+                        "description": (
+                            "true da visibilidad a chunks de documentos más "
+                            "recientes dentro de los candidatos."
+                        )
+                    },
                     "top_k": {"type": "integer", "minimum": 1, "maximum": 10},
                 }
             ),
@@ -773,6 +783,7 @@ class DofToolbox:
             top_k=arguments["top_k"],
             candidate_depth=300,
             vector_k=300,
+            prefer_recent=bool(arguments.get("prefer_recent")),
         )
         self.visible_chunk_ids.update(result.evidence_ids)
         data = result.to_dict()

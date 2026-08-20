@@ -32,6 +32,7 @@ from agent_tools.models import (
     SearchResult,
 )
 from agent_tools.retrieval import (
+    _apply_recency_to_ranked,
     _bm25_chunk_scores,
     _document_name_phrases,
     _fuse_documents,
@@ -111,6 +112,8 @@ class MultiDocumentFakeRetriever(FakeRetriever):
         top_k=10,
         candidate_depth=300,
         vector_k=300,
+        prefer_recent=False,
+        recency_weight=0.25,
     ):
         hits = [
             EvidenceHit(
@@ -298,6 +301,31 @@ class AgentToolsTests(unittest.TestCase):
         )
         self.assertTrue(output["ok"])
         self.assertTrue(retriever.calls[0][1]["prefer_recent"])
+
+    def test_recency_rerank_gives_recent_chunks_visibility_without_dominance(self):
+        ranked = [10, 11, 12, 13, 14]
+        dates = {
+            10: "2009-12-29",
+            11: "2009-12-29",
+            12: "2009-12-29",
+            13: "2008-07-04",
+            14: "2021-03-19",
+        }
+        reordered = _apply_recency_to_ranked(ranked, dates, 0.25)
+        self.assertEqual(reordered[0], 10)
+        self.assertLess(reordered.index(14), reordered.index(13))
+        self.assertEqual(ranked, [10, 11, 12, 13, 14])
+        self.assertEqual(_apply_recency_to_ranked(ranked, dates, 0.0), ranked)
+
+    def test_search_evidence_tool_exposes_prefer_recent(self):
+        toolbox = DofToolbox(FakeRetriever())
+        search = next(
+            tool
+            for tool in toolbox.tool_definitions()
+            if tool["name"] == "search_evidence"
+        )
+        prefer_recent = search["parameters"]["properties"]["prefer_recent"]
+        self.assertEqual(prefer_recent["type"], ["boolean", "null"])
 
     def test_comparison_years_are_explicit_coverage_requirements(self):
         self.assertEqual(
@@ -870,6 +898,7 @@ class AgentToolsTests(unittest.TestCase):
                                 "query": "evidencia",
                                 "document_ids": [2, 3],
                                 "strategy": "lexical",
+                                "prefer_recent": None,
                                 "top_k": 5,
                             },
                         )

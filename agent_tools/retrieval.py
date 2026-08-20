@@ -129,6 +129,37 @@ def _recency_boosts(
     }
 
 
+def _apply_recency_to_ranked(
+    ranked_ids: list[int],
+    dates: dict[int, str | None],
+    weight: float,
+) -> list[int]:
+    """Blend rank-based relevance with document recency.
+
+    The goal is visibility, not dominance: the best chunk from a recent
+    document should reach the top-k so the agent can judge it, without
+    pushing irrelevant recent chunks above highly relevant older ones.
+    """
+    n = len(ranked_ids)
+    if not n or weight <= 0.0:
+        return ranked_ids
+    relevance = {chunk_id: (n - rank) / n for rank, chunk_id in enumerate(ranked_ids)}
+    recency = _recency_boosts(
+        [(chunk_id, dates.get(chunk_id)) for chunk_id in ranked_ids], 1.0
+    )
+    return sorted(
+        ranked_ids,
+        key=lambda chunk_id: (
+            -(
+                (1.0 - weight) * relevance[chunk_id]
+                + weight * recency.get(chunk_id, 0.0)
+            ),
+            -relevance[chunk_id],
+            chunk_id,
+        ),
+    )
+
+
 def _document_name_phrases(query: str) -> list[str]:
     """Extract explicit legal-instrument names for an exact-phrase lookup."""
     phrases: list[str] = []
@@ -1005,6 +1036,8 @@ class DofRetriever:
         top_k: int = 20,
         candidate_depth: int = 200,
         vector_k: int = 200,
+        prefer_recent: bool = False,
+        recency_weight: float = 0.25,
     ) -> EvidenceSearchResult:
         """Search deeply for citable chunks inside candidate documents."""
         started = perf_counter()
@@ -1059,6 +1092,16 @@ class DofRetriever:
             ranked_ids = vector_ids
         else:
             ranked_ids = _rrf([lexical_ids, vector_ids])
+        if prefer_recent:
+            ranked_ids = _apply_recency_to_ranked(
+                ranked_ids,
+                {
+                    chunk_id: by_id[chunk_id][0].publication_date
+                    for chunk_id in ranked_ids
+                    if chunk_id in by_id
+                },
+                recency_weight,
+            )
         ranked_ids = ranked_ids[:top_k]
 
         evidence: list[EvidenceHit] = []
@@ -1101,6 +1144,8 @@ class DofRetriever:
                 "vector_k": vector_k,
                 "vector_filtering": "post_filter",
                 "lexical_ranker": "bounded_bm25",
+                "prefer_recent": prefer_recent,
+                "recency_weight": recency_weight if prefer_recent else 0.0,
             },
         )
 
