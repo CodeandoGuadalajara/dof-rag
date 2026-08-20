@@ -4,13 +4,11 @@ dof-rag es un chat y un sistema de consulta por generación aumentada para explo
 
 # Requerimientos
 
-Instala [uv](https://docs.astral.sh/uv/) para manejar las dependencias y ejecutar el proyecto.
-
-Una vez instalado uv, ejecuta el siguiente comando para iniciar el proyecto:
+El proyecto usa Python 3.14 (fijado con [mise](https://mise.jdx.dev/)) y [uv](https://docs.astral.sh/uv/) para manejar las dependencias:
 
 ```bash
-uv venv # Crear un entorno virtual
-uv sync # Sincronizar dependencias
+mise install # Python 3.14
+uv sync      # Crear el entorno virtual y sincronizar dependencias
 ```
 
 ## Bajar archivos del DOF
@@ -142,19 +140,72 @@ python extract_embeddings.py dof_markdown/2024/04/
 
 Puedes especificar la carpeta de un solo archivo, o la carpeta de un mes, o incluso la carpeta de un año.
 
+## Corpus e índices (estado actual)
+
+El corpus completo ya está construido: 657,867 documentos, 6.73 millones de chunks, índice BM25 (FTS5), embeddings binarios (jina-v5, 1,024 bits por chunk) y el índice vec0 para búsqueda vectorial. La guía de construcción está en `docs/full-corpus-build.md`; las bases derivadas viven en `dof_db/` y no se versionan.
+
+## Agente y evaluación
+
+- `agent_tools/`: agente de herramientas (buscar documentos, buscar evidencia, leer chunks) con recuperación léxica, vectorial o híbrida sobre las bases de `dof_db/`.
+- Evaluación de recuperación v4 (42 preguntas curadas a mano, 7 categorías, métricas multi-hop):
+
+  ```bash
+  uv run python scripts/eval_v4_full.py
+  ```
+
+  Reporte en `reports/eval_v4_retrieval.md` y resultados deterministas versionados en `eval/cache/eval_v4_full_comparison.json`. Resultado final: la fusión híbrida supera a BM25 puro (MRR 0.339 contra 0.221; all-hop@20 0.595 contra 0.429).
+- Evaluación del agente completo: `uv run python scripts/eval_v4_agent.py --provider kimi-code --model kimi-for-coding`.
+
+## Sitio de evaluación humana
+
+Aplicación web (Air + Clerk) en `human_eval/` para que personas formulen preguntas reales al agente y evalúen las respuestas.
+
+```bash
+set -a; source .env; set +a  # CLERK_* y DOF_SESSION_SECRET (nunca imprimir valores)
+export DOF_AGENT_PROVIDER=kimi-code DOF_AGENT_MODEL=kimi-for-coding \
+  DOF_RETRIEVAL_MODE=lexical DOF_WEB_HOST=0.0.0.0 DOF_WEB_PORT=8765
+uv run python -m human_eval.app  # http://127.0.0.1:8765
+```
+
+- Visitantes anónimos leen las respuestas publicadas. Con cuenta: 1 pregunta cada 24 h (`DOF_DAILY_QUESTION_LIMIT`) y hay que evaluar una respuesta publicada antes de cada pregunta, incluida la primera. Los administradores publican y despublican en `/admin/queue` (rol vía `public_metadata.role = "admin"` en el dashboard de Clerk).
+- Recuperación híbrida para preguntas en vivo: `DOF_RETRIEVAL_MODE=hybrid` (requiere el índice vec0 y `DOF_GGUF_MODEL`; el servidor de embeddings llama-server se levanta una sola vez por proceso, con `DOF_EMBED_PORT`, por defecto 8086).
+- Sembrar respuestas publicadas con corridas reales del agente (incluye la línea de tiempo de progreso):
+
+  ```bash
+  uv run python scripts/seed_human_eval_v4_hybrid.py --replace
+  ```
+
+- HTTPS dentro de la tailnet (necesario para OAuth de Google/GitHub fuera de localhost): `tailscale serve --bg 8765`.
+- La base de evaluación (`var/human_evaluation.sqlite`) es independiente del corpus y los índices; conserva respaldos antes de resembrar.
+
+## Pruebas
+
+```bash
+uv run python -m unittest discover -s tests -q
+uv run ruff check human_eval tests
+```
+
 ## Estructura del proyecto
 
 ```
 .
-├── get_dof.py              # Descarga archivos PDF del DOF
-├── get_word_dof.py         # Descarga archivos Word (.doc) del DOF (1999+)
-├── convert_doc_to_md.py    # Convierte .doc → .md (pipeline individual)
-├── extract_markdown.py     # Extrae texto de PDFs escaneados con Gemini (pre-1999)
-├── extract_embeddings.py   # Extrae embeddings para RAG
-├── ai_agent.ipynb          # Notebook del agente de consulta
-├── pandoc_filters/         # Filtros Lua para pandoc
-├── modules_captions/       # Módulo de descripción de imágenes
-├── Improve_embeddings_1_page_chunk/  # Mejoras de embeddings
-├── pyproject.toml          # Dependencias del proyecto
+├── agent_tools/          # Agente de herramientas y recuperación (BM25 / vector / híbrida)
+├── corpus_store/         # Construcción del corpus: chunks, embeddings, vec0
+├── human_eval/           # Sitio de evaluación humana (Air + Clerk)
+├── eval/                 # Sets de evaluación (v2, v3, v4) y caché de resultados
+├── scripts/              # Pipelines de evaluación y sembrado (eval_v4_*, seed_*)
+├── tests/                # Pruebas unitarias (unittest)
+├── docs/                 # Documentación canónica (corpus, evaluación, UI)
+├── reports/              # Reportes de evaluación
+├── dof_db/               # Bases derivadas (no versionadas)
+├── get_dof.py            # Descarga archivos PDF del DOF
+├── get_word_dof.py       # Descarga archivos Word (.doc) del DOF (1999+)
+├── convert_doc_to_md.py  # Convierte .doc → .md (pipeline individual)
+├── extract_markdown.py   # Extrae texto de PDFs escaneados con Gemini (pre-1999)
+├── extract_embeddings.py # Extrae embeddings para RAG
+├── ai_agent.ipynb        # Notebook del agente de consulta
+├── pandoc_filters/       # Filtros Lua para pandoc
+├── modules_captions/     # Módulo de descripción de imágenes
+├── pyproject.toml        # Dependencias del proyecto
 └── README.md
 ```
