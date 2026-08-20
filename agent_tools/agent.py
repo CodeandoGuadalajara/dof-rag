@@ -247,7 +247,9 @@ read_chunks y debes incluir al menos una cita válida. Si la evidencia es
 insuficiente, dilo. Marca una premisa como false únicamente cuando los chunks
 citados establezcan la corrección y exprésala de forma afirmativa. "No se encontró"
 no demuestra que una premisa sea falsa; si no puedes documentar la corrección,
-usa unclear. Mantén la respuesta concreta.
+usa unclear. Mantén la respuesta concreta. Indica la fecha de publicación de las
+fuentes que sostienen tu respuesta y, si la evidencia más reciente disponible es
+antigua, advierte que la regla o el programa pudo haber cambiado.
 Al terminar devuelve SOLO JSON con la forma
 {"answer":"...","citations":[123],"premise_status":"supported|false|unclear"}.
 
@@ -259,6 +261,11 @@ Política de herramientas:
   list_publications cuando la fecha de publicación sea el dato de entrada.
 - El año sobre el que rige una norma o cantidad no implica que se publicara ese
   año. No fijes date_from sólo a partir del año mencionado en la pregunta.
+- Si la pregunta trata sobre programas, apoyos, requisitos o reglas vigentes y
+  no fija una fecha histórica, usa prefer_recent=true en search_documents y
+  comprueba si el instrumento encontrado fue reformado, derogado o sustituido
+  con posterioridad antes de responder. No uses un date_from rígido que excluya
+  la ley o programa base todavía vigente.
 - Conserva todas las partes de la pregunta desde la primera búsqueda. En una
   comparación entre años, busca evidencia para ambos años antes de responder.
 """
@@ -604,6 +611,13 @@ class DofToolbox:
                     "query": {"type": "string", "minLength": 1, "maxLength": 1000},
                     "strategy": strategy,
                     **filters,
+                    "prefer_recent": _nullable("boolean")
+                    | {
+                        "description": (
+                            "true da prioridad a las publicaciones más recientes; "
+                            "úsalo para preguntas sobre la situación vigente."
+                        )
+                    },
                     "top_k": {"type": "integer", "minimum": 1, "maximum": 10},
                 }
             ),
@@ -643,7 +657,10 @@ class DofToolbox:
     def tool_definitions(self) -> list[dict[str, Any]]:
         descriptions = {
             "list_publications": "Lista publicaciones por fecha y sección sin buscar texto.",
-            "search_documents": "Encuentra documentos candidatos. No devuelve evidencia citable.",
+            "search_documents": (
+                "Encuentra documentos candidatos con su fecha de publicación. "
+                "No devuelve evidencia citable."
+            ),
             "search_evidence": "Busca chunks relevantes dentro de documentos candidatos.",
             "get_document_outline": "Muestra encabezados y chunks de un documento sin leer su texto.",
             "read_chunks": "Lee texto verificable. Sólo los IDs leídos pueden citarse al responder.",
@@ -736,6 +753,7 @@ class DofToolbox:
             bm25_depth=100,
             vector_k=300,
             top_k=arguments["top_k"],
+            prefer_recent=bool(arguments.get("prefer_recent")),
         )
         self._remember_documents(result.documents)
         return result.to_dict()

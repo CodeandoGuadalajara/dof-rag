@@ -88,6 +88,7 @@ class DocumentHit:
     title: str | None = None
     institution: str | None = None
     title_boost: float = 0.0
+    recency_boost: float = 0.0
 
 
 @dataclass(frozen=True)

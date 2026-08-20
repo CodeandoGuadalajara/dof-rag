@@ -108,6 +108,27 @@ def _normative_title_boost(query: str, title: str | None) -> float:
     return boost
 
 
+def _recency_boosts(
+    candidates: list[tuple[int, str | None]], weight: float
+) -> dict[int, float]:
+    """Rank-based recency bonus: the newest dated candidate gets ``weight``.
+
+    Boosts decay linearly by recency rank so relevance still dominates, and
+    undated documents receive no bonus. Ordering by ``(-date, document_id)``
+    keeps the result deterministic for a static corpus.
+    """
+    dated = sorted(
+        ((date, document_id) for document_id, date in candidates if date),
+        key=lambda item: (item[0], -item[1]),
+        reverse=True,
+    )
+    n = len(dated)
+    return {
+        document_id: weight * (n - rank) / n
+        for rank, (_, document_id) in enumerate(dated)
+    }
+
+
 def _document_name_phrases(query: str) -> list[str]:
     """Extract explicit legal-instrument names for an exact-phrase lookup."""
     phrases: list[str] = []
@@ -811,6 +832,8 @@ class DofRetriever:
         vector_k: int = 200,
         top_k: int = 20,
         bm25_weight: float = 0.75,
+        prefer_recent: bool = False,
+        recency_weight: float = 0.15,
     ) -> DocumentSearchResult:
         """Find candidate documents using lexical, vector, or hybrid ranking."""
         started = perf_counter()
@@ -906,7 +929,20 @@ class DofRetriever:
                     fused_rank,
                 )
             )
-        reranked.sort(key=lambda row: (-(row[1] + row[4]), row[5], row[0]))
+        recency = (
+            _recency_boosts(
+                [
+                    (row[0], doc_info.get(row[0], (None, None, None))[1])
+                    for row in reranked
+                ],
+                recency_weight * max((row[1] for row in reranked), default=0.0),
+            )
+            if prefer_recent and reranked
+            else {}
+        )
+        reranked.sort(
+            key=lambda row: (-(row[1] + row[4] + recency.get(row[0], 0.0)), row[5], row[0])
+        )
         documents = []
         for rank, (
             doc_id,
@@ -927,13 +963,14 @@ class DofRetriever:
                     path=doc_info[doc_id][0],
                     publication_date=doc_info[doc_id][1],
                     section=doc_info[doc_id][2],
-                    score=score + title_boost,
+                    score=score + title_boost + recency.get(doc_id, 0.0),
                     bm25_score=bm25_score,
                     vector_score=vector_score,
                     rank=rank,
                     title=header.title or headers[doc_id].title,
                     institution=header.institution,
                     title_boost=title_boost,
+                    recency_boost=recency.get(doc_id, 0.0),
                 )
             )
         return DocumentSearchResult(
@@ -953,6 +990,8 @@ class DofRetriever:
                 "normative_title_rerank": True,
                 "dated_heading_candidates": bool(heading_titles),
                 "exact_title_candidates": bool(exact_titles),
+                "prefer_recent": prefer_recent,
+                "recency_weight": recency_weight if prefer_recent else 0.0,
             },
         )
 

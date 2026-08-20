@@ -21,6 +21,7 @@ from agent_tools.headers import extract_document_header
 from agent_tools.llm import _parse_json, answer_with_context
 from agent_tools.models import (
     DocumentOutline,
+    DocumentSearchResult,
     EvidenceHit,
     EvidenceSearchResult,
     IndexVersions,
@@ -35,6 +36,7 @@ from agent_tools.retrieval import (
     _document_name_phrases,
     _fuse_documents,
     _normative_title_boost,
+    _recency_boosts,
     _rrf,
 )
 from scripts.eval_v4_agent import (
@@ -242,6 +244,60 @@ class AgentToolsTests(unittest.TestCase):
             ),
             ["Ley General de Aguas"],
         )
+
+    def test_recency_boosts_favor_newest_and_skip_undated(self):
+        boosts = _recency_boosts(
+            [(1, "2009-06-01"), (2, "2024-03-15"), (3, None), (4, "2018-11-30")],
+            0.3,
+        )
+        self.assertNotIn(3, boosts)
+        self.assertAlmostEqual(boosts[2], 0.3)
+        self.assertGreater(boosts[2], boosts[4])
+        self.assertGreater(boosts[4], boosts[1])
+        self.assertEqual(boosts, _recency_boosts([(4, "2018-11-30"), (3, None), (2, "2024-03-15"), (1, "2009-06-01")], 0.3))
+
+    def test_search_documents_tool_exposes_prefer_recent(self):
+        toolbox = DofToolbox(FakeRetriever())
+        search = next(
+            tool
+            for tool in toolbox.tool_definitions()
+            if tool["name"] == "search_documents"
+        )
+        prefer_recent = search["parameters"]["properties"]["prefer_recent"]
+        self.assertEqual(prefer_recent["type"], ["boolean", "null"])
+
+    def test_toolbox_passes_prefer_recent_to_the_retriever(self):
+        class RecordingRetriever(FakeRetriever):
+            def __init__(self):
+                self.calls = []
+
+            def search_documents(self, query, **kwargs):
+                self.calls.append((query, kwargs))
+                return DocumentSearchResult(
+                    query=query,
+                    strategy=RetrievalStrategy(kwargs["strategy"]),
+                    filters=kwargs["filters"],
+                    versions=self.versions,
+                )
+
+        retriever = RecordingRetriever()
+        toolbox = DofToolbox(retriever)
+        toolbox.begin(as_of=None)
+        output = toolbox.call(
+            "search_documents",
+            {
+                "query": "apoyos para desempleo",
+                "strategy": "lexical",
+                "as_of": None,
+                "date_from": None,
+                "date_to": None,
+                "section": None,
+                "prefer_recent": True,
+                "top_k": 5,
+            },
+        )
+        self.assertTrue(output["ok"])
+        self.assertTrue(retriever.calls[0][1]["prefer_recent"])
 
     def test_comparison_years_are_explicit_coverage_requirements(self):
         self.assertEqual(
