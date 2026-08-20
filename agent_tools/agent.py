@@ -23,6 +23,8 @@ from .retrieval import DofRetriever, QueryEmbedder
 
 LOGGER = logging.getLogger(__name__)
 
+MAX_DOCUMENT_SEARCH_CALLS = 3
+
 YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
 YEAR_COMPARISON_RE = re.compile(
     r"\b(?:de\s+((?:19|20)\d{2})\s+a|entre\s+((?:19|20)\d{2})\s+y)\s+"
@@ -256,7 +258,10 @@ Al terminar devuelve SOLO JSON con la forma
 Política de herramientas:
 - Haz una sola llamada por turno y usa la ruta más corta: search_documents,
   search_evidence, read_chunks y respuesta.
-- No repitas la misma búsqueda con variaciones menores.
+- No repitas búsquedas con variaciones menores: tras una o dos search_documents
+  entra a la evidencia (search_evidence, get_document_outline, read_chunks).
+  La vigencia se verifica leyendo los documentos, no con más búsquedas.
+  search_documents se desactiva después de unas pocas llamadas.
 - Usa get_document_outline sólo para estructura o referencias cruzadas, y
   list_publications cuando la fecha de publicación sea el dato de entrada.
 - El año sobre el que rige una norma o cantidad no implica que se publicara ese
@@ -442,6 +447,7 @@ class DofToolbox:
         self.coverage_requirements: set[str] = set()
         self.covered_requirements: set[str] = set()
         self.required_hops = 1
+        self.search_document_calls = 0
         self._vector_cache: dict[str, bytes] = {}
         self._schemas = self._build_schemas()
 
@@ -471,6 +477,7 @@ class DofToolbox:
         self.coverage_requirements = set(coverage_requirements or [])
         self.covered_requirements.clear()
         self.required_hops = required_hops
+        self.search_document_calls = 0
         self._vector_cache.clear()
 
     @property
@@ -753,6 +760,7 @@ class DofToolbox:
         }
 
     def _call_search_documents(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        self.search_document_calls += 1
         strategy = arguments["strategy"]
         filters = self._filters(arguments)
         result = self.retriever.search_documents(
@@ -1170,21 +1178,17 @@ class AgentRunner:
         if self.toolbox.read_chunk_ids and not self.toolbox.missing_coverage:
             return []
         if self.toolbox.read_chunk_ids:
-            return [
-                definitions[name]
-                for name in ("search_documents", "search_evidence", "read_chunks")
-            ]
+            names = ["search_evidence", "read_chunks"]
+            if self.toolbox.search_document_calls < MAX_DOCUMENT_SEARCH_CALLS:
+                names.insert(0, "search_documents")
+            return [definitions[name] for name in names]
         if self.toolbox.visible_chunk_ids:
             return [definitions["read_chunks"]]
         if self.toolbox.visible_document_ids:
-            return [
-                definitions[name]
-                for name in (
-                    "search_documents",
-                    "search_evidence",
-                    "get_document_outline",
-                )
-            ]
+            names = ["search_evidence", "get_document_outline"]
+            if self.toolbox.search_document_calls < MAX_DOCUMENT_SEARCH_CALLS:
+                names.insert(0, "search_documents")
+            return [definitions[name] for name in names]
         return [definitions[name] for name in ("list_publications", "search_documents")]
 
     def run(
@@ -1264,6 +1268,7 @@ class AgentRunner:
                     "available_tools": [tool["name"] for tool in available_tools],
                 },
             )
+            available_names = {tool["name"] for tool in available_tools}
             turn = self.backend.create_turn(
                 input_items=turn_input,
                 tools=available_tools,
@@ -1311,6 +1316,19 @@ class AgentRunner:
                             "error": {
                                 "type": "tool_limit",
                                 "message": f"maximum {self.max_tool_calls} tool calls reached",
+                            },
+                        }
+                        elapsed_ms = 0.0
+                    elif call.name not in available_names:
+                        output = {
+                            "ok": False,
+                            "error": {
+                                "type": "tool_unavailable",
+                                "message": (
+                                    f"{call.name} no está disponible en este turno; "
+                                    "usa una de: "
+                                    + ", ".join(sorted(available_names))
+                                ),
                             },
                         }
                         elapsed_ms = 0.0

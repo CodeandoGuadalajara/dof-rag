@@ -20,6 +20,7 @@ from agent_tools.agent import (
 from agent_tools.headers import extract_document_header
 from agent_tools.llm import _parse_json, answer_with_context
 from agent_tools.models import (
+    DocumentHit,
     DocumentOutline,
     DocumentSearchResult,
     EvidenceHit,
@@ -336,6 +337,55 @@ class AgentToolsTests(unittest.TestCase):
             "ACUERDO por el que se modifica el diverso",
         ):
             self.assertFalse(_title_is_fragment(real), real)
+
+    def test_agent_document_search_budget_forces_drill_down(self):
+        class SearchingRetriever(FakeRetriever):
+            def search_documents(self, query, **kwargs):
+                return DocumentSearchResult(
+                    query=query,
+                    strategy=RetrievalStrategy(kwargs["strategy"]),
+                    filters=kwargs["filters"],
+                    documents=[
+                        DocumentHit(
+                            document_id=2,
+                            path="doc.md",
+                            publication_date="2025-01-01",
+                            section="MAT",
+                            score=1.0,
+                            title="Documento",
+                        )
+                    ],
+                    versions=self.versions,
+                )
+
+        search_call = ToolCall(
+            call_id="call-search",
+            name="search_documents",
+            arguments={
+                "query": "apoyos desempleo",
+                "strategy": "lexical",
+                "as_of": None,
+                "date_from": None,
+                "date_to": None,
+                "section": None,
+                "prefer_recent": True,
+                "top_k": 5,
+            },
+        )
+        backend = ScriptedBackend(
+            [
+                ModelTurn(response_id=str(i), output_items=[], tool_calls=[search_call])
+                for i in range(4)
+            ]
+            + [ModelTurn(response_id="final", output_items=[], final_text="{}")]
+        )
+        toolbox = DofToolbox(SearchingRetriever())
+        run = AgentRunner(backend, toolbox, max_model_turns=5).run("pregunta")
+        self.assertEqual(toolbox.search_document_calls, 3)
+        self.assertEqual(run.tool_calls, 3)
+        fourth_turn_tools = {tool["name"] for tool in backend.calls[3]["tools"]}
+        self.assertNotIn("search_documents", fourth_turn_tools)
+        self.assertIn("search_evidence", fourth_turn_tools)
 
     def test_comparison_years_are_explicit_coverage_requirements(self):
         self.assertEqual(
