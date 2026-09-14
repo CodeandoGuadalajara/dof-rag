@@ -19,6 +19,27 @@ known-document retrieval benchmark.
 The data is in `eval/dof_queries_v4.jsonl`; snapshot and methodology metadata
 is in `eval/dof_queries_v4.meta.json`.
 
+## Corrections
+
+- 2026-09-06: corrected NE-001 reference prose from four to five substantive
+  clauses (PRIMERO through QUINTO). Full gold chunk `6721511` contains QUINTO
+  followed by four transitory clauses. The question, false-premise label and
+  gold chunk IDs are unchanged. Historical result files retain the old reference;
+  do not penalize answers that correctly describe five clauses.
+
+## Local thinking comparison
+
+See the [Qwopus evidence-discipline report](qwopus-evidence-results.md) for the
+30-run comparison, per-case failures, and limits on causal conclusions.
+
+`eval_v4_agent.py --provider llama-server --thinking on|off` explicitly sets
+`chat_template_kwargs.enable_thinking`; omission keeps server defaults. Use the
+same questions, output-token/turn/tool limits and sampling settings in each arm.
+Save separate output files for each repeat; failed runs remain in the checkpoint.
+`output_token_limit` means a provider reported truncated output, not invalid JSON.
+Coverage anchors and citation-ID validation are not semantic fact checking;
+correctness and absence claims still require review against source passages.
+
 ## Public review
 
 The 42 questions, reference answers, and supporting spans are also available in

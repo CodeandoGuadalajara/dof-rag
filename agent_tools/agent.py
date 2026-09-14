@@ -41,6 +41,10 @@ RANGE_PATTERNS = (
     (re.compile(r"\bm[aá]s\s+de\s+(\d+)\b", re.I), "rango más de {0}"),
 )
 EXPLICIT_TERMS = ("diario", "mensual", "anual")
+INDICATORS = {
+    "INPC": r"\b(?:inpc|indice nacional de precios al consumidor)\b",
+    "UMA": r"\b(?:uma|unidad de medida y actualizacion)\b",
+}
 NUMBER_WORDS = {
     "quince": "15",
     "dieciseis": "16",
@@ -201,6 +205,13 @@ def _coverage_requirements(question: str) -> list[str]:
         *_enumeration_requirements(question),
         *_explicit_question_requirements(question),
     ]
+    # ponytail: deterministic anchors, not semantic coverage; expand only for measured gaps.
+    folded = _fold_for_coverage(question)
+    requirements.extend(
+        f"indicador {name}"
+        for name, pattern in INDICATORS.items()
+        if re.search(pattern, folded)
+    )
     provisions = _transitory_provisions(question)
     if provisions:
         requirements.append("transitorio")
@@ -306,8 +317,18 @@ Política de herramientas:
   antiguos; si los documentos recientes no tratan el tema, dilo explícitamente.
   No uses un date_from rígido que excluya la ley o programa base todavía
   vigente.
-- Conserva todas las partes de la pregunta desde la primera búsqueda. En una
-  comparación entre años, busca evidencia para ambos años antes de responder.
+- Conserva todas las partes de la pregunta desde la primera búsqueda. Mantén
+  una lista de los datos solicitados y del chunk que sustenta cada uno. Busca
+  por separado los elementos faltantes; leer un pasaje no cubre toda la pregunta.
+  En una comparación entre años, busca evidencia para ambos años.
+- Para rangos de trabajadores, lee el campo de aplicación además de las
+  obligaciones. Para vigencia, lee los transitorios. Si falta una sección,
+  usa get_document_outline o read_chunks con neighbor_window=1.
+- No conviertas una búsqueda sin resultados en «no existe» o «no se publicó».
+  Comprueba el documento y su estructura, o lista las publicaciones de la fecha.
+  Sin evidencia suficiente de ausencia, informa qué no pudiste verificar y usa
+  unclear. Si agotas el presupuesto, responde sólo la parte sustentada e indica
+  explícitamente qué partes quedaron pendientes.
 """
 
 
@@ -326,6 +347,7 @@ class ModelTurn:
     tool_calls: list[ToolCall] = field(default_factory=list)
     final_text: str = ""
     usage: dict[str, Any] = field(default_factory=dict)
+    finish_reason: str = ""
 
 
 class AgentBackend(Protocol):
@@ -365,6 +387,7 @@ class ModelTurnTrace:
     tool_call_ids: list[str]
     final_text: str
     usage: dict[str, Any]
+    finish_reason: str = ""
 
 
 @dataclass
@@ -618,6 +641,12 @@ class DofToolbox:
                 if len(term) >= 4 and term not in TOPIC_STOP_WORDS
             ]
             return bool(terms) and all(term in folded_source for term in terms)
+        if requirement.startswith("indicador "):
+            return bool(
+                re.search(
+                    INDICATORS[requirement.removeprefix("indicador ")], folded_text
+                )
+            )
         if requirement.startswith("término "):
             return requirement.removeprefix("término ") in folded_text
         if requirement.startswith("rango hasta "):
@@ -978,8 +1007,16 @@ class OpenAIResponsesBackend:
             response_id=response.id,
             output_items=output_items,
             tool_calls=calls,
-            final_text=response.output_text or "",
+            final_text=_without_thinking(response.output_text or ""),
             usage=usage,
+            finish_reason=(
+                "length"
+                if getattr(
+                    getattr(response, "incomplete_details", None), "reason", None
+                )
+                == "max_output_tokens"
+                else ""
+            ),
         )
 
 
@@ -995,6 +1032,7 @@ class OpenAIChatCompletionsBackend:
         reasoning_effort: str | None = None,
         max_output_tokens: int = 2400,
         client: Any = None,
+        enable_thinking: bool | None = None,
     ):
         if client is None:
             from openai import OpenAI
@@ -1004,6 +1042,7 @@ class OpenAIChatCompletionsBackend:
         self.model = model
         self.reasoning_effort = reasoning_effort
         self.max_output_tokens = max_output_tokens
+        self.enable_thinking = enable_thinking
 
     @staticmethod
     def _messages(
@@ -1067,6 +1106,10 @@ class OpenAIChatCompletionsBackend:
         }
         if self.reasoning_effort:
             kwargs["reasoning_effort"] = self.reasoning_effort
+        if self.enable_thinking is not None:
+            kwargs["extra_body"] = {
+                "chat_template_kwargs": {"enable_thinking": self.enable_thinking}
+            }
         if tools:
             kwargs["tools"] = self._chat_tools(tools)
             kwargs["tool_choice"] = "auto"
@@ -1078,6 +1121,13 @@ class OpenAIChatCompletionsBackend:
         message = response.choices[0].message
         message_data = message.model_dump(mode="json", exclude_none=True)
         message_data["type"] = "chat_message"
+        content = message.content or ""
+        reasoning = re.findall(r"<think>(.*?)(?:</think>|$)", content, re.S | re.I)
+        message_data["content"] = _without_thinking(content)
+        if reasoning:
+            message_data["reasoning_content"] = "\n".join(
+                [message_data.get("reasoning_content") or "", *reasoning]
+            ).strip()
         calls: list[ToolCall] = []
         for call in message.tool_calls or []:
             if call.type != "function":
@@ -1108,9 +1158,15 @@ class OpenAIChatCompletionsBackend:
             response_id=response.id,
             output_items=[message_data],
             tool_calls=calls,
-            final_text=message.content or "",
+            final_text=message_data["content"],
             usage=usage,
+            finish_reason=getattr(response.choices[0], "finish_reason", "") or "",
         )
+
+
+def _without_thinking(text: str) -> str:
+    """Never parse a draft JSON inside reasoning, including truncated reasoning."""
+    return re.sub(r"<think>.*?(?:</think>|$)", "", text, flags=re.S | re.I).strip()
 
 
 def _parse_final_answer(
@@ -1120,6 +1176,7 @@ def _parse_final_answer(
     citation_documents: dict[int, int] | None = None,
     required_hops: int = 1,
 ) -> AgentAnswer:
+    text = _without_thinking(text)
     try:
         decoder = json.JSONDecoder()
         data = None
@@ -1235,10 +1292,8 @@ class AgentRunner:
 
     def _available_tools(self) -> list[dict[str, Any]]:
         definitions = {tool["name"]: tool for tool in self.toolbox.tool_definitions()}
-        if self.toolbox.read_chunk_ids and not self.toolbox.missing_coverage:
-            return []
         if self.toolbox.read_chunk_ids:
-            names = ["search_evidence", "read_chunks"]
+            names = ["list_publications", "search_evidence", "get_document_outline", "read_chunks"]
             if self.toolbox.search_document_calls < MAX_DOCUMENT_SEARCH_CALLS:
                 names.insert(0, "search_documents")
             return [definitions[name] for name in names]
@@ -1340,6 +1395,7 @@ class AgentRunner:
                     else self.instructions
                 ),
             )
+            turn.final_text = _without_thinking(turn.final_text)
             _add_usage(usage, turn.usage)
             turns.append(
                 ModelTurnTrace(
@@ -1351,8 +1407,21 @@ class AgentRunner:
                     tool_call_ids=[call.call_id for call in turn.tool_calls],
                     final_text=turn.final_text,
                     usage=turn.usage,
+                    finish_reason=turn.finish_reason,
                 )
             )
+            if turn.finish_reason == "length":
+                terminal_stop_reason = "output_token_limit"
+                _emit_progress(
+                    on_progress,
+                    "answer_revision_requested",
+                    {
+                        "message": "El modelo agotó el presupuesto de salida; no se usará una respuesta truncada.",
+                        "reason": "output_token_limit",
+                        "turn": turn_number,
+                    },
+                )
+                break
             if force_final and turn.tool_calls:
                 last_parse_error = "model requested a tool during forced finalization"
                 continue
@@ -1386,8 +1455,7 @@ class AgentRunner:
                                 "type": "tool_unavailable",
                                 "message": (
                                     f"{call.name} no está disponible en este turno; "
-                                    "usa una de: "
-                                    + ", ".join(sorted(available_names))
+                                    "usa una de: " + ", ".join(sorted(available_names))
                                 ),
                             },
                         }
@@ -1402,7 +1470,10 @@ class AgentRunner:
                         ensure_ascii=False,
                         separators=(",", ":"),
                     )
-                    if call.name in available_names and len(traces) < self.max_tool_calls:
+                    if (
+                        call.name in available_names
+                        and len(traces) < self.max_tool_calls
+                    ):
                         full_output_bytes = len(
                             json.dumps(
                                 output, ensure_ascii=False, separators=(",", ":")
@@ -1418,7 +1489,9 @@ class AgentRunner:
                                 output=output,
                                 elapsed_ms=elapsed_ms,
                                 full_output_bytes=full_output_bytes,
-                                model_output_bytes=len(model_output_text.encode("utf-8")),
+                                model_output_bytes=len(
+                                    model_output_text.encode("utf-8")
+                                ),
                             )
                         )
                     _emit_progress(
@@ -1464,8 +1537,7 @@ class AgentRunner:
                         {
                             "role": "user",
                             "content": (
-                                "Aún no puedes cerrar. Lee evidencia de documentos cuyo "
-                                "título cubra: "
+                                "Aún no puedes cerrar. Busca y lee pasajes que cubran: "
                                 + ", ".join(self.toolbox.missing_coverage)
                             ),
                         }
@@ -1563,6 +1635,13 @@ class AgentRunner:
                         }
                     )
                     continue
+                if self.toolbox.missing_coverage:
+                    answer.premise_status = "unclear"
+                    answer.answer += (
+                        "\n\nNo se verificó: "
+                        + ", ".join(self.toolbox.missing_coverage)
+                        + "."
+                    )
                 verification = _verification(answer, self.toolbox, required_hops)
                 stop_reason = (
                     "completed"
@@ -1633,7 +1712,7 @@ class AgentRunner:
             answer=answer,
             traces=traces,
             turns=turns,
-            model_turns=self.max_model_turns,
+            model_turns=len(turns),
             tool_calls=len(traces),
             stop_reason=stop_reason,
             usage=usage,

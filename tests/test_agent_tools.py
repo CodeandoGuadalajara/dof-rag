@@ -837,7 +837,7 @@ class AgentToolsTests(unittest.TestCase):
             run.traces[0].model_output_bytes,
             run.traces[0].full_output_bytes,
         )
-        self.assertEqual(backend.calls[-1]["tools"], [])
+        self.assertIn("read_chunks", {tool["name"] for tool in backend.calls[-1]["tools"]})
         self.assertEqual(
             {tool["name"] for tool in backend.calls[0]["tools"]},
             {"list_publications", "search_documents"},

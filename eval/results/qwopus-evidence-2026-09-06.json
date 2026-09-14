@@ -1,0 +1,988 @@
+{
+  "description": "Post-change Qwopus results, three repeats of five previously problematic eval-v4 questions per thinking setting. Completion is not correctness. Gold overlap is not semantic entailment. All runs, including failures, included in summary. Compact artifact omits reasoning and full tool traces.",
+  "provenance": {
+    "revision": "01f2e5fdda40a10eda2227db95238f88d0f59640",
+    "agent_sha256": "8a2a5ea1c637c69ba8f4096f24c233986af2cb6abdd8c758c1b1bae39931e651",
+    "eval_sha256": "7f04b487fe59caa386b8c2508c2292c0cc29b05b5f563a057b8b1be4973a7958",
+    "sampling": "unchanged server defaults: temperature=1.0, top_k=20, top_p=0.95",
+    "context": 32768,
+    "max_output_tokens_per_turn": 2400,
+    "model": "ornith (pinned Qwopus NVFP4 + DFlash2 K=16)"
+  },
+  "summary": {
+    "off": {
+      "runs": 15,
+      "completed": 9,
+      "mean_seconds": 38.334,
+      "median_seconds": 42.663,
+      "min_seconds": 13.306,
+      "max_seconds": 70.631,
+      "macro_gold_precision_all_runs": 0.5277777777777778,
+      "macro_gold_recall_all_runs": 0.5333333333333333
+    },
+    "on": {
+      "runs": 15,
+      "completed": 9,
+      "mean_seconds": 67.139,
+      "median_seconds": 58.19,
+      "min_seconds": 23.785,
+      "max_seconds": 116.464,
+      "macro_gold_precision_all_runs": 0.6188888888888889,
+      "macro_gold_recall_all_runs": 0.7
+    }
+  },
+  "runs": [
+    {
+      "thinking": "off",
+      "repeat": 1,
+      "id": "LI-001",
+      "stop_reason": "coverage_incomplete: rango entre 16 y 50,rango hasta 15,rango más de 50,tema NOM-035",
+      "latency_seconds": 50.822,
+      "model_turns": 8,
+      "tool_calls": 7,
+      "tool_errors": 2,
+      "usage": {
+        "input_tokens": 52854,
+        "output_tokens": 681,
+        "total_tokens": 53535
+      },
+      "gold_chunk_ids": [
+        4733252,
+        4733257
+      ],
+      "answer": {
+        "answer": "No fue posible verificar ni citar evidencia suficiente para responder la pregunta sobre las obligaciones de identificación y evaluación que la NOM-035 asigna a centros con hasta 15, entre 16 y 50, y con más de 50 trabajadores. La evidencia leída corresponde al documento 616140 (Publicado: 2024-03-22), el cual trata las respuestas a los comentarios respecto del proyecto PROY-NOM-038-STPS-2023 y no la NOM-035. Los chunks leídos no contienen información sobre las obligaciones específicas de identificación y evaluación por número de trabajadores bajo la NOM-035. Por lo tanto, la premisa no puede ser documentada con la evidencia disponible.\n\nNo se verificó: rango entre 16 y 50, rango hasta 15, rango más de 50, tema NOM-035.",
+        "citations": [
+          6209453
+        ],
+        "invalid_citations": [],
+        "premise_status": "unclear"
+      },
+      "coverage": {
+        "rango entre 16 y 50": false,
+        "rango hasta 15": false,
+        "rango más de 50": false,
+        "tema NOM-035": false
+      }
+    },
+    {
+      "thinking": "off",
+      "repeat": 1,
+      "id": "TE-001",
+      "stop_reason": "model_turn_limit: invalid final answer: response did not contain a JSON object",
+      "latency_seconds": 39.114,
+      "model_turns": 8,
+      "tool_calls": 7,
+      "tool_errors": 4,
+      "usage": {
+        "input_tokens": 48538,
+        "output_tokens": 608,
+        "total_tokens": 49146
+      },
+      "gold_chunk_ids": [
+        4733287
+      ],
+      "answer": {
+        "answer": "No se obtuvo una respuesta final verificable dentro de los límites.",
+        "citations": [],
+        "invalid_citations": [],
+        "premise_status": "unclear"
+      },
+      "coverage": {
+        "tema NOM-035-STPS-2018": true
+      }
+    },
+    {
+      "thinking": "off",
+      "repeat": 1,
+      "id": "CR-001",
+      "stop_reason": "completed",
+      "latency_seconds": 43.735,
+      "model_turns": 8,
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 52301,
+        "output_tokens": 523,
+        "total_tokens": 52824
+      },
+      "gold_chunk_ids": [
+        4733254,
+        4733287
+      ],
+      "answer": {
+        "answer": "De acuerdo con la NOM-035-STPS-2018, el segundo transitorio diferido la entrada en vigor del numeral 5.2. El numeral 5.2 establece la obligación de 'Identificar y analizar los factores de riesgo psicosocial, de acuerdo con lo establecido en los numerales 7.1, inciso a), y 7.2, de esta Norma', y aplica específicamente 'tratándose de centros de trabajo que tengan entre 16 y 50 trabajadores'.",
+        "citations": [
+          4733254,
+          4733287
+        ],
+        "invalid_citations": [],
+        "premise_status": "supported"
+      },
+      "coverage": {
+        "numeral 5.2": true,
+        "tema NOM-035": true,
+        "transitorio": true
+      }
+    },
+    {
+      "thinking": "off",
+      "repeat": 1,
+      "id": "MO-001",
+      "stop_reason": "completed",
+      "latency_seconds": 17.662,
+      "model_turns": 4,
+      "tool_calls": 3,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 12677,
+        "output_tokens": 350,
+        "total_tokens": 13027
+      },
+      "gold_chunk_ids": [
+        6658934,
+        6658935
+      ],
+      "answer": {
+        "answer": "El INEGI publicó en el DOF del 9 de enero de 2026: (1) INPC mensual de diciembre de 2025: 143.042 (variación de 0.28% mensual); INPC quincenal de la segunda quincena de diciembre de 2025: 143.027. (2) UMA vigente a partir del 1º de febrero de 2026: valor diario $117.31, valor mensual $3,566.22 y valor anual $42,794.64 pesos.",
+        "citations": [
+          6658934,
+          6658935
+        ],
+        "invalid_citations": [],
+        "premise_status": "supported"
+      },
+      "coverage": {
+        "indicador INPC": true,
+        "indicador UMA": true
+      }
+    },
+    {
+      "thinking": "off",
+      "repeat": 1,
+      "id": "NE-001",
+      "stop_reason": "premise_correction_required",
+      "latency_seconds": 47.899,
+      "model_turns": 8,
+      "tool_calls": 6,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 49736,
+        "output_tokens": 610,
+        "total_tokens": 50346
+      },
+      "gold_chunk_ids": [
+        6721510,
+        6721511
+      ],
+      "answer": {
+        "answer": "No se obtuvo una respuesta final verificable dentro de los límites.",
+        "citations": [],
+        "invalid_citations": [],
+        "premise_status": "unclear"
+      },
+      "coverage": {
+        "publicación 2026-04-17": true,
+        "tema decreto de expropiación": true
+      }
+    },
+    {
+      "thinking": "off",
+      "repeat": 2,
+      "id": "LI-001",
+      "stop_reason": "completed",
+      "latency_seconds": 70.631,
+      "model_turns": 8,
+      "tool_calls": 6,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 87289,
+        "output_tokens": 1191,
+        "total_tokens": 88480
+      },
+      "gold_chunk_ids": [
+        4733252,
+        4733257
+      ],
+      "answer": {
+        "answer": "La NOM-035-STPS-2018 (publicada el 23 de octubre de 2018) distingue las obligaciones por número de trabajadores en su campo de aplicación:\n\n**Hasta 15 trabajadores (numeral 2.a):** Deben cumplir con los numerales 5.1 (política de prevención de riesgos psicosociales), 5.4 (medidas preventivas y de control), 5.5 (identificación de trabajadores expuestos a acontecimientos traumáticos severos), 5.7 (difusión de información) y Capítulo 8. No están obligados a realizar la identificación y análisis de factores de riesgo psicosocial (numeral 5.2) ni la evaluación del entorno organizacional (numeral 5.3).\n\n**Entre 16 y 50 trabajadores (numeral 2.b):** Deben cumplir con los numerales 5.1, 5.2 (identificación y análisis de los factores de riesgo psicosocial), del 5.4 al 5.8, 7.1 inciso a), 7.2, del 7.4 al 7.9, y Capítulo 8. No están obligados a realizar la evaluación del entorno organizacional (numeral 5.3).\n\n**Más de 50 trabajadores (numeral 2.c):** Deben cumplir con los numerales 5.1, del 5.3 al 5.8, 7.1 inciso b), del 7.2 al 7.9 y Capítulo 8. Esto incluye tanto la identificación y análisis de los factores de riesgo psicosocial como la evaluación del entorno organizacional (numeral 5.3).",
+        "citations": [
+          4733252,
+          4733255,
+          4733265,
+          4733277
+        ],
+        "invalid_citations": [],
+        "premise_status": "supported"
+      },
+      "coverage": {
+        "rango entre 16 y 50": true,
+        "rango hasta 15": true,
+        "rango más de 50": true,
+        "tema NOM-035": true
+      }
+    },
+    {
+      "thinking": "off",
+      "repeat": 2,
+      "id": "TE-001",
+      "stop_reason": "completed",
+      "latency_seconds": 23.788,
+      "model_turns": 7,
+      "tool_calls": 6,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 26443,
+        "output_tokens": 494,
+        "total_tokens": 26937
+      },
+      "gold_chunk_ids": [
+        4733287
+      ],
+      "answer": {
+        "answer": "La NOM-035-STPS-2018 fue publicada en el DOF el 23 de octubre de 2018. Según sus transitorios: (1) La regla general de la norma entró en vigor al año siguiente de su publicación, es decir, el 23 de octubre de 2019. (2) Las obligaciones diferidas (numerales 5.2, 5.3, 5.6, 5.8, 8.3, 8.4, 8.5 y Capítulo 7) entraron en vigor a los dos años siguientes a la publicación, es decir, el 23 de octubre de 2020.",
+        "citations": [
+          4733287
+        ],
+        "invalid_citations": [],
+        "premise_status": "supported"
+      },
+      "coverage": {
+        "tema NOM-035-STPS-2018": true
+      }
+    },
+    {
+      "thinking": "off",
+      "repeat": 2,
+      "id": "CR-001",
+      "stop_reason": "coverage_incomplete: transitorio",
+      "latency_seconds": 42.663,
+      "model_turns": 8,
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 38037,
+        "output_tokens": 676,
+        "total_tokens": 38713
+      },
+      "gold_chunk_ids": [
+        4733254,
+        4733287
+      ],
+      "answer": {
+        "answer": "La obligación contenida en el numeral 5.2 es: \"Identificar y analizar los factores de riesgo psicosocial, de acuerdo con lo establecido en los numerales 7.1, inciso a), y 7.2, de esta Norma\". Aplica a los centros de trabajo que tengan entre 16 y 50 trabajadores. El segundo transitorio difirió la entrada en vigor del numeral 5.2 a dos años siguientes a su publicación en el DOF.\n\nNo se verificó: transitorio.",
+        "citations": [
+          4733254
+        ],
+        "invalid_citations": [],
+        "premise_status": "unclear"
+      },
+      "coverage": {
+        "numeral 5.2": true,
+        "tema NOM-035": true,
+        "transitorio": false
+      }
+    },
+    {
+      "thinking": "off",
+      "repeat": 2,
+      "id": "MO-001",
+      "stop_reason": "completed",
+      "latency_seconds": 19.855,
+      "model_turns": 6,
+      "tool_calls": 5,
+      "tool_errors": 1,
+      "usage": {
+        "input_tokens": 15238,
+        "output_tokens": 605,
+        "total_tokens": 15843
+      },
+      "gold_chunk_ids": [
+        6658934,
+        6658935
+      ],
+      "answer": {
+        "answer": "En el DOF del 9 de enero de 2026, el INEGI publicó los siguientes valores:\n\n**INPC (Índice Nacional de Precios al Consumidor):**\n- Mensual de diciembre 2025: 143.042 (variación de 0.28% vs. noviembre 2025).\n- Quincenal de la segunda quincena de diciembre 2025: 143.027 (variación de -0.02% vs. primera quincena de diciembre 2025).\n\n**UMA (Unidad de Medida y Actualización), vigentes a partir del 1º de febrero de 2026:**\n- Valor diario: $117.31\n- Valor mensual: $3,566.22\n- Valor anual: $42,794.64\n\nFecha de publicación de la fuente: 2026-01-09.",
+        "citations": [
+          6658934,
+          6658935
+        ],
+        "invalid_citations": [],
+        "premise_status": "supported"
+      },
+      "coverage": {
+        "indicador INPC": true,
+        "indicador UMA": true
+      }
+    },
+    {
+      "thinking": "off",
+      "repeat": 2,
+      "id": "NE-001",
+      "stop_reason": "premise_correction_required",
+      "latency_seconds": 48.827,
+      "model_turns": 8,
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 47414,
+        "output_tokens": 1013,
+        "total_tokens": 48427
+      },
+      "gold_chunk_ids": [
+        6721510,
+        6721511
+      ],
+      "answer": {
+        "answer": "No se obtuvo una respuesta final verificable dentro de los límites.",
+        "citations": [],
+        "invalid_citations": [],
+        "premise_status": "unclear"
+      },
+      "coverage": {
+        "publicación 2026-04-17": true,
+        "tema decreto de expropiación": true
+      }
+    },
+    {
+      "thinking": "off",
+      "repeat": 3,
+      "id": "LI-001",
+      "stop_reason": "model_turn_limit: invalid final answer: response did not contain a JSON object",
+      "latency_seconds": 61.209,
+      "model_turns": 8,
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 63849,
+        "output_tokens": 1184,
+        "total_tokens": 65033
+      },
+      "gold_chunk_ids": [
+        4733252,
+        4733257
+      ],
+      "answer": {
+        "answer": "No se obtuvo una respuesta final verificable dentro de los límites.",
+        "citations": [],
+        "invalid_citations": [],
+        "premise_status": "unclear"
+      },
+      "coverage": {
+        "rango entre 16 y 50": true,
+        "rango hasta 15": false,
+        "rango más de 50": true,
+        "tema NOM-035": true
+      }
+    },
+    {
+      "thinking": "off",
+      "repeat": 3,
+      "id": "TE-001",
+      "stop_reason": "completed",
+      "latency_seconds": 13.306,
+      "model_turns": 4,
+      "tool_calls": 3,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 9777,
+        "output_tokens": 333,
+        "total_tokens": 10110
+      },
+      "gold_chunk_ids": [
+        4733287
+      ],
+      "answer": {
+        "answer": "La NOM-035-STPS-2018 se publicó el 23 de octubre de 2018. Según sus transitorios: la regla general entró en vigor al año siguiente de su publicación (23 de octubre de 2019) y las obligaciones diferidas (numerales 5.2, 5.3, 5.6, 5.8, 8.3, 8.4, 8.5 y Capítulo 7) entraron en vigor a los dos años siguientes (23 de octubre de 2020).",
+        "citations": [
+          4733287
+        ],
+        "invalid_citations": [],
+        "premise_status": "supported"
+      },
+      "coverage": {
+        "tema NOM-035-STPS-2018": true
+      }
+    },
+    {
+      "thinking": "off",
+      "repeat": 3,
+      "id": "CR-001",
+      "stop_reason": "completed",
+      "latency_seconds": 43.379,
+      "model_turns": 8,
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 42925,
+        "output_tokens": 591,
+        "total_tokens": 43516
+      },
+      "gold_chunk_ids": [
+        4733254,
+        4733287
+      ],
+      "answer": {
+        "answer": "De acuerdo con el segundo transitorio de la NOM-035-STPS-2018 (publicada el 23 de octubre de 2018), el numeral 5.2 entró en vigor dos años después de su publicación. La obligación contenida en el numeral 5.2 es: \"Identificar y analizar los factores de riesgo psicosocial, de acuerdo con lo establecido en los numerales 7.1, inciso a), y 7.2, de esta Norma\". Esta obligación aplica específicamente a los centros de trabajo que tengan entre 16 y 50 trabajadores.",
+        "citations": [
+          4733287,
+          4733254,
+          4733252
+        ],
+        "invalid_citations": [],
+        "premise_status": "supported"
+      },
+      "coverage": {
+        "numeral 5.2": true,
+        "tema NOM-035": true,
+        "transitorio": true
+      }
+    },
+    {
+      "thinking": "off",
+      "repeat": 3,
+      "id": "MO-001",
+      "stop_reason": "completed",
+      "latency_seconds": 15.854,
+      "model_turns": 4,
+      "tool_calls": 3,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 12267,
+        "output_tokens": 424,
+        "total_tokens": 12691
+      },
+      "gold_chunk_ids": [
+        6658934,
+        6658935
+      ],
+      "answer": {
+        "answer": "En el DOF del 9 de enero de 2026 (documento del INEGI), se publicaron:\n\n**INPC mensual** (dic 2025, base 2ª quincena julio 2018=100): **143.042** (variación mensual +0.28% vs 142.645 en nov 2025).\n**INPC quincenal** (2ª quincena de dic 2025): **143.027** (variación -0.02% vs 143.057 en 1ª quincena de dic 2025).\n\n**UMA** vigentes a partir del 1º de febrero de 2026:\n- Diario: **$117.31**\n- Mensual: **$3,566.22**\n- Anual: **$42,794.64**\n\nFuente: INEGI, publicada en el DOF el 9 de enero de 2026.",
+        "citations": [
+          6658934,
+          6658935
+        ],
+        "invalid_citations": [],
+        "premise_status": "supported"
+      },
+      "coverage": {
+        "indicador INPC": true,
+        "indicador UMA": true
+      }
+    },
+    {
+      "thinking": "off",
+      "repeat": 3,
+      "id": "NE-001",
+      "stop_reason": "completed",
+      "latency_seconds": 36.263,
+      "model_turns": 8,
+      "tool_calls": 7,
+      "tool_errors": 2,
+      "usage": {
+        "input_tokens": 39188,
+        "output_tokens": 597,
+        "total_tokens": 39785
+      },
+      "gold_chunk_ids": [
+        6721510,
+        6721511
+      ],
+      "answer": {
+        "answer": "No se pudo verificar el contenido del artículo 99 del decreto de expropiación del Tren Maya publicado el 17 de abril de 2026. Los chunks leídos (chunk_ids 6721498-6721505) cubren los considerandos y antecedentes del decreto, pero no contienen el cuerpo normativo con los artículos. No existe evidencia suficiente en la evidencia leída para responder con certeza.",
+        "citations": [
+          6721498
+        ],
+        "invalid_citations": [],
+        "premise_status": "unclear"
+      },
+      "coverage": {
+        "publicación 2026-04-17": true,
+        "tema decreto de expropiación": true
+      }
+    },
+    {
+      "thinking": "on",
+      "repeat": 1,
+      "id": "LI-001",
+      "stop_reason": "coverage_incomplete: rango hasta 15",
+      "latency_seconds": 116.464,
+      "model_turns": 8,
+      "tool_calls": 7,
+      "tool_errors": 1,
+      "usage": {
+        "input_tokens": 65792,
+        "output_tokens": 3306,
+        "total_tokens": 69098
+      },
+      "gold_chunk_ids": [
+        4733252,
+        4733257
+      ],
+      "answer": {
+        "answer": "La NOM-035-STPS-2018 (publicada el 23/10/2018) establece las siguientes obligaciones de identificación y evaluación:\n\n**Hasta 15 trabajadores:** La Norma no establece obligaciones específicas de identificación y análisis de factores de riesgo psicosocial ni de evaluación del entorno organizacional. Las obligaciones de identificación y evaluación comienzan a partir de 16 trabajadores (numerales 5.2 y 5.3).\n\n**Entre 16 y 50 trabajadores:** El patrón debe identificar y analizar los factores de riesgo psicosocial, incluyendo a todos los trabajadores del centro de trabajo (numerales 5.2 y 7.1, inciso a), así como cumplir con lo establecido en el numeral 7.2).\n\n**Más de 50 trabajadores:** El patrón debe identificar y analizar los factores de riesgo psicosocial y además evaluar el entorno organizacional (numerales 5.3, 7.1, inciso b), 7.2 y 7.3). Estas actividades pueden realizarse con una muestra representativa conforme a la Guía de referencia III.\n\nAdicionalmente, en el numeral 5.8 a) se exige llevar registros de los resultados de la identificación y análisis, y, tratándose de más de 50 trabajadores, de las evaluaciones del entorno organizacional. El numeral 5.7 e) obliga a difundir los resultados a los trabajadores de acuerdo con el tamaño del centro.\n\nNo se verificó: rango hasta 15.",
+        "citations": [
+          4733254,
+          4733255,
+          4733256,
+          4733257,
+          4733269,
+          4733282
+        ],
+        "invalid_citations": [],
+        "premise_status": "unclear"
+      },
+      "coverage": {
+        "rango entre 16 y 50": true,
+        "rango hasta 15": false,
+        "rango más de 50": true,
+        "tema NOM-035": true
+      }
+    },
+    {
+      "thinking": "on",
+      "repeat": 1,
+      "id": "TE-001",
+      "stop_reason": "completed",
+      "latency_seconds": 41.527,
+      "model_turns": 6,
+      "tool_calls": 5,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 23410,
+        "output_tokens": 1277,
+        "total_tokens": 24687
+      },
+      "gold_chunk_ids": [
+        4733287
+      ],
+      "answer": {
+        "answer": "La NOM-035-STPS-2018 fue publicada en el DOF el 23 de octubre de 2018. Según sus transitorios: (1) La regla general entró en vigor al año siguiente de su publicación, es decir, el 23 de octubre de 2019. (2) Las obligaciones diferidas —dispostas por los numerales 5.2, 5.3, 5.6, 5.8, 8.3, 8.4, 8.5 y Capítulo 7— entraron en vigor a los dos años siguientes a la publicación, es decir, el 23 de octubre de 2020.",
+        "citations": [
+          4733287
+        ],
+        "invalid_citations": [],
+        "premise_status": "supported"
+      },
+      "coverage": {
+        "tema NOM-035-STPS-2018": true
+      }
+    },
+    {
+      "thinking": "on",
+      "repeat": 1,
+      "id": "CR-001",
+      "stop_reason": "completed",
+      "latency_seconds": 68.33,
+      "model_turns": 8,
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 52831,
+        "output_tokens": 1623,
+        "total_tokens": 54454
+      },
+      "gold_chunk_ids": [
+        4733254,
+        4733287
+      ],
+      "answer": {
+        "answer": "El segundo transitorio de la NOM-035-STPS-2018 difirió la entrada en vigor del numeral 5.2 a los dos años siguientes a su publicación en el DOF (publicada el 23 de octubre de 2018, por lo que entró en vigor el 23 de octubre de 2020). El numeral 5.2 contiene la obligación de \"Identificar y analizar los factores de riesgo psicosocial, de acuerdo con lo establecido en los numerales 7.1, inciso a), y 7.2, de esta Norma\", y se aplica específicamente a los centros de trabajo que tengan entre 16 y 50 trabajadores.",
+        "citations": [
+          4733287,
+          4733254,
+          4733252
+        ],
+        "invalid_citations": [],
+        "premise_status": "supported"
+      },
+      "coverage": {
+        "numeral 5.2": true,
+        "tema NOM-035": true,
+        "transitorio": true
+      }
+    },
+    {
+      "thinking": "on",
+      "repeat": 1,
+      "id": "MO-001",
+      "stop_reason": "completed",
+      "latency_seconds": 25.404,
+      "model_turns": 4,
+      "tool_calls": 3,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 9334,
+        "output_tokens": 852,
+        "total_tokens": 10186
+      },
+      "gold_chunk_ids": [
+        6658934,
+        6658935
+      ],
+      "answer": {
+        "answer": "En el DOF del 9 de enero de 2026, el INEGI publicó los siguientes valores:\n\n**INPC (Índice Nacional de Precios al Consumidor):**\n- INPC mensual de diciembre de 2025: 143.042 (variación intermensual de +0.28% respecto a noviembre de 2025, que fue 142.645).\n- INPC quincenal de la segunda quincena de diciembre de 2025: 143.027 (variación de -0.02% respecto a la primera quincena de diciembre de 2025, que fue 143.057).\n\n**UMA (Unidad de Medida y Actualización):**\n- Valor diario: $117.31 pesos mexicanos.\n- Valor mensual: $3,566.22 pesos mexicanos.\n- Valor anual: $42,794.64 pesos mexicanos.\n- Vigencia: a partir del 1º de febrero de 2026.",
+        "citations": [
+          6658934,
+          6658935
+        ],
+        "invalid_citations": [],
+        "premise_status": "supported"
+      },
+      "coverage": {
+        "indicador INPC": true,
+        "indicador UMA": true
+      }
+    },
+    {
+      "thinking": "on",
+      "repeat": 1,
+      "id": "NE-001",
+      "stop_reason": "completed",
+      "latency_seconds": 55.092,
+      "model_turns": 7,
+      "tool_calls": 6,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 32929,
+        "output_tokens": 1513,
+        "total_tokens": 34442
+      },
+      "gold_chunk_ids": [
+        6721510,
+        6721511
+      ],
+      "answer": {
+        "answer": "El decreto de expropiación del Tren Maya publicado el 17 de abril de 2026 (documento 657317) NO contiene un artículo 99. El instrumento jurídico únicamente establece cinco artículos, numerados con romanos del PRIMERO al QUINTO, seguidos de cuatro transitorios. El artículo PRIMERO decreta la expropiación de 48,661.703 m² a favor de la Federación por conducto de Tren Maya, S.A. de C.V., para la ejecución de los tramos 1, 2, 3, 5 y 6 del Proyecto Tren Maya; el artículo SEGUNDO dispone la ocupación inmediata por Sedatu; el TERCERO ordena cubrir la indemnización; el CUARTO trata los actos jurídicos previos; y el QUINTO establece la reversión en caso de no destinarse los bienes al fin expropiatorio en cinco años. Por tanto, no es posible citar un artículo 99 porque dicho numeral no existe en el texto del decreto.",
+        "citations": [
+          6721510,
+          6721511
+        ],
+        "invalid_citations": [],
+        "premise_status": "false"
+      },
+      "coverage": {
+        "publicación 2026-04-17": true,
+        "tema decreto de expropiación": true
+      }
+    },
+    {
+      "thinking": "on",
+      "repeat": 2,
+      "id": "LI-001",
+      "stop_reason": "coverage_incomplete: rango hasta 15",
+      "latency_seconds": 112.73,
+      "model_turns": 8,
+      "tool_calls": 6,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 66295,
+        "output_tokens": 3189,
+        "total_tokens": 69484
+      },
+      "gold_chunk_ids": [
+        4733252,
+        4733257
+      ],
+      "answer": {
+        "answer": "La NOM-035-STPS-2018 (publicada el 23 de octubre de 2018) establece las siguientes obligaciones de identificación y evaluación según el tamaño del centro de trabajo:\n\n**Centros con hasta 15 trabajadores:** La norma NO les asigna obligaciones de identificación ni evaluación de factores de riesgo psicosocial. Las obligaciones de identificación y análisis (numeral 5.2, 7.1 a) y de evaluación del entorno organizacional (numeral 5.3, 7.1 b) se establecen exclusivamente para centros con más de 15 trabajadores. Los centros con hasta 15 trabajadores quedan fuera del ámbito de aplicación de estas obligaciones específicas.\n\n**Centros con entre 16 y 50 trabajadores:** Deben realizar **únicamente la identificación y análisis de los factores de riesgo psicosocial**, incluyendo a **todos los trabajadores** (numerales 5.2 y 7.1, inciso a). No están obligados a realizar la evaluación del entorno organizacional.\n\n**Centros con más de 50 trabajadores:** Deben realizar **la identificación y análisis de los factores de riesgo psicosocial Y la evaluación del entorno organizacional** (numerales 5.3 y 7.1, inciso b). Estas actividades pueden realizarse con una **muestra representativa** conforme a lo señalado en la Guía de referencia III, numeral III.1.\n\nAdicionalmente, los centros obligados deben: adoptar medidas de prevención y control (5.4), difundir información a los trabajadores (5.7), y llevar registros de los resultados de la identificación y análisis, y en su caso, de la evaluación del entorno organizacional (5.8).\n\nNo se verificó: rango hasta 15.",
+        "citations": [
+          4733254,
+          4733255,
+          4733256,
+          4733257
+        ],
+        "invalid_citations": [
+          4733252
+        ],
+        "premise_status": "unclear"
+      },
+      "coverage": {
+        "rango entre 16 y 50": true,
+        "rango hasta 15": false,
+        "rango más de 50": true,
+        "tema NOM-035": true
+      }
+    },
+    {
+      "thinking": "on",
+      "repeat": 2,
+      "id": "TE-001",
+      "stop_reason": "completed",
+      "latency_seconds": 23.785,
+      "model_turns": 4,
+      "tool_calls": 3,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 10759,
+        "output_tokens": 833,
+        "total_tokens": 11592
+      },
+      "gold_chunk_ids": [
+        4733287
+      ],
+      "answer": {
+        "answer": "La NOM-035-STPS-2018 fue publicada en el DOF el 23 de octubre de 2018. Según sus transitorios:\n\n- **Regla general**: Entró en vigor al año siguiente de su publicación, es decir, el **23 de octubre de 2019**.\n- **Obligaciones diferidas** (numerales 5.2, 5.3, 5.6, 5.8, 8.3, 8.4, 8.5 y Capítulo 7): Entraron en vigor a los dos años siguientes a su publicación, es decir, el **23 de octubre de 2020**.",
+        "citations": [
+          4733287
+        ],
+        "invalid_citations": [],
+        "premise_status": "supported"
+      },
+      "coverage": {
+        "tema NOM-035-STPS-2018": true
+      }
+    },
+    {
+      "thinking": "on",
+      "repeat": 2,
+      "id": "CR-001",
+      "stop_reason": "output_token_limit",
+      "latency_seconds": 116.335,
+      "model_turns": 8,
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 54454,
+        "output_tokens": 3655,
+        "total_tokens": 58109
+      },
+      "gold_chunk_ids": [
+        4733254,
+        4733287
+      ],
+      "answer": {
+        "answer": "No se obtuvo una respuesta final verificable dentro de los límites.",
+        "citations": [],
+        "invalid_citations": [],
+        "premise_status": "unclear"
+      },
+      "coverage": {
+        "numeral 5.2": true,
+        "tema NOM-035": true,
+        "transitorio": false
+      }
+    },
+    {
+      "thinking": "on",
+      "repeat": 2,
+      "id": "MO-001",
+      "stop_reason": "completed",
+      "latency_seconds": 36.137,
+      "model_turns": 4,
+      "tool_calls": 4,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 16026,
+        "output_tokens": 1306,
+        "total_tokens": 17332
+      },
+      "gold_chunk_ids": [
+        6658934,
+        6658935
+      ],
+      "answer": {
+        "answer": "El 9 de enero de 2026, el INEGI publicó en el DOF los siguientes valores:\n\n**INPC (Índice Nacional de Precios al Consumidor):**\n- INPC mensual de diciembre de 2025: **143.042** (base: segunda quincena de julio 2018=100), variación de 0.28% respecto a noviembre 2025 (142.645).\n- INPC quincenal de la segunda quincena de diciembre 2025: **143.027**, variación de -0.02% respecto a la primera quincena de diciembre 2025 (143.057).\n\n**UMA (Unidad de Medida y Actualización):**\n- Valor diario: **$117.31** pesos mexicanos.\n- Valor mensual: **$3,566.22** pesos mexicanos.\n- Valor anual: **$42,794.64** pesos mexicanos.\n- Vigentes a partir del 1.º de febrero de 2026.\n\nAmbos documentos fueron publicados en el DOF el 9 de enero de 2026.",
+        "citations": [
+          6658934,
+          6658935
+        ],
+        "invalid_citations": [],
+        "premise_status": "supported"
+      },
+      "coverage": {
+        "indicador INPC": true,
+        "indicador UMA": true
+      }
+    },
+    {
+      "thinking": "on",
+      "repeat": 2,
+      "id": "NE-001",
+      "stop_reason": "premise_correction_required",
+      "latency_seconds": 75.935,
+      "model_turns": 8,
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 46895,
+        "output_tokens": 1830,
+        "total_tokens": 48725
+      },
+      "gold_chunk_ids": [
+        6721510,
+        6721511
+      ],
+      "answer": {
+        "answer": "No se obtuvo una respuesta final verificable dentro de los límites.",
+        "citations": [],
+        "invalid_citations": [],
+        "premise_status": "unclear"
+      },
+      "coverage": {
+        "publicación 2026-04-17": true,
+        "tema decreto de expropiación": true
+      }
+    },
+    {
+      "thinking": "on",
+      "repeat": 3,
+      "id": "LI-001",
+      "stop_reason": "coverage_incomplete: rango hasta 15",
+      "latency_seconds": 114.116,
+      "model_turns": 8,
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 70918,
+        "output_tokens": 3228,
+        "total_tokens": 74146
+      },
+      "gold_chunk_ids": [
+        4733252,
+        4733257
+      ],
+      "answer": {
+        "answer": "La NOM-035-STPS-2018 (publicada el 23 de octubre de 2018) asigna las siguientes obligaciones de identificación y evaluación de factores de riesgo psicosocial según el tamaño del centro de trabajo:\n\n**Hasta 15 trabajadores:** No se establecen obligaciones de identificación ni evaluación de factores de riesgo psicosocial. Las obligaciones de identificación y análisis comienzan a partir de 16 trabajadores (numerales 5.2 y 7.1a).\n\n**Entre 16 y 50 trabajadores:** El patrón debe realizar la identificación y análisis de los factores de riesgo psicosocial, incluyendo a todos los trabajadores del centro de trabajo (numerales 5.2 y 7.1, inciso a)). No está obligado a realizar la evaluación del entorno organizacional. El resultado debe difundirse a los trabajadores (5.7e) y registrarse (5.8a). La identificación y análisis se realiza al menos cada dos años.\n\n**Más de 50 trabajadores:** El patrón debe realizar la identificación y análisis de los factores de riesgo psicosocial Y la evaluación del entorno organizacional favorable (numerales 5.3, 7.1, inciso b); 7.2 y 7.3). Puede realizarlo con una muestra representativa conforme a la Guía de referencia III. El resultado debe difundirse (5.7e) y registrarse, incluyendo las evaluaciones del entorno organizacional (5.8a). La identificación y análisis se realiza al menos cada dos años.\n\nFuente: NOM-035-STPS-2018, publicada en el DOF el 23 de octubre de 2018.\n\nNo se verificó: rango hasta 15.",
+        "citations": [
+          4733254,
+          4733255,
+          4733257,
+          4733268,
+          4733269
+        ],
+        "invalid_citations": [],
+        "premise_status": "unclear"
+      },
+      "coverage": {
+        "rango entre 16 y 50": true,
+        "rango hasta 15": false,
+        "rango más de 50": true,
+        "tema NOM-035": true
+      }
+    },
+    {
+      "thinking": "on",
+      "repeat": 3,
+      "id": "TE-001",
+      "stop_reason": "completed",
+      "latency_seconds": 38.246,
+      "model_turns": 5,
+      "tool_calls": 4,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 32026,
+        "output_tokens": 1106,
+        "total_tokens": 33132
+      },
+      "gold_chunk_ids": [
+        4733287
+      ],
+      "answer": {
+        "answer": "La NOM-035-STPS-2018 fue publicada en el DOF el 23 de octubre de 2018. Según su sección TRANSITORIOS:\n\n- **Regla general (artículo PRIMERO):** La norma entró en vigor al año siguiente de su publicación, es decir, el **23 de octubre de 2019**.\n\n- **Obligaciones diferidas (artículo SEGUNDO):** Lo dispuesto por los numerales 5.2, 5.3, 5.6, 5.8, 8.3, 8.4, 8.5 y el Capítulo 7 entró en vigor a los dos años siguientes a su publicación, es decir, el **23 de octubre de 2020**.",
+        "citations": [
+          4733287
+        ],
+        "invalid_citations": [],
+        "premise_status": "supported"
+      },
+      "coverage": {
+        "tema NOM-035-STPS-2018": true
+      }
+    },
+    {
+      "thinking": "on",
+      "repeat": 3,
+      "id": "CR-001",
+      "stop_reason": "citation_required",
+      "latency_seconds": 91.811,
+      "model_turns": 8,
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 43050,
+        "output_tokens": 2229,
+        "total_tokens": 45279
+      },
+      "gold_chunk_ids": [
+        4733254,
+        4733287
+      ],
+      "answer": {
+        "answer": "No se obtuvo una respuesta final verificable dentro de los límites.",
+        "citations": [],
+        "invalid_citations": [],
+        "premise_status": "unclear"
+      },
+      "coverage": {
+        "numeral 5.2": false,
+        "tema NOM-035": false,
+        "transitorio": false
+      }
+    },
+    {
+      "thinking": "on",
+      "repeat": 3,
+      "id": "MO-001",
+      "stop_reason": "completed",
+      "latency_seconds": 32.986,
+      "model_turns": 4,
+      "tool_calls": 3,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 13329,
+        "output_tokens": 1190,
+        "total_tokens": 14519
+      },
+      "gold_chunk_ids": [
+        6658934,
+        6658935
+      ],
+      "answer": {
+        "answer": "El INEGI publicó en el DOF del 9 de enero de 2026 (sección MAT) los siguientes valores:\n\n**INPC (Índice Nacional de Precios al Consumidor)**, con base en la segunda quincena de julio de 2018 = 100:\n- **Mensual (diciembre 2025):** 143.042, lo que representa una variación de 0.28% respecto a noviembre 2025 (142.645).\n- **Quincenal (segunda quincena de diciembre 2025):** 143.027, con una variación de -0.02% respecto a la primera quincena de diciembre 2025 (143.057).\n\n**UMA (Unidad de Medida y Actualización)**, vigentes a partir del 1º de febrero de 2026:\n- **Diaria:** $117.31 pesos mexicanos\n- **Mensual:** $3,566.22 pesos mexicanos\n- **Anual:** $42,794.64 pesos mexicanos\n\nFuente: DOF del 9 de enero de 2026, documento del Instituto Nacional de Estadística y Geografía, firmado el 8 de enero de 2026.",
+        "citations": [
+          6658934,
+          6658935
+        ],
+        "invalid_citations": [],
+        "premise_status": "supported"
+      },
+      "coverage": {
+        "indicador INPC": true,
+        "indicador UMA": true
+      }
+    },
+    {
+      "thinking": "on",
+      "repeat": 3,
+      "id": "NE-001",
+      "stop_reason": "completed",
+      "latency_seconds": 58.19,
+      "model_turns": 6,
+      "tool_calls": 4,
+      "tool_errors": 0,
+      "usage": {
+        "input_tokens": 33387,
+        "output_tokens": 1467,
+        "total_tokens": 34854
+      },
+      "gold_chunk_ids": [
+        6721510,
+        6721511
+      ],
+      "answer": {
+        "answer": "El decreto de expropiación del Tren Maya publicado el 17 de abril de 2026 en el DOF (Sección MAT) no contiene un artículo 99. Su cuerpo normativo consta de cinco artículos (PRIMERO, SEGUNDO, TERCERO, CUARTO y QUINTO) y cuatro disposiciones transitorias, y concluye con las rúbricas. Por lo tanto, no existe ningún artículo 99 que establecer nada en dicho decreto.",
+        "citations": [
+          6721510,
+          6721511
+        ],
+        "invalid_citations": [],
+        "premise_status": "false"
+      },
+      "coverage": {
+        "publicación 2026-04-17": true,
+        "tema decreto de expropiación": true
+      }
+    }
+  ]
+}

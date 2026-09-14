@@ -102,8 +102,10 @@ def calculate_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
             # or when verification flags an explicit correction left as
             # ``unclear``; the label-only rate measures self-labeling.
             labeled_false = item["run"]["answer"]["premise_status"] == "false"
-            review_flagged = item["run"].get("verification", {}).get(
-                "premise_status_review_required", False
+            review_flagged = (
+                item["run"]
+                .get("verification", {})
+                .get("premise_status_review_required", False)
             )
             false_premise.append(labeled_false or review_flagged)
             false_premise_labeled.append(labeled_false)
@@ -181,6 +183,11 @@ def main() -> int:
     parser.add_argument("--model", default=os.environ.get("OPENAI_MODEL", ""))
     parser.add_argument("--base-url")
     parser.add_argument("--reasoning-effort", default="low")
+    parser.add_argument(
+        "--thinking",
+        choices=["on", "off"],
+        help="Local Chat Completions template toggle; unset preserves server defaults.",
+    )
     parser.add_argument("--max-model-turns", type=int, default=8)
     parser.add_argument("--max-tool-calls", type=int, default=8)
     parser.add_argument("--corpus-db", default="dof_db/dof_corpus_l3.sqlite")
@@ -211,6 +218,7 @@ def main() -> int:
         "model": args.model,
         "base_url": args.base_url,
         "reasoning_effort": args.reasoning_effort,
+        "thinking": args.thinking,
         "max_model_turns": args.max_model_turns,
         "max_tool_calls": args.max_tool_calls,
         "corpus_db": args.corpus_db,
@@ -240,6 +248,7 @@ def main() -> int:
             api_key=os.environ.get("DOF_AGENT_API_KEY", "llama-server"),
             base_url=args.base_url or "http://127.0.0.1:8080/v1",
             reasoning_effort=args.reasoning_effort or None,
+            enable_thinking=None if args.thinking is None else args.thinking == "on",
         )
     elif args.provider == "kimi-code":
         api_key = os.environ.get("KIMI_API_KEY", "")
