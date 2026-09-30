@@ -83,6 +83,10 @@ class ChatTests(AirAppTestCase):
         self.assertIn('<pre class="chat-thinking">&lt;script&gt;thought&lt;/script&gt;</pre>', page.text)
         self.assertIn('.chat-assistant .chat-thinking { max-height:none; overflow:visible;', page.text)
         self.assertIn("reasoning.className = 'chat-thinking'", page.text)
+        # Terminal refresh follows the bottom: the final answer must come last.
+        answer_position = page.text.index('<strong>DOF</strong>')
+        self.assertLess(page.text.index('<pre class="chat-thinking">'), answer_position)
+        self.assertLess(page.text.index('<details><summary>Llamada a herramienta'), answer_position)
         second = {**payload, 'client_request_id': self.hidden(page, 'client_request_id'),
                   'question': '¿Y qué significa?'}
         self.client.post('/chat', data=second, follow_redirects=False)

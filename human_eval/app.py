@@ -1362,8 +1362,9 @@ def create_app(
                 tool_calls_html = _chat_tools_html(result.get("trace", []))
                 if result.get('warnings'):
                     messages.append('<p class="warning">La consulta terminó antes de completar la respuesta. Lo siguiente puede ser parcial.</p>')
-                messages.append(f'<strong>DOF</strong><div class="markdown-body">{render_markdown_html(result["answer"]["text"])}</div>'
-                                f'<p class="meta">Tokens utilizados: {_escape(used)} · entrada: {_escape(usage.get("input_tokens", "no disponible"))} · salida (incluye pensamiento): {_escape(usage.get("output_tokens", "no disponible"))} · pensamiento: {_escape(thinking)} · <a href="/runs/{run["run_id"]}">Ver citas y evidencia</a></p>{reasoning_html}{tool_calls_html}')
+                messages.append(f'{reasoning_html}{tool_calls_html}'
+                                f'<strong>DOF</strong><div class="markdown-body">{render_markdown_html(result["answer"]["text"])}</div>'
+                                f'<p class="meta">Tokens utilizados: {_escape(used)} · entrada: {_escape(usage.get("input_tokens", "no disponible"))} · salida (incluye pensamiento): {_escape(usage.get("output_tokens", "no disponible"))} · pensamiento: {_escape(thinking)} · <a href="/runs/{run["run_id"]}">Ver citas y evidencia</a></p>')
             elif run["status"] == "failed":
                 failure = run.get('error', {})
                 messages.append(f'<p class="warning">{_escape(failure.get("message", "La consulta falló."))} Se conserva lo generado hasta la interrupción.</p>')
