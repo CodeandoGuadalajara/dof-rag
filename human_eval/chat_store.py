@@ -50,8 +50,41 @@ def add_message(connection, run_id, user_id, created_at, question):
         )
 
 
+def partial_from_progress(events):
+    """Recover completed and interrupted turns from persisted stream batches."""
+    turns, tools = {}, {}
+    for event in events:
+        payload = event.get('payload', {})
+        field = payload.get('chat_delta')
+        if field in {'content', 'reasoning_content'}:
+            number = payload.get('turn', 1)
+            turn = turns.setdefault(number, {'turn': number, 'content': '', 'reasoning_content': ''})
+            turn[field] += payload.get('text', '')
+        elif event.get('event_type') in {'tool_started', 'tool_completed'}:
+            call_id = payload.get('call_id', str(event.get('sequence', '')))
+            tool = tools.setdefault(call_id, {'name': payload.get('tool', ''), 'arguments': None})
+            if 'arguments' in payload:
+                tool['arguments'] = payload['arguments']
+            if 'output' in payload:
+                tool['output'] = payload['output']
+    return {'turns': list(turns.values()), 'tools': list(tools.values())}
+
+
+def saved_partial(connection, run_id):
+    rows = connection.execute(
+        'SELECT sequence, event_type, payload_json FROM run_progress WHERE run_id = ? ORDER BY sequence', (run_id,)
+    ).fetchall()
+    return partial_from_progress([
+        {'sequence': row[0], 'event_type': row[1], 'payload': json.loads(row[2])} for row in rows
+    ])
+
+
 def finish_message(connection, run_id, state, payload):
-    text = payload.get('answer', {}).get('text', '') if state == 'succeeded' else payload.get('message', '')
+    if state == 'failed' and 'partial' not in payload:
+        payload = {**payload, 'partial': saved_partial(connection, run_id)}
+    text = payload.get('answer', {}).get('text', '') if state == 'succeeded' else '\n\n'.join(
+        turn.get('content', '') for turn in payload.get('partial', {}).get('turns', [])
+    ) or payload.get('message', '')
     connection.execute(
         "UPDATE chat_messages SET content = ?, result_json = ? WHERE run_id = ? AND role = 'assistant'",
         (text, json.dumps(payload, ensure_ascii=False), run_id),

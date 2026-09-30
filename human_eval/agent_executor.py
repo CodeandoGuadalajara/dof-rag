@@ -314,6 +314,7 @@ class AgentRunExecutor:
         *,
         on_progress: ProgressCallback | None = None,
     ) -> dict[str, Any]:
+        flush_stream = None
         try:
             backend = self._backend()
             if request.token_limit is not None:
@@ -336,6 +337,7 @@ class AgentRunExecutor:
                         if kind == "done":
                             stream_turn += 1
                     backend.on_delta = stream_delta
+                    flush_stream = stream_delta
                 from .budget_backend import BudgetBackend
                 from .qwen_token_counter import QwenTokenCounter
                 if (self.config.provider != "llama-server"
@@ -410,6 +412,9 @@ class AgentRunExecutor:
                     code, "El proveedor del agente no está disponible."
                 ) from exc
             raise
+        finally:
+            if flush_stream is not None:
+                flush_stream("done", "")
         return _public_result(run.to_dict())
 
 

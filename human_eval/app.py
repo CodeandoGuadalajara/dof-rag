@@ -60,6 +60,7 @@ from .service import (
 from .store import SCHEMA_VERSION, EvaluationStore
 from .token_budget import DAILY_TOKEN_LIMIT, TokenBudgetExceeded
 from .chat_ui import CHAT_SCRIPT
+from .chat_store import partial_from_progress
 
 MAX_BODY_BYTES = 16 * 1024
 ACTIVE_STATES = frozenset({"queued", "running"})
@@ -1063,6 +1064,27 @@ def _not_found_page(
     )
 
 
+def _chat_tools_html(tools: list[dict[str, Any]]) -> str:
+    return ''.join(
+        f'<details><summary>Llamada a herramienta · {_escape(item.get("name", ""))}</summary>'
+        f'<strong>Argumentos</strong><pre>{_escape(json.dumps(item.get("arguments"), ensure_ascii=False, indent=2))}</pre>'
+        f'<strong>Resultado</strong><pre>{_escape(json.dumps(item.get("output", "Ejecución interrumpida sin resultado."), ensure_ascii=False, indent=2))}</pre></details>'
+        for item in tools
+    )
+
+
+def _chat_partial_html(partial: dict[str, Any]) -> str:
+    sections = []
+    for turn in partial.get('turns', []):
+        if turn.get('reasoning_content'):
+            sections.append(f'<details open><summary>Pensamiento del modelo · turno {_escape(turn["turn"])} · incompleto</summary>'
+                            f'<pre>{_escape(turn["reasoning_content"])}</pre></details>')
+        if turn.get('content'):
+            sections.append(f'<p class="meta">Texto parcial · turno {_escape(turn["turn"])}. No es una respuesta final verificada.</p>'
+                            f'<div class="markdown-body">{render_markdown_html(turn["content"])}</div>')
+    return ''.join(sections) + _chat_tools_html(partial.get('tools', []))
+
+
 def _sanitize_login_next(raw: str | None) -> str:
     """Allow only same-origin absolute paths (open-redirect guard)."""
     if not raw:
@@ -1261,16 +1283,19 @@ def create_app(
                     f'<p class="meta">Texto devuelto por Qwen; puede contener hipótesis o errores. No es evidencia del DOF.</p><pre>{_escape(item.get("text") or "El servidor no devolvió texto de pensamiento.")}</pre></details>'
                     for item in thoughts
                 )
-                tool_calls_html = ''.join(
-                    f'<details open><summary>Llamada a herramienta · {_escape(item.get("name", ""))}</summary>'
-                    f'<strong>Argumentos</strong><pre>{_escape(json.dumps(item.get("arguments"), ensure_ascii=False, indent=2))}</pre>'
-                    f'<strong>Resultado</strong><pre>{_escape(json.dumps(item.get("output"), ensure_ascii=False, indent=2))}</pre></details>'
-                    for item in result.get("trace", [])
-                )
+                tool_calls_html = _chat_tools_html(result.get("trace", []))
+                if result.get('warnings'):
+                    messages.append('<p class="warning">La consulta terminó antes de completar la respuesta. Lo siguiente puede ser parcial.</p>')
                 messages.append(f'<strong>DOF</strong><div class="markdown-body">{render_markdown_html(result["answer"]["text"])}</div>'
                                 f'<p class="meta">Tokens utilizados: {_escape(used)} · entrada: {_escape(usage.get("input_tokens", "no disponible"))} · salida (incluye pensamiento): {_escape(usage.get("output_tokens", "no disponible"))} · pensamiento: {_escape(thinking)} · <a href="/runs/{run["run_id"]}">Ver citas y evidencia</a></p>{reasoning_html}{tool_calls_html}')
             elif run["status"] == "failed":
-                messages.append(f'<p class="warning">{_escape(run.get("error", {}).get("message", "La consulta falló."))}</p>')
+                failure = run.get('error', {})
+                messages.append(f'<p class="warning">{_escape(failure.get("message", "La consulta falló."))} Se conserva lo generado hasta la interrupción.</p>')
+                partial = failure.get('partial') or partial_from_progress(run.get('progress', []))
+                messages.append(_chat_partial_html(partial))
+                charged = failure.get('usage', {}).get('total_tokens')
+                if charged is not None:
+                    messages.append(f'<p class="meta">Tokens utilizados: {_escape(charged)}</p>')
             else:
                 messages.append(f'<div data-chat-events="/runs/{_escape(run["run_id"])}/events">'
                                 f'<p role="status" data-chat-status>{_escape(STATUS_LABELS[run["status"]])}</p>'

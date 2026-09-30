@@ -819,6 +819,9 @@ class EvaluationStore:
                     actual = (payload or {}).get("usage", {}).get("total_tokens")
                     charged = actual if isinstance(actual, int) and not isinstance(actual, bool) and actual >= 0 else reservation[0]
                     token_budget.settle(connection, run_id, charged)
+                    if event_type == 'failed':
+                        payload = dict(payload or {})
+                        payload['partial'] = chat_store.saved_partial(connection, run_id)
                     chat_store.finish_message(connection, run_id, event_type, payload or {})
             connection.execute(
                 "INSERT INTO run_events(run_id, sequence, event_type, created_at, payload_json) "

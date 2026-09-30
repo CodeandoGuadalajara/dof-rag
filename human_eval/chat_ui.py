@@ -40,7 +40,7 @@ CHAT_SCRIPT = r"""
         target.append(document.createTextNode(payload.text || ''));
         status.textContent = 'Generando…';
       } else if (event.event_type === 'tool_started') {
-        const details = document.createElement('details'); details.open = true;
+        const details = document.createElement('details');
         const summary = document.createElement('summary'); summary.textContent = `Herramienta: ${payload.tool}`;
         const argumentsNode = document.createElement('pre'); argumentsNode.textContent = JSON.stringify(payload.arguments, null, 2);
         const result = document.createElement('pre'); result.textContent = 'Ejecutando…';
