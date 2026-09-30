@@ -119,11 +119,16 @@ class EvaluationService:
         admin: bool = False,
         daily_question_limit: int = 1,
         reserved_tokens: int | None = None,
+        chat: bool = False,
+        conversation_id: str | None = None,
     ) -> dict[str, Any]:
         # create_run checks idempotency first and performs every admission
         # decision in one SQLite transaction. No preliminary rejection is
         # safe here: another web process could commit the same idempotency key
         # between a lookup and that rejection.
+        chat = chat or reserved_tokens is not None
+        if chat and not admin and reserved_tokens is None:
+            raise ValueError('non-admin chat requires a token reservation')
         with self._lifecycle_lock:
             if not self._started:
                 raise RuntimeError("service has not started")
@@ -141,12 +146,14 @@ class EvaluationService:
                     user_id=user_id,
                     provenance=None,
                     enforce_active_run=True,
-                    require_review=not admin and reserved_tokens is None,
-                    reserved_tokens=reserved_tokens,
+                    require_review=not admin and not chat,
+                    reserved_tokens=None if admin and chat else reserved_tokens,
+                    chat=chat,
+                    conversation_id=conversation_id,
                     queue_capacity=self.queue_capacity,
                     daily_question_limit=(
                         daily_question_limit
-                        if not admin and reserved_tokens is None and daily_question_limit >= 1
+                        if not admin and not chat and daily_question_limit >= 1
                         else None
                     ),
                     daily_since=daily_since,

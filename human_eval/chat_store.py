@@ -7,7 +7,7 @@ def initialize(connection):
     connection.executescript("""
         CREATE TABLE IF NOT EXISTS chat_conversations (
             conversation_id TEXT PRIMARY KEY,
-            user_id TEXT NOT NULL UNIQUE,
+            user_id TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS chat_messages (
@@ -21,6 +21,31 @@ def initialize(connection):
         );
         CREATE INDEX IF NOT EXISTS chat_messages_conversation ON chat_messages(conversation_id, created_at);
     """)
+    unique_user = any(
+        index[2] and [column[2] for column in connection.execute(f'PRAGMA index_info("{index[1]}")')] == ['user_id']
+        for index in connection.execute('PRAGMA index_list(chat_conversations)')
+    )
+    if unique_user:
+        connection.executescript("""
+            BEGIN IMMEDIATE;
+            CREATE TABLE chat_conversations_new (
+                conversation_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+            CREATE TABLE chat_messages_new (
+                conversation_id TEXT NOT NULL REFERENCES chat_conversations_new(conversation_id),
+                run_id TEXT NOT NULL, role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+                created_at TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', result_json TEXT,
+                PRIMARY KEY (run_id, role)
+            );
+            INSERT INTO chat_conversations_new SELECT * FROM chat_conversations;
+            INSERT INTO chat_messages_new SELECT * FROM chat_messages;
+            DROP TABLE chat_messages;
+            DROP TABLE chat_conversations;
+            ALTER TABLE chat_conversations_new RENAME TO chat_conversations;
+            ALTER TABLE chat_messages_new RENAME TO chat_messages;
+            CREATE INDEX chat_messages_conversation ON chat_messages(conversation_id, created_at);
+            COMMIT;
+        """)
     # Migrate the first chat version without losing existing messages.
     rows = connection.execute(
         "SELECT r.run_id, r.user_id, r.created_at, r.question, e.event_type, e.payload_json "
@@ -35,14 +60,20 @@ def initialize(connection):
     connection.execute("UPDATE runs SET published_at = NULL, published_by = NULL WHERE run_id IN (SELECT run_id FROM chat_messages)")
 
 
-def add_message(connection, run_id, user_id, created_at, question):
+def add_message(connection, run_id, user_id, created_at, question, conversation_id=None):
+    if connection.execute('SELECT 1 FROM chat_messages WHERE run_id = ?', (run_id,)).fetchone():
+        return
+    if conversation_id is None:
+        previous = connection.execute(
+            'SELECT conversation_id FROM chat_conversations WHERE user_id = ? ORDER BY created_at LIMIT 1', (user_id,)
+        ).fetchone()
+        conversation_id = previous[0] if previous else str(uuid.uuid4())
+    owner = connection.execute('SELECT user_id FROM chat_conversations WHERE conversation_id = ?', (conversation_id,)).fetchone()
+    if owner is not None and owner[0] != user_id:
+        raise KeyError(conversation_id)
     connection.execute(
-        "INSERT OR IGNORE INTO chat_conversations VALUES (?, ?, ?)",
-        (str(uuid.uuid4()), user_id, created_at),
+        'INSERT OR IGNORE INTO chat_conversations VALUES (?, ?, ?)', (conversation_id, user_id, created_at)
     )
-    conversation_id = connection.execute(
-        "SELECT conversation_id FROM chat_conversations WHERE user_id = ?", (user_id,)
-    ).fetchone()[0]
     for role, text in [('user', question), ('assistant', '')]:
         connection.execute(
             "INSERT OR IGNORE INTO chat_messages(conversation_id, run_id, role, created_at, content) VALUES (?, ?, ?, ?, ?)",

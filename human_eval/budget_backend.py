@@ -14,11 +14,12 @@ class TokenCeilingReached(RuntimeError):
 
 
 class BudgetBackend:
-    def __init__(self, backend: Any, limit: int, count_input: Callable[..., int]):
-        if limit < 1:
+    def __init__(self, backend: Any, limit: int | None, count_input: Callable[..., int], *, context_limit: int = 262_144):
+        if limit is not None and limit < 1:
             raise ValueError("token limit must be positive")
         self.backend = backend
         self.limit = limit
+        self.context_limit = context_limit
         self.count_input = count_input
         self.used = 0
         self.blocked = False
@@ -33,7 +34,9 @@ class BudgetBackend:
         inputs = self.count_input(**kwargs)
         if not isinstance(inputs, int) or isinstance(inputs, bool) or inputs < 0:
             raise ValueError("input counter must return a non-negative integer")
-        remaining = self.limit - self.used - inputs
+        remaining = self.context_limit - inputs
+        if self.limit is not None:
+            remaining = min(remaining, self.limit - self.used - inputs)
         if remaining <= 0:
             raise TokenCeilingReached("not enough tokens for another model call", used=self.used)
         original = self.backend.max_output_tokens
@@ -49,7 +52,7 @@ class BudgetBackend:
         if not isinstance(total, int) or isinstance(total, bool) or total <= 0:
             raise TokenCeilingReached("provider did not report reliable token usage")
         self.used += total
-        if self.used > self.limit:
+        if self.limit is not None and self.used > self.limit:
             raise TokenCeilingReached("provider usage exceeded the counted ceiling")
         self.blocked = False
         return turn

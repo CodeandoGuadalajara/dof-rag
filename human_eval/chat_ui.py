@@ -13,6 +13,8 @@ CHAT_SCRIPT = r"""
     const replacement = page.querySelector('#chat-body');
     if (!replacement) { location.href = '/login?next=%2Fchat'; return; }
     document.querySelector('#chat-body').replaceWith(replacement);
+    if (response.ok) history.replaceState(null, '', response.url);
+    if (window.matchMedia('(max-width: 680px)').matches) document.querySelector('[data-chat-sidebar]').open = false;
     const next = document.querySelector('[data-chat-messages]');
     next.scrollTop = follow ? next.scrollHeight : scroll;
     const input = document.querySelector('#chat-question');
@@ -70,7 +72,7 @@ CHAT_SCRIPT = r"""
     source.addEventListener('queue', (message) => { status.textContent = JSON.parse(message.data).message; });
     source.addEventListener('terminal', async () => {
       source.close();
-      try { await refresh(await fetch('/chat', {credentials: 'same-origin', cache: 'no-store'}), true); }
+      try { await refresh(await fetch(document.querySelector('#chat-body').dataset.chatUrl, {credentials: 'same-origin', cache: 'no-store'}), true); }
       catch (_) { status.textContent = 'La consulta terminó. Recarga para ver el resultado guardado.'; }
     });
     source.onerror = () => { status.textContent = 'Reconectando… Tu consulta sigue ejecutándose.'; };
@@ -102,6 +104,7 @@ CHAT_SCRIPT = r"""
   });
   const scroller = document.querySelector('[data-chat-messages]');
   scroller.scrollTop = scroller.scrollHeight;
+  if (window.matchMedia('(max-width: 680px)').matches) document.querySelector('[data-chat-sidebar]').open = false;
   start();
 })();
 """

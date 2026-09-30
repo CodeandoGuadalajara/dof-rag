@@ -14,7 +14,7 @@ from typing import Any
 from .contracts import FeedbackRequest, RunRequest, utc_now
 from . import token_budget, chat_store
 
-SCHEMA_VERSION = "5"
+SCHEMA_VERSION = "6"
 TERMINAL_STATES = frozenset({"succeeded", "failed"})
 EVENT_STATES = frozenset({"queued", "started", *TERMINAL_STATES})
 PROGRESS_EVENT_TYPES = frozenset(
@@ -144,7 +144,7 @@ class EvaluationStore:
             current = connection.execute(
                 "SELECT value FROM schema_meta WHERE key = 'schema_version'"
             ).fetchone()
-            if current and current[0] not in {"1", "2", "3", "4", SCHEMA_VERSION}:
+            if current and current[0] not in {"1", "2", "3", "4", "5", SCHEMA_VERSION}:
                 raise RuntimeError(
                     f"unsupported evaluation schema {current[0]!r}; expected {SCHEMA_VERSION}"
                 )
@@ -229,6 +229,8 @@ class EvaluationStore:
         daily_since: str | None = None,
         reserved_tokens: int | None = None,
         daily_token_limit: int = token_budget.DAILY_TOKEN_LIMIT,
+        chat: bool = False,
+        conversation_id: str | None = None,
     ) -> tuple[dict[str, Any], bool]:
         if daily_question_limit is not None and daily_question_limit < 1:
             raise ValueError("daily_question_limit must be positive")
@@ -236,13 +238,15 @@ class EvaluationStore:
             raise ValueError("daily_since is required with daily_question_limit")
         if queue_capacity is not None and queue_capacity < 1:
             raise ValueError("queue_capacity must be positive")
+        is_chat = chat or reserved_tokens is not None
         created_at = utc_now()
         run_id = str(uuid.uuid4())
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             if request.client_request_id:
                 existing = connection.execute(
-                    "SELECT run_id, question, as_of, required_hops FROM runs "
+                    "SELECT run_id, question, as_of, required_hops, "
+                    "(SELECT conversation_id FROM chat_messages m WHERE m.run_id = runs.run_id AND m.role = 'user') AS conversation_id FROM runs "
                     "WHERE user_id = ? "
                     "AND client_request_id = ?",
                     (user_id, request.client_request_id),
@@ -253,6 +257,8 @@ class EvaluationStore:
                             existing["question"] != request.question,
                             existing["as_of"] != request.as_of,
                             existing["required_hops"] != request.required_hops,
+                            bool(existing['conversation_id']) != is_chat,
+                            conversation_id is not None and existing['conversation_id'] != conversation_id,
                         )
                     ):
                         raise IdempotencyPayloadConflict(request.client_request_id)
@@ -315,8 +321,8 @@ class EvaluationStore:
                     _json(provenance or {}),
                 ),
             )
-            if reserved_tokens is not None:
-                chat_store.add_message(connection, run_id, user_id, created_at, request.question)
+            if is_chat:
+                chat_store.add_message(connection, run_id, user_id, created_at, request.question, conversation_id)
             connection.execute(
                 "INSERT INTO run_events(run_id, sequence, event_type, created_at, payload_json) "
                 "VALUES (?, 1, 'queued', ?, '{}')",
@@ -326,13 +332,34 @@ class EvaluationStore:
         assert found is not None
         return found, True
 
-    def chat_runs(self, user_id: str, *, limit: int = 20) -> list[dict[str, Any]]:
+    def conversation_for_run(self, user_id: str, run_id: str) -> str:
+        with self._connect() as connection:
+            row = connection.execute(
+                'SELECT m.conversation_id FROM chat_messages m JOIN chat_conversations c ON c.conversation_id = m.conversation_id WHERE c.user_id = ? AND m.run_id = ? LIMIT 1',
+                (user_id, run_id),
+            ).fetchone()
+        if row is None:
+            raise KeyError(run_id)
+        return row[0]
+
+    def chat_conversations(self, user_id: str) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT c.conversation_id, c.created_at, "
+                "(SELECT content FROM chat_messages m WHERE m.conversation_id = c.conversation_id AND m.role = 'user' ORDER BY m.created_at LIMIT 1) AS title, "
+                "COALESCE((SELECT MAX(created_at) FROM chat_messages m WHERE m.conversation_id = c.conversation_id), c.created_at) AS updated_at "
+                "FROM chat_conversations c WHERE c.user_id = ? ORDER BY updated_at DESC", (user_id,)
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def chat_runs(self, user_id: str, *, conversation_id: str | None = None, limit: int | None = None) -> list[dict[str, Any]]:
         with self._connect() as connection:
             rows = connection.execute(
                 "SELECT m.run_id FROM chat_messages m JOIN chat_conversations c "
                 "ON c.conversation_id = m.conversation_id "
                 "WHERE c.user_id = ? AND m.role = 'user' "
-                "ORDER BY m.created_at DESC LIMIT ?", (user_id, limit)
+                "AND (? IS NULL OR c.conversation_id = ?) "
+                "ORDER BY m.created_at DESC LIMIT COALESCE(?, -1)", (user_id, conversation_id, conversation_id, limit)
             ).fetchall()
         runs = []
         for row in reversed(rows):
@@ -819,6 +846,7 @@ class EvaluationStore:
                     actual = (payload or {}).get("usage", {}).get("total_tokens")
                     charged = actual if isinstance(actual, int) and not isinstance(actual, bool) and actual >= 0 else reservation[0]
                     token_budget.settle(connection, run_id, charged)
+                if connection.execute('SELECT 1 FROM chat_messages WHERE run_id = ?', (run_id,)).fetchone():
                     if event_type == 'failed':
                         payload = dict(payload or {})
                         payload['partial'] = chat_store.saved_partial(connection, run_id)
@@ -903,19 +931,24 @@ class EvaluationStore:
             reservation = connection.execute(
                 "SELECT reserved FROM token_reservations WHERE run_id = ?", (run_id,)
             ).fetchone()
+            conversation = connection.execute(
+                "SELECT conversation_id, rowid FROM chat_messages WHERE run_id = ? AND role = 'user'", (run_id,)
+            ).fetchone()
         history = []
-        if reservation:
-            for previous in self.chat_runs(row[4]):
-                if previous["run_id"] == run_id:
-                    break
-                if previous["status"] == "succeeded":
-                    history.extend([
-                        {"role": "user", "content": previous["question"]},
-                        {"role": "assistant", "content": previous["result"]["answer"]["text"]},
-                    ])
-        # ponytail: six prior exchanges; add conversation selection when needed.
+        if conversation:
+            with self._connect() as connection:
+                previous = connection.execute(
+                    "SELECT u.content, a.content FROM chat_messages u JOIN chat_messages a "
+                    "ON a.run_id = u.run_id AND a.role = 'assistant' "
+                    "WHERE u.conversation_id = ? AND u.role = 'user' AND u.rowid < ? "
+                    "AND json_extract(a.result_json, '$.answer.text') IS NOT NULL "
+                    "ORDER BY u.rowid DESC LIMIT 6", (conversation[0], conversation[1])
+                ).fetchall()
+            for user_text, assistant_text in reversed(previous):
+                history.extend([{'role': 'user', 'content': user_text}, {'role': 'assistant', 'content': assistant_text}])
+        # ponytail: six prior exchanges; expand history if long conversations need it.
         return RunRequest(row[0], row[1], int(row[2]), row[3],
-                          reservation[0] if reservation else None, tuple(history[-12:]))
+                          reservation[0] if reservation else None, tuple(history[-12:]), bool(conversation))
 
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         with self._connect() as connection:

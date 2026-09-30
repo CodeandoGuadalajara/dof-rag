@@ -328,12 +328,23 @@ pre { background:#18201c; color:#e9eee9; border-radius:3px; max-height:28rem; ov
 .site-nav a { padding:.45rem .8rem; border-radius:6px; text-decoration:none; font-weight:700; }
 .site-nav a:hover { background:#e5eee7; }
 .site-nav a[aria-current="page"] { background:var(--accent); color:white; }
-.chat-page .shell { height:100dvh; display:flex; flex-direction:column; padding:1rem 0; }
+.chat-page .shell { width:min(1280px,calc(100% - 2rem)); height:100dvh; display:flex; flex-direction:column; padding:1rem 0; }
 .chat-page header { flex-shrink:0; margin-bottom:.75rem; padding-bottom:.75rem; gap:.6rem; flex-wrap:wrap; }
 .chat-page footer { display:none; }
-#chat-body { flex:1; min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto; }
+#chat-body { flex:1; min-height:0; display:grid; grid-template-columns:220px minmax(0,1fr); grid-template-rows:minmax(0,1fr); gap:1.2rem; }
+.chat-main { min-height:0; min-width:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto; }
+.chat-sidebar { min-height:0; overflow-y:auto; padding:.25rem .8rem .5rem 0; border-right:1px solid var(--line); }
+.chat-sidebar .chat-new { display:block; text-align:center; margin-bottom:1.25rem; border-radius:8px; }
+.chat-sidebar details { border:0; padding:0; }
+.chat-sidebar summary { color:var(--muted); font-size:.8rem; text-transform:uppercase; letter-spacing:.06em; }
+.chat-sidebar ul { list-style:none; padding:0; margin:.75rem 0; }
+.chat-sidebar li { margin:.25rem 0; }
+.chat-sidebar li a { display:block; padding:.65rem .7rem; border-radius:7px; text-decoration:none;
+  overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:var(--ink); font-size:.87rem; }
+.chat-sidebar li a:hover { background:#e5eee7; }
+.chat-sidebar li a[aria-current="page"] { background:#e5eee7; color:var(--accent-dark); font-weight:750; }
 .chat-heading { padding:.25rem .5rem .75rem; }
-.chat-heading h1 { font-size:1.65rem; margin:0 0 .25rem; }
+.chat-heading h1 { font-size:1.65rem; margin:0 0 .25rem; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .chat-heading .lede { font-size:.88rem; }
 .chat-budget { border:0; padding:.35rem 0 0; font-size:.82rem; }
 .chat-budget summary { color:var(--accent-dark); }
@@ -362,6 +373,10 @@ pre { background:#18201c; color:#e9eee9; border-radius:3px; max-height:28rem; ov
   .chat-page header .session { margin-top:0; margin-left:auto; }
   .chat-page header .eyebrow { display:none; }
   .chat-user { max-width:95%; }
+  #chat-body { grid-template-columns:minmax(0,1fr); grid-template-rows:auto minmax(0,1fr); gap:.6rem; }
+  .chat-sidebar { border-right:0; border-bottom:1px solid var(--line); padding:0 0 .5rem; }
+  .chat-sidebar .chat-new { margin-bottom:.4rem; padding:.45rem; }
+  .chat-sidebar details[open] { max-height:25dvh; overflow-y:auto; }
   .chat-heading h1 { font-size:1.35rem; }
   .chat-composer { padding:.65rem .75rem; }
   .chat-composer textarea { height:3.5rem; }
@@ -1315,9 +1330,18 @@ def create_app(
         user = await current_user(request)
         return render_home(request, user)
 
-    def render_chat(request: Request, user: User, *, error: str = "", question: str = "", status_code: int = 200) -> HTMLResponse:
+    def render_chat(request: Request, user: User, *, error: str = "", question: str = "", status_code: int = 200, conversation_id: str | None = None) -> HTMLResponse:
         remaining = service.store.token_balance(user.id)
-        runs = service.store.chat_runs(user.id)
+        conversations = service.store.chat_conversations(user.id)
+        selected = conversation_id or request.query_params.get('conversation')
+        if selected is not None and not any(item['conversation_id'] == selected for item in conversations):
+            # An unsaved UUID is allowed only when returning a failed form.
+            if not error:
+                return HTMLResponse(_not_found_page('Conversación no encontrada', 'Esta conversación no existe o no pertenece a tu cuenta.', user=user, csrf_token=_csrf(request), page_scripts=page_scripts), status_code=404)
+        if selected is None and request.query_params.get('new') != '1' and conversations:
+            selected = conversations[0]['conversation_id']
+        selected = selected or str(uuid.uuid4())
+        runs = service.store.chat_runs(user.id, conversation_id=selected)
         active = service.store.has_active_run(user.id)
         messages = []
         for run in runs:
@@ -1352,25 +1376,36 @@ def create_app(
                                 '<p class="meta">El pensamiento del modelo puede contener hipótesis o errores; no es evidencia del DOF.</p>'
                                 '<div data-chat-activity></div></div>')
             messages.append('</div></section>')
-        disabled = " disabled" if active or remaining < 1000 else ""
+        disabled = " disabled" if active or (not user.is_admin and remaining < 1000) else ""
         reservation = remaining
+        sidebar_items = ''.join(
+            f'<li><a href="/chat?conversation={item["conversation_id"]}"{' aria-current="page"' if item['conversation_id'] == selected else ''} title="{_escape(item["title"] or "Conversación")}">{_escape((item["title"] or "Conversación")[:80])}</a></li>'
+            for item in conversations
+        ) or '<li class="meta">Aquí aparecerán tus conversaciones.</li>'
+        budget_label = 'Sin límite diario de tokens · administrador' if user.is_admin else f'Disponibles: {remaining:,} / {DAILY_TOKEN_LIMIT:,} tokens · 24 h móviles'
+        budget_description = 'Tu cuenta no tiene cuota diaria ni límite acumulado de tokens. Cada llamada respeta el contexto máximo del modelo (262,144 tokens); siguen vigentes los límites de ejecución y una consulta activa por cuenta.' if user.is_admin else f'Periodo móvil de 24 horas. Incluye historial, instrucciones, evidencia, llamadas de investigación y salida del modelo (incluido razonamiento). Antes de enviar reservamos hasta {reservation:,} tokens, no una estimación del consumo. Al terminar devolvemos los no utilizados. Si falla la consulta y no conocemos el consumo, se cobra la reserva completa. Cada cargo vence 24 horas después del envío.'
+        saved = any(item['conversation_id'] == selected for item in conversations)
+        current_url = f'/chat?conversation={selected}' if saved else '/chat?new=1'
+        title = next((item['title'] for item in conversations if item['conversation_id'] == selected), None) or 'Nueva conversación'
         conversation = ''.join(messages) or '<div class="chat-empty"><h2>¿Qué quieres consultar en el DOF?</h2><p>Escribe una pregunta y continúa la conversación aquí.</p></div>'
-        body = f'''<div id="chat-body"><section class="chat-heading"><h1>Chat con el DOF</h1>
+        body = f'''<div id="chat-body" data-chat-url="{current_url}"><aside class="chat-sidebar" aria-label="Historial de conversaciones">
+<a class="button secondary chat-new" href="/chat?new=1">+ Nueva conversación</a>
+<details open data-chat-sidebar><summary>Conversaciones</summary><ul>{sidebar_items}</ul></details></aside>
+<section class="chat-main"><section class="chat-heading"><h1 title="{_escape(title)}">{_escape(title[:100])}</h1>
 <p class="lede">Conversación privada con fuentes del Diario Oficial.</p>
-<details class="chat-budget"><summary>Disponibles: {remaining:,} / {DAILY_TOKEN_LIMIT:,} tokens · 24 h móviles · ver límites</summary>
-<p class="meta">Periodo móvil de 24 horas. Incluye historial, instrucciones, evidencia, llamadas de investigación y salida del modelo (incluido razonamiento).
-Antes de enviar reservamos hasta {reservation:,} tokens, no una estimación del consumo. Al terminar devolvemos los no utilizados.
-Si falla la consulta y no conocemos el consumo, se cobra la reserva completa. Cada cargo vence 24 horas después del envío.</p>
-<p class="meta">Se recuerdan hasta seis intercambios anteriores. Esta primera versión tiene una conversación por cuenta. Las preguntas, respuestas y actividad del modelo se guardan para mejorar el sistema.</p></details></section>
+<details class="chat-budget"><summary>{budget_label} · ver límites</summary>
+<p class="meta">{budget_description}</p>
+<p class="meta">Se recuerdan hasta seis intercambios anteriores de esta conversación. Las preguntas, respuestas y actividad del modelo se guardan para mejorar el sistema.</p></details></section>
 <div class="chat-messages" data-chat-messages role="region" aria-label="Conversación" tabindex="0">{conversation}</div>
 <form method="post" action="/chat" class="chat-composer" data-chat-form>
 <p class="warning chat-error" role="alert" data-chat-error>{_escape(error)}</p>
 <input type="hidden" name="csrf_token" value="{_escape(_csrf(request))}">
 <input type="hidden" name="client_request_id" value="{uuid.uuid4()}">
+<input type="hidden" name="conversation_id" value="{_escape(selected)}">
 <label for="chat-question">Mensaje</label>
 <textarea id="chat-question" name="question" minlength="3" maxlength="2000" required aria-describedby="chat-compose-hint" placeholder="Pregunta sobre el DOF o continúa la conversación…">{_escape(question)}</textarea>
-<div class="chat-compose-actions"><p id="chat-compose-hint" class="meta">{'Consulta en curso. Puedes preparar tu siguiente mensaje.' if active else 'Se necesitan al menos 1,000 tokens disponibles para enviar.'}<br>Enter para enviar · Shift+Enter para nueva línea.</p>
-<button type="submit"{disabled}>Enviar</button></div></form></div>'''
+<div class="chat-compose-actions"><p id="chat-compose-hint" class="meta">{'Consulta en curso. Puedes preparar tu siguiente mensaje.' if active else 'El mensaje se agregará a esta conversación.'}<br>Enter para enviar · Shift+Enter para nueva línea.</p>
+<button type="submit"{disabled}>Enviar</button></div></form></section></div>'''
         scripts = f'<script>{CHAT_SCRIPT}</script>'
         return HTMLResponse(_page("Chat", body, user=user, csrf_token=_csrf(request), page_scripts=page_scripts, trailing_scripts=scripts), status_code=status_code)
 
@@ -1387,24 +1422,37 @@ Si falla la consulta y no conocemos el consumo, se cobra la reserva completa. Ca
         if user is None:
             return login_redirect(request)
         question = ""
+        conversation_id = None
         try:
             form = await _form(request)
             if not _csrf_valid(request, form.get("csrf_token")):
                 return render_chat(request, user, error="La sesión del formulario venció.", status_code=403)
             question = form.get("question", "")
+            conversation_id = form.get('conversation_id')
+            if not conversation_id:
+                conversations = service.store.chat_conversations(user.id)
+                conversation_id = conversations[0]['conversation_id'] if conversations else str(uuid.uuid4())
+            try:
+                conversation_id = str(uuid.UUID(conversation_id))
+            except (ValueError, TypeError, AttributeError) as exc:
+                raise ContractError('Identificador de conversación inválido.') from exc
             run_request = RunRequest.from_dict({"question": question, "client_request_id": form.get("client_request_id")})
             remaining = service.store.token_balance(user.id)
-            if remaining < 1000 and service.store.find_idempotent_run(user.id, run_request.client_request_id) is None:
+            if not user.is_admin and remaining < 1000 and service.store.find_idempotent_run(user.id, run_request.client_request_id) is None:
                 raise TokenBudgetExceeded("No quedan suficientes tokens. El presupuesto se recupera conforme vencen los cargos de 24 horas.")
-            service.submit(run_request, user_id=user.id, admin=user.is_admin,
-                           reserved_tokens=max(1, remaining))
+            run = service.submit(run_request, user_id=user.id, admin=user.is_admin,
+                                 reserved_tokens=None if user.is_admin else max(1, remaining),
+                                 chat=True, conversation_id=conversation_id)
         except (ContractError, TokenBudgetExceeded) as exc:
-            return render_chat(request, user, error=str(exc), question=question, status_code=422)
+            return render_chat(request, user, error=str(exc), question=question, status_code=422, conversation_id=conversation_id)
         except (ActiveRunError, IdempotencyConflictError) as exc:
-            return render_chat(request, user, error=str(exc), question=question, status_code=409)
+            return render_chat(request, user, error=str(exc), question=question, status_code=409, conversation_id=conversation_id)
         except QueueFullError:
-            return render_chat(request, user, error="La cola está llena; intenta más tarde.", question=question, status_code=503)
-        return RedirectResponse("/chat", status_code=303)
+            return render_chat(request, user, error="La cola está llena; intenta más tarde.", question=question, status_code=503, conversation_id=conversation_id)
+        except KeyError:
+            return HTMLResponse(_not_found_page('Conversación no encontrada', 'Esta conversación no existe o no pertenece a tu cuenta.', user=user, csrf_token=_csrf(request), page_scripts=page_scripts), status_code=404)
+        conversation_id = service.store.conversation_for_run(user.id, run['run_id'])
+        return RedirectResponse(f"/chat?conversation={conversation_id}", status_code=303)
 
     @app.post("/runs", response_class=HTMLResponse)
     async def create_run(request: Request) -> Response:

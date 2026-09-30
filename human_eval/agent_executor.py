@@ -317,7 +317,7 @@ class AgentRunExecutor:
         flush_stream = None
         try:
             backend = self._backend()
-            if request.token_limit is not None:
+            if request.is_chat or request.token_limit is not None:
                 if on_progress is not None:
                     pending = {"content": "", "reasoning_content": ""}
                     last_flush = monotonic()
@@ -361,7 +361,7 @@ class AgentRunExecutor:
                     else None
                 ),
             ) as retriever:
-                if request.token_limit is not None:
+                if request.is_chat or request.token_limit is not None:
                     from .chat_runner import run_chat
                     return _public_result(run_chat(
                         backend, DofToolbox(retriever, embedder=embedder), request,
@@ -386,8 +386,8 @@ class AgentRunExecutor:
             from .budget_backend import TokenCeilingReached
             if isinstance(exc, TokenCeilingReached):
                 raise PublicExecutionError(
-                    "token_budget_exhausted",
-                    "La consulta alcanzó su presupuesto de tokens.",
+                    "context_limit_exhausted" if request.is_chat and request.token_limit is None else "token_budget_exhausted",
+                    "La consulta alcanzó el contexto máximo del modelo." if request.is_chat and request.token_limit is None else "La consulta alcanzó su presupuesto de tokens.",
                     used_tokens=exc.used,
                 ) from exc
             name = type(exc).__name__
