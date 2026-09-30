@@ -311,7 +311,7 @@ la evidencia. El texto parcial sigue disponible si se interrumpe la consulta.
   Pendiente: botón para detener una generación prolongada, conservando el texto parcial.
 - `chat_conversations` y `chat_messages` guardan el historial; `runs` sigue siendo la
   cola compartida de ejecución. Los mensajes de chat no aparecen en preguntas,
-  respuestas publicadas ni moderación. El scheduler migra la base al **esquema v6**;
+  respuestas publicadas ni moderación. `runs.kind` distingue chat de evaluación. El scheduler migra la base al **esquema v7**;
   respalda la base y reinicia primero el scheduler, después el servicio web.
 - El contador local está verificado para `Qwen3.8-Flash-Next` servido por TensorFold,
   usando el tokenizer de `Vontra/Qwen3.8-Flash-Next-MLX-4bit-MTP` con revisión fijada.

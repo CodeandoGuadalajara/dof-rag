@@ -25,6 +25,24 @@ def chunk(delta, *, finish=None, usage=None):
 
 
 class ChatStreamTests(unittest.TestCase):
+    def test_stream_without_usage_fails_closed_after_preserving_text(self):
+        from human_eval.budget_backend import BudgetBackend, TokenCeilingReached
+        create = Mock(return_value=Stream([chunk({'content': 'Partial answer'}, finish='stop')]))
+        deltas = []
+        client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+        backend = OpenAIChatCompletionsBackend(
+            model='qwen', api_key='local', base_url='http://local', client=client,
+            on_delta=lambda *args: deltas.append(args),
+        )
+        guarded = BudgetBackend(backend, 1000, lambda **kwargs: 10)
+        with self.assertRaisesRegex(TokenCeilingReached, 'reliable token usage'):
+            guarded.create_turn(input_items=[], tools=[], instructions='Chat')
+        self.assertEqual(deltas, [('content', 'Partial answer'), ('done', '')])
+        self.assertTrue(guarded.blocked)
+        with self.assertRaises(TokenCeilingReached):
+            guarded.create_turn(input_items=[], tools=[], instructions='Chat')
+        create.assert_called_once()
+
     def test_text_reasoning_tool_fragments_and_usage(self):
         create = Mock(return_value=Stream([
             chunk({'reasoning_content': 'Buscando'}),

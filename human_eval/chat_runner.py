@@ -27,7 +27,7 @@ def run_chat(backend, toolbox, request, *, on_progress=None) -> dict[str, Any]:
     for previous in request.history:
         if previous.get("role") == "assistant":
             toolbox.visible_chunk_ids.update(int(value) for value in re.findall(r"\[chunk (\d+)\]", previous.get("content", "")))
-    # ponytail: small retrieval batches; expand these defaults if coverage needs it.
+    # Small retrieval batches keep tool responses within the context budget.
     defaults = {"strategy": "lexical", "top_k": 3, "limit": 10,
                 "neighbor_window": 0, "prefer_recent": None,
                 "as_of": None, "date_from": None, "date_to": None, "section": None}
@@ -61,11 +61,13 @@ def run_chat(backend, toolbox, request, *, on_progress=None) -> dict[str, Any]:
         turn = backend.create_turn(input_items=messages, tools=definitions, instructions=INSTRUCTIONS)
         for key in ("input_tokens", "output_tokens", "total_tokens"):
             usage[key] = usage.get(key, 0) + turn.usage.get(key, 0)
-        reasoning.append({
-            "turn": number,
-            "text": "\n\n".join(item["reasoning_content"] for item in turn.output_items if item.get("reasoning_content")),
-            "tokens": turn.usage.get("reasoning_tokens"),
-        })
+        thinking = "\n\n".join(item["reasoning_content"] for item in turn.output_items if item.get("reasoning_content"))
+        if thinking:
+            reasoning.append({
+                "turn": number,
+                "text": thinking,
+                "tokens": turn.usage.get("reasoning_tokens"),
+            })
         messages.extend(turn.output_items)
         if not turn.tool_calls:
             answer = turn.final_text

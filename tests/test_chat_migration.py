@@ -33,6 +33,28 @@ class ChatMigrationTests(unittest.TestCase):
             store.initialize()
             self.assertEqual(len(store.chat_conversations('alice')), 2)
 
+    def test_v6_kind_backfill_includes_admin_chats_without_reservations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = EvaluationStore(Path(directory) / 'eval.sqlite')
+            store.initialize()
+            admin, _ = store.create_run(RunRequest('Admin chat'), user_id='admin', chat=True)
+            regular, _ = store.create_run(RunRequest('Regular chat'), user_id='alice', reserved_tokens=1000)
+            evaluation, _ = store.create_run(RunRequest('Evaluation'), user_id='alice')
+            with store._connect() as connection:
+                connection.execute('ALTER TABLE runs DROP COLUMN kind')
+                connection.execute("UPDATE schema_meta SET value = '6' WHERE key = 'schema_version'")
+            store.initialize()
+            store.initialize()
+            store.validate_schema()
+            with store._connect() as connection:
+                kinds = dict(connection.execute('SELECT run_id, kind FROM runs'))
+                self.assertEqual(connection.execute('PRAGMA foreign_key_check').fetchall(), [])
+            self.assertEqual(kinds, {
+                admin['run_id']: 'chat', regular['run_id']: 'chat', evaluation['run_id']: 'evaluation',
+            })
+            self.assertEqual(len(store.chat_runs('admin')), 1)
+            self.assertEqual([run['run_id'] for run in store.runs_for_user('alice')], [evaluation['run_id']])
+
     def test_v4_chats_move_into_conversation_tables_without_losing_text(self):
         with tempfile.TemporaryDirectory() as directory:
             store = EvaluationStore(Path(directory) / 'eval.sqlite')

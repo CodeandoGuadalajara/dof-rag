@@ -49,15 +49,16 @@ def initialize(connection):
     # Migrate the first chat version without losing existing messages.
     rows = connection.execute(
         "SELECT r.run_id, r.user_id, r.created_at, r.question, e.event_type, e.payload_json "
-        "FROM runs r JOIN token_reservations t ON t.run_id = r.run_id "
+        "FROM runs r "
         "JOIN run_events e ON e.run_id = r.run_id AND e.sequence = "
-        "(SELECT MAX(sequence) FROM run_events WHERE run_id = r.run_id)"
+        "(SELECT MAX(sequence) FROM run_events WHERE run_id = r.run_id) "
+        "WHERE r.kind = 'chat' OR r.run_id IN (SELECT run_id FROM token_reservations)"
     ).fetchall()
     for row in rows:
         add_message(connection, row[0], row[1], row[2], row[3])
         if row[4] in {'succeeded', 'failed'}:
             finish_message(connection, row[0], row[4], json.loads(row[5]))
-    connection.execute("UPDATE runs SET published_at = NULL, published_by = NULL WHERE run_id IN (SELECT run_id FROM chat_messages)")
+    connection.execute("UPDATE runs SET published_at = NULL, published_by = NULL WHERE kind = 'chat' OR run_id IN (SELECT run_id FROM chat_messages)")
 
 
 def add_message(connection, run_id, user_id, created_at, question, conversation_id=None):

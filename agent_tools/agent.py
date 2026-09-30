@@ -205,7 +205,7 @@ def _coverage_requirements(question: str) -> list[str]:
         *_enumeration_requirements(question),
         *_explicit_question_requirements(question),
     ]
-    # ponytail: deterministic anchors, not semantic coverage; expand only for measured gaps.
+    # Deterministic anchors measure explicit evidence, not semantic coverage.
     folded = _fold_for_coverage(question)
     requirements.extend(
         f"indicador {name}"

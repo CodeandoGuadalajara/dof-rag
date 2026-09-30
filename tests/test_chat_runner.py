@@ -30,6 +30,7 @@ class ChatRunnerTests(unittest.TestCase):
         backend = ScriptedBackend([
             ModelTurn('outline', [], tool_calls=[ToolCall('1', 'get_document_outline', {'document_id': 2})]),
             ModelTurn('read', [], tool_calls=[ToolCall('2', 'read_chunks', {'chunk_ids': [4], 'neighbor_window': 0})]),
+        self.assertEqual(result['reasoning'], [])
             ModelTurn('reply', [], final_text='Aquí está la evidencia [chunk 4]. Otra [chunk 999].'),
         ])
         # Discover the candidate through the same public retrieval path first.
