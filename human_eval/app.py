@@ -324,6 +324,49 @@ pre { background:#18201c; color:#e9eee9; border-radius:3px; max-height:28rem; ov
 .process-archive[open] > summary { margin-bottom:.5rem; }
 .process-note { color:var(--muted); font-size:.86rem; margin:.55rem 0 0; }
 @keyframes pulse { 50% { opacity:.35; transform:scale(.8); } }
+.site-nav { display:flex; flex-wrap:wrap; gap:.3rem; align-self:center; }
+.site-nav a { padding:.45rem .8rem; border-radius:6px; text-decoration:none; font-weight:700; }
+.site-nav a:hover { background:#e5eee7; }
+.site-nav a[aria-current="page"] { background:var(--accent); color:white; }
+.chat-page .shell { height:100dvh; display:flex; flex-direction:column; padding:1rem 0; }
+.chat-page header { flex-shrink:0; margin-bottom:.75rem; padding-bottom:.75rem; gap:.6rem; flex-wrap:wrap; }
+.chat-page footer { display:none; }
+#chat-body { flex:1; min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto; }
+.chat-heading { padding:.25rem .5rem .75rem; }
+.chat-heading h1 { font-size:1.65rem; margin:0 0 .25rem; }
+.chat-heading .lede { font-size:.88rem; }
+.chat-budget { border:0; padding:.35rem 0 0; font-size:.82rem; }
+.chat-budget summary { color:var(--accent-dark); }
+.chat-budget[open] { max-height:30dvh; overflow-y:auto; }
+.chat-messages { min-height:0; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:1rem .65rem; }
+.chat-exchange { margin:0 0 2rem; }
+.chat-user { background:#e5eee7; border:1px solid #d2dfd5; border-radius:14px 14px 3px 14px;
+  padding:.8rem 1rem; max-width:85%; width:fit-content; margin-left:auto; }
+.chat-user p { margin:.25rem 0 0; white-space:pre-wrap; overflow-wrap:anywhere; }
+.chat-assistant { padding:1rem .2rem 0; overflow-wrap:anywhere; }
+.chat-assistant > strong { color:var(--accent); font-size:.85rem; }
+.chat-assistant details { margin-top:.75rem; border:1px solid var(--line); border-radius:8px; padding:.6rem .85rem; }
+.chat-assistant pre { margin:.65rem 0 .2rem; font-size:.8rem; max-height:18rem; }
+.chat-assistant .meta { margin:.8rem 0; }
+.chat-empty { color:var(--muted); text-align:center; padding:3rem 1rem; }
+.chat-composer { flex-shrink:0; border:1px solid var(--line); border-radius:12px; background:var(--panel);
+  padding:.8rem 1rem; box-shadow:0 -6px 20px rgba(30,35,28,.04); }
+.chat-composer label { display:block; margin-bottom:.35rem; }
+.chat-composer textarea { min-height:3rem; height:4.5rem; max-height:20dvh; border-radius:7px; }
+.chat-compose-actions { display:flex; align-items:center; justify-content:space-between; gap:.6rem; margin-top:.5rem; }
+.chat-compose-actions .meta { margin:0; font-size:.75rem; }
+.chat-error:empty { display:none; }
+@media (max-width:680px) { .site-nav { width:100%; order:3; }
+  .chat-page .shell { width:calc(100% - 1rem); padding:.5rem 0; }
+  .chat-page header { display:flex; align-items:center; }
+  .chat-page header .session { margin-top:0; margin-left:auto; }
+  .chat-page header .eyebrow { display:none; }
+  .chat-user { max-width:95%; }
+  .chat-heading h1 { font-size:1.35rem; }
+  .chat-composer { padding:.65rem .75rem; }
+  .chat-composer textarea { height:3.5rem; }
+  .chat-compose-actions { align-items:flex-end; }
+}
 footer { border-top:1px solid var(--line); color:var(--muted); font-size:.82rem; margin-top:3rem;
   padding-top:1.25rem; }
 @media (max-width:680px) { .grid,.checks { grid-template-columns:1fr; } header { display:block; }
@@ -532,21 +575,28 @@ def _page(
 ) -> str:
     if user is not None:
         session_area = (
-            f'<span class="meta">{_escape(user.email or user.id)}'
-            f"{' · <a href="/admin">admin</a>' if user.is_admin else ''}</span>"
+            f'<span class="meta">{_escape(user.email or user.id)}</span>'
             f'<form method="post" action="/logout"><input type="hidden" name="csrf_token" '
             f'value="{_escape(csrf_token)}"><button class="secondary" type="submit">Salir</button></form>'
         )
     else:
         session_area = '<a class="button secondary" href="/login">Entrar</a>'
     scripts = page_scripts(user) if page_scripts is not None else ""
+    current = 'chat' if title == 'Chat' else 'admin' if title in {'Administración', 'Moderación'} else 'questions'
+    links = [('questions', '/', 'Preguntas'), ('chat', '/chat', 'Chat')]
+    if user is not None and user.is_admin:
+        links.append(('admin', '/admin', 'Admin'))
+    navigation = '<nav class="site-nav" aria-label="Navegación principal">' + ''.join(
+        f'<a href="{href}"{' aria-current="page"' if key == current else ''}>{label}</a>'
+        for key, href, label in links
+    ) + '</nav>'
+    body_class = ' class="chat-page"' if current == 'chat' else ''
     return f"""<!doctype html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{_escape(title)} · Agente del DOF</title><style>{STYLE}</style></head>
-<body><main class="shell"><header><div><p class="eyebrow">Piloto de investigación</p>
-<a href="/" style="text-decoration:none;color:inherit"><strong>Agente del Diario Oficial</strong></a>
-<a href="/chat">Chat</a></div>
-<div class="session">{session_area}</div></header>{body}
+<body{body_class}><main class="shell"><header><div><p class="eyebrow">Piloto de investigación</p>
+<a href="/" style="text-decoration:none;color:inherit"><strong>Agente del Diario Oficial</strong></a></div>
+{navigation}<div class="session">{session_area}</div></header>{body}
 <footer>Las preguntas, respuestas, evidencias y evaluaciones se guardan para análisis y mejora del sistema.
 Las respuestas publicadas son públicas. Las cuentas se gestionan con Clerk; no registramos direcciones IP.</footer>
 </main><script>{STREAM_SCRIPT}</script><script>{LOGIN_MODAL_SCRIPT}</script>{scripts}{trailing_scripts}</body></html>"""
@@ -1271,7 +1321,7 @@ def create_app(
         active = service.store.has_active_run(user.id)
         messages = []
         for run in runs:
-            messages.append(f'<section class="panel"><strong>Tú</strong><p>{_escape(run["question"])}</p>')
+            messages.append(f'<section class="chat-exchange"><div class="chat-user"><strong>Tú</strong><p>{_escape(run["question"])}</p></div><div class="chat-assistant">')
             if run["status"] == "succeeded":
                 result = run["result"]
                 usage = result.get("usage", {})
@@ -1301,26 +1351,26 @@ def create_app(
                                 f'<p role="status" data-chat-status>{_escape(STATUS_LABELS[run["status"]])}</p>'
                                 '<p class="meta">El pensamiento del modelo puede contener hipótesis o errores; no es evidencia del DOF.</p>'
                                 '<div data-chat-activity></div></div>')
-            messages.append('</section>')
+            messages.append('</div></section>')
         disabled = " disabled" if active or remaining < 1000 else ""
         reservation = remaining
-        body = f'''<div id="chat-body"><h1>Chat con el DOF</h1>
-<p class="lede">Conversación privada. Cada respuesta consulta el corpus del DOF; el historial ayuda a interpretar tus preguntas, no sustituye la evidencia.</p>
-<section class="panel"><strong>Disponibles: {remaining:,} / {DAILY_TOKEN_LIMIT:,} tokens</strong>
+        conversation = ''.join(messages) or '<div class="chat-empty"><h2>¿Qué quieres consultar en el DOF?</h2><p>Escribe una pregunta y continúa la conversación aquí.</p></div>'
+        body = f'''<div id="chat-body"><section class="chat-heading"><h1>Chat con el DOF</h1>
+<p class="lede">Conversación privada con fuentes del Diario Oficial.</p>
+<details class="chat-budget"><summary>Disponibles: {remaining:,} / {DAILY_TOKEN_LIMIT:,} tokens · 24 h móviles · ver límites</summary>
 <p class="meta">Periodo móvil de 24 horas. Incluye historial, instrucciones, evidencia, llamadas de investigación y salida del modelo (incluido razonamiento).
 Antes de enviar reservamos hasta {reservation:,} tokens, no una estimación del consumo. Al terminar devolvemos los no utilizados.
 Si falla la consulta y no conocemos el consumo, se cobra la reserva completa. Cada cargo vence 24 horas después del envío.</p>
-<p class="meta">Se recuerdan hasta seis intercambios anteriores. Esta primera versión tiene una conversación por cuenta.</p></section>
-<p class="warning" role="alert" data-chat-error>{_escape(error)}</p>
-{''.join(messages)}
-<form method="post" action="/chat" class="panel" data-chat-form>
+<p class="meta">Se recuerdan hasta seis intercambios anteriores. Esta primera versión tiene una conversación por cuenta. Las preguntas, respuestas y actividad del modelo se guardan para mejorar el sistema.</p></details></section>
+<div class="chat-messages" data-chat-messages role="region" aria-label="Conversación" tabindex="0">{conversation}</div>
+<form method="post" action="/chat" class="chat-composer" data-chat-form>
+<p class="warning chat-error" role="alert" data-chat-error>{_escape(error)}</p>
 <input type="hidden" name="csrf_token" value="{_escape(_csrf(request))}">
 <input type="hidden" name="client_request_id" value="{uuid.uuid4()}">
 <label for="chat-question">Mensaje</label>
-<textarea id="chat-question" name="question" minlength="3" maxlength="2000" required{disabled}>{_escape(question)}</textarea>
-<p class="meta">{'Espera a que termine la consulta activa.' if active else 'Se necesitan al menos 1,000 tokens disponibles para enviar.'}</p>
-<p class="meta">Enter para enviar; Shift+Enter para una nueva línea.</p>
-<button type="submit"{disabled}>Enviar · reserva hasta {reservation:,} tokens</button></form></div>'''
+<textarea id="chat-question" name="question" minlength="3" maxlength="2000" required aria-describedby="chat-compose-hint" placeholder="Pregunta sobre el DOF o continúa la conversación…">{_escape(question)}</textarea>
+<div class="chat-compose-actions"><p id="chat-compose-hint" class="meta">{'Consulta en curso. Puedes preparar tu siguiente mensaje.' if active else 'Se necesitan al menos 1,000 tokens disponibles para enviar.'}<br>Enter para enviar · Shift+Enter para nueva línea.</p>
+<button type="submit"{disabled}>Enviar</button></div></form></div>'''
         scripts = f'<script>{CHAT_SCRIPT}</script>'
         return HTMLResponse(_page("Chat", body, user=user, csrf_token=_csrf(request), page_scripts=page_scripts, trailing_scripts=scripts), status_code=status_code)
 
