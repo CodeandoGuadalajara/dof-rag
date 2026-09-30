@@ -21,6 +21,7 @@ class ChatRunnerTests(unittest.TestCase):
         from human_eval.agent_executor import _public_result
         self.assertEqual(_public_result(result)['answer']['text'], '¿Qué decreto te interesa?')
         self.assertEqual(result['answer']['answer'], '¿Qué decreto te interesa?')
+        self.assertEqual(result['reasoning'], [])
         self.assertEqual(result['stop_reason'], 'completed')
         self.assertEqual(result['answer']['citations'], [])
         self.assertNotIn('Cobertura obligatoria', backend.calls[0]['input_items'][-1]['content'])
@@ -30,7 +31,6 @@ class ChatRunnerTests(unittest.TestCase):
         backend = ScriptedBackend([
             ModelTurn('outline', [], tool_calls=[ToolCall('1', 'get_document_outline', {'document_id': 2})]),
             ModelTurn('read', [], tool_calls=[ToolCall('2', 'read_chunks', {'chunk_ids': [4], 'neighbor_window': 0})]),
-        self.assertEqual(result['reasoning'], [])
             ModelTurn('reply', [], final_text='Aquí está la evidencia [chunk 4]. Otra [chunk 999].'),
         ])
         # Discover the candidate through the same public retrieval path first.
