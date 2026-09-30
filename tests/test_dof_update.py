@@ -308,7 +308,10 @@ class DailyUpdateTests(unittest.TestCase):
 
     def _run_fts(self, db_path: Path) -> None:
         argv = ["build_fts_full", "--corpus-db", str(db_path), "--batch", "2"]
-        with mock.patch.object(sys, "argv", argv):
+        # The fixture is uncompressed; no native sqlite-zstd extension is needed.
+        with mock.patch.object(sys, "argv", argv), mock.patch.object(
+            build_fts_full, "connect", sqlite3.connect
+        ):
             build_fts_full.main()
 
     @unittest.skipUnless(shutil.which("zsh"), "launchd installer requires zsh (macOS)")

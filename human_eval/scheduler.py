@@ -99,9 +99,10 @@ def execute_claimed_run(
             LOGGER.exception(
                 "human-evaluation run %s failed with %s", run_id, exc.code
             )
-        store.append_event(
-            run_id, "failed", {"code": exc.code, "message": str(exc)}
-        )
+        payload = {"code": exc.code, "message": str(exc)}
+        if exc.used_tokens is not None:
+            payload["usage"] = {"total_tokens": exc.used_tokens}
+        store.append_event(run_id, "failed", payload)
     except Exception:
         LOGGER.exception("human-evaluation run %s failed", run_id)
         store.append_event(

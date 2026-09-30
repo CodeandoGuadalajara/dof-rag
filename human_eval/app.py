@@ -47,6 +47,8 @@ from starlette.responses import (
 
 from .agent_executor import AgentExecutorConfig, provenance_for_config
 from .auth import AuthBackend, User
+from .chat_store import partial_from_progress
+from .chat_ui import CHAT_SCRIPT
 from .contracts import ContractError, FeedbackRequest, RunRequest
 from .markdown_render import render_markdown_html
 from .service import (
@@ -58,6 +60,7 @@ from .service import (
     ReviewRequiredError,
 )
 from .store import SCHEMA_VERSION, EvaluationStore
+from .token_budget import DAILY_TOKEN_LIMIT, MIN_CHAT_TOKENS, TokenBudgetExceeded
 
 MAX_BODY_BYTES = 16 * 1024
 ACTIVE_STATES = frozenset({"queued", "running"})
@@ -321,6 +324,66 @@ pre { background:#18201c; color:#e9eee9; border-radius:3px; max-height:28rem; ov
 .process-archive[open] > summary { margin-bottom:.5rem; }
 .process-note { color:var(--muted); font-size:.86rem; margin:.55rem 0 0; }
 @keyframes pulse { 50% { opacity:.35; transform:scale(.8); } }
+.site-nav { display:flex; flex-wrap:wrap; gap:.3rem; align-self:center; }
+.site-nav a { padding:.45rem .8rem; border-radius:6px; text-decoration:none; font-weight:700; }
+.site-nav a:hover { background:#e5eee7; }
+.site-nav a[aria-current="page"] { background:var(--accent); color:white; }
+.chat-page .shell { width:min(1280px,calc(100% - 2rem)); height:100dvh; display:flex; flex-direction:column; padding:1rem 0; }
+.chat-page header { flex-shrink:0; margin-bottom:.75rem; padding-bottom:.75rem; gap:.6rem; flex-wrap:wrap; }
+.chat-page footer { display:none; }
+#chat-body { flex:1; min-height:0; display:grid; grid-template-columns:220px minmax(0,1fr); grid-template-rows:minmax(0,1fr); gap:1.2rem; }
+.chat-main { min-height:0; min-width:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto; }
+.chat-sidebar { min-height:0; overflow-y:auto; padding:.25rem .8rem .5rem 0; border-right:1px solid var(--line); }
+.chat-sidebar .chat-new { display:block; text-align:center; margin-bottom:1.25rem; border-radius:8px; }
+.chat-sidebar details { border:0; padding:0; }
+.chat-sidebar summary { color:var(--muted); font-size:.8rem; text-transform:uppercase; letter-spacing:.06em; }
+.chat-sidebar ul { list-style:none; padding:0; margin:.75rem 0; }
+.chat-sidebar li { margin:.25rem 0; }
+.chat-sidebar li a { display:block; padding:.65rem .7rem; border-radius:7px; text-decoration:none;
+  overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:var(--ink); font-size:.87rem; }
+.chat-sidebar li a:hover { background:#e5eee7; }
+.chat-sidebar li a[aria-current="page"] { background:#e5eee7; color:var(--accent-dark); font-weight:750; }
+.chat-heading { padding:.25rem .5rem .75rem; }
+.chat-heading h1 { font-size:1.65rem; margin:0 0 .25rem; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.chat-heading .lede { font-size:.88rem; }
+.chat-budget { border:0; padding:.35rem 0 0; font-size:.82rem; }
+.chat-budget summary { color:var(--accent-dark); }
+.chat-budget[open] { max-height:30dvh; overflow-y:auto; }
+.chat-messages { min-height:0; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:1rem .65rem; }
+.chat-exchange { margin:0 0 2rem; }
+.chat-user { background:#e5eee7; border:1px solid #d2dfd5; border-radius:14px 14px 3px 14px;
+  padding:.8rem 1rem; max-width:85%; width:fit-content; margin-left:auto; }
+.chat-user p { margin:.25rem 0 0; white-space:pre-wrap; overflow-wrap:anywhere; }
+.chat-assistant { padding:1rem .2rem 0; overflow-wrap:anywhere; }
+.chat-assistant > strong { color:var(--accent); font-size:.85rem; }
+.chat-assistant details { margin-top:.75rem; border:1px solid var(--line); border-radius:8px; padding:.6rem .85rem; }
+.chat-assistant pre { margin:.65rem 0 .2rem; font-size:.8rem; max-height:18rem; }
+.chat-assistant .chat-thinking { max-height:none; overflow:visible; background:transparent;
+  color:var(--ink); padding:0; white-space:pre-wrap; overflow-wrap:anywhere; }
+.chat-assistant .meta { margin:.8rem 0; }
+.chat-empty { color:var(--muted); text-align:center; padding:3rem 1rem; }
+.chat-composer { flex-shrink:0; border:1px solid var(--line); border-radius:12px; background:var(--panel);
+  padding:.8rem 1rem; box-shadow:0 -6px 20px rgba(30,35,28,.04); }
+.chat-composer label { display:block; margin-bottom:.35rem; }
+.chat-composer textarea { min-height:3rem; height:4.5rem; max-height:20dvh; border-radius:7px; }
+.chat-compose-actions { display:flex; align-items:center; justify-content:space-between; gap:.6rem; margin-top:.5rem; }
+.chat-compose-actions .meta { margin:0; font-size:.75rem; }
+.chat-error:empty { display:none; }
+@media (max-width:680px) { .site-nav { width:100%; order:3; }
+  .chat-page .shell { width:calc(100% - 1rem); padding:.5rem 0; }
+  .chat-page header { display:flex; align-items:center; }
+  .chat-page header .session { margin-top:0; margin-left:auto; }
+  .chat-page header .eyebrow { display:none; }
+  .chat-user { max-width:95%; }
+  #chat-body { grid-template-columns:minmax(0,1fr); grid-template-rows:auto minmax(0,1fr); gap:.6rem; }
+  .chat-sidebar { border-right:0; border-bottom:1px solid var(--line); padding:0 0 .5rem; }
+  .chat-sidebar .chat-new { margin-bottom:.4rem; padding:.45rem; }
+  .chat-sidebar details[open] { max-height:25dvh; overflow-y:auto; }
+  .chat-heading h1 { font-size:1.35rem; }
+  .chat-composer { padding:.65rem .75rem; }
+  .chat-composer textarea { height:3.5rem; }
+  .chat-compose-actions { align-items:flex-end; }
+}
 footer { border-top:1px solid var(--line); color:var(--muted); font-size:.82rem; margin-top:3rem;
   padding-top:1.25rem; }
 @media (max-width:680px) { .grid,.checks { grid-template-columns:1fr; } header { display:block; }
@@ -529,20 +592,28 @@ def _page(
 ) -> str:
     if user is not None:
         session_area = (
-            f'<span class="meta">{_escape(user.email or user.id)}'
-            f"{' · <a href="/admin">admin</a>' if user.is_admin else ''}</span>"
+            f'<span class="meta">{_escape(user.email or user.id)}</span>'
             f'<form method="post" action="/logout"><input type="hidden" name="csrf_token" '
             f'value="{_escape(csrf_token)}"><button class="secondary" type="submit">Salir</button></form>'
         )
     else:
         session_area = '<a class="button secondary" href="/login">Entrar</a>'
     scripts = page_scripts(user) if page_scripts is not None else ""
+    current = 'chat' if title == 'Chat' else 'admin' if title in {'Administración', 'Moderación'} else 'questions'
+    links = [('questions', '/', 'Preguntas'), ('chat', '/chat', 'Chat')]
+    if user is not None and user.is_admin:
+        links.append(('admin', '/admin', 'Admin'))
+    navigation = '<nav class="site-nav" aria-label="Navegación principal">' + ''.join(
+        f'<a href="{href}"{' aria-current="page"' if key == current else ''}>{label}</a>'
+        for key, href, label in links
+    ) + '</nav>'
+    body_class = ' class="chat-page"' if current == 'chat' else ''
     return f"""<!doctype html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{_escape(title)} · Agente del DOF</title><style>{STYLE}</style></head>
-<body><main class="shell"><header><div><p class="eyebrow">Piloto de investigación</p>
+<body{body_class}><main class="shell"><header><div><p class="eyebrow">Piloto de investigación</p>
 <a href="/" style="text-decoration:none;color:inherit"><strong>Agente del Diario Oficial</strong></a></div>
-<div class="session">{session_area}</div></header>{body}
+{navigation}<div class="session">{session_area}</div></header>{body}
 <footer>Las preguntas, respuestas, evidencias y evaluaciones se guardan para análisis y mejora del sistema.
 Las respuestas publicadas son públicas. Las cuentas se gestionan con Clerk; no registramos direcciones IP.</footer>
 </main><script>{STREAM_SCRIPT}</script><script>{LOGIN_MODAL_SCRIPT}</script>{scripts}{trailing_scripts}</body></html>"""
@@ -1060,6 +1131,27 @@ def _not_found_page(
     )
 
 
+def _chat_tools_html(tools: list[dict[str, Any]]) -> str:
+    return ''.join(
+        f'<details><summary>Llamada a herramienta · {_escape(item.get("name", ""))}</summary>'
+        f'<strong>Argumentos</strong><pre>{_escape(json.dumps(item.get("arguments"), ensure_ascii=False, indent=2))}</pre>'
+        f'<strong>Resultado</strong><pre>{_escape(json.dumps(item.get("output", "Ejecución interrumpida sin resultado."), ensure_ascii=False, indent=2))}</pre></details>'
+        for item in tools
+    )
+
+
+def _chat_partial_html(partial: dict[str, Any]) -> str:
+    sections = []
+    for turn in partial.get('turns', []):
+        if turn.get('reasoning_content'):
+            sections.append(f'<details open><summary>Pensamiento del modelo · turno {_escape(turn["turn"])} · incompleto</summary>'
+                            f'<pre class="chat-thinking">{_escape(turn["reasoning_content"])}</pre></details>')
+        if turn.get('content'):
+            sections.append(f'<p class="meta">Texto parcial · turno {_escape(turn["turn"])}. No es una respuesta final verificada.</p>'
+                            f'<div class="markdown-body">{render_markdown_html(turn["content"])}</div>')
+    return ''.join(sections) + _chat_tools_html(partial.get('tools', []))
+
+
 def _sanitize_login_next(raw: str | None) -> str:
     """Allow only same-origin absolute paths (open-redirect guard)."""
     if not raw:
@@ -1240,6 +1332,133 @@ def create_app(
         user = await current_user(request)
         return render_home(request, user)
 
+    def render_chat(request: Request, user: User, *, error: str = "", question: str = "", status_code: int = 200, conversation_id: str | None = None) -> HTMLResponse:
+        remaining = service.store.token_balance(user.id)
+        conversations = service.store.chat_conversations(user.id)
+        selected = conversation_id or request.query_params.get('conversation')
+        if selected is not None and not any(item['conversation_id'] == selected for item in conversations):
+            # An unsaved UUID is allowed only when returning a failed form.
+            if not error:
+                return HTMLResponse(_not_found_page('Conversación no encontrada', 'Esta conversación no existe o no pertenece a tu cuenta.', user=user, csrf_token=_csrf(request), page_scripts=page_scripts), status_code=404)
+        if selected is None and request.query_params.get('new') != '1' and conversations:
+            selected = conversations[0]['conversation_id']
+        selected = selected or str(uuid.uuid4())
+        runs = service.store.chat_runs(user.id, conversation_id=selected)
+        active = service.store.has_active_run(user.id)
+        messages = []
+        for run in runs:
+            messages.append(f'<section class="chat-exchange"><div class="chat-user"><strong>Tú</strong><p>{_escape(run["question"])}</p></div><div class="chat-assistant">')
+            if run["status"] == "succeeded":
+                result = run["result"]
+                usage = result.get("usage", {})
+                used = usage.get("total_tokens", "no disponible")
+                thoughts = result.get("reasoning", [])
+                thinking = sum(item["tokens"] for item in thoughts) if thoughts and all(isinstance(item.get("tokens"), int) for item in thoughts) else "desglose no disponible"
+                reasoning_html = ''.join(
+                    f'<details open><summary>Pensamiento del modelo · turno {_escape(item["turn"])} · tokens: {_escape(item.get("tokens") if item.get("tokens") is not None else "no disponibles")}</summary>'
+                    f'<p class="meta">Texto devuelto por Qwen; puede contener hipótesis o errores. No es evidencia del DOF.</p><pre class="chat-thinking">{_escape(item.get("text") or "El servidor no devolvió texto de pensamiento.")}</pre></details>'
+                    for item in thoughts
+                )
+                tool_calls_html = _chat_tools_html(result.get("trace", []))
+                if result.get('warnings'):
+                    messages.append('<p class="warning">La consulta terminó antes de completar la respuesta. Lo siguiente puede ser parcial.</p>')
+                messages.append(f'{reasoning_html}{tool_calls_html}'
+                                f'<strong>DOF</strong><div class="markdown-body">{render_markdown_html(result["answer"]["text"])}</div>'
+                                f'<p class="meta">Tokens utilizados: {_escape(used)} · entrada: {_escape(usage.get("input_tokens", "no disponible"))} · salida (incluye pensamiento): {_escape(usage.get("output_tokens", "no disponible"))} · pensamiento: {_escape(thinking)} · <a href="/runs/{run["run_id"]}">Ver citas y evidencia</a></p>')
+            elif run["status"] == "failed":
+                failure = run.get('error', {})
+                messages.append(f'<p class="warning">{_escape(failure.get("message", "La consulta falló."))} Se conserva lo generado hasta la interrupción.</p>')
+                partial = failure.get('partial') or partial_from_progress(run.get('progress', []))
+                messages.append(_chat_partial_html(partial))
+                charged = failure.get('usage', {}).get('total_tokens')
+                if charged is not None:
+                    messages.append(f'<p class="meta">Tokens utilizados: {_escape(charged)}</p>')
+            else:
+                messages.append(f'<div data-chat-events="/runs/{_escape(run["run_id"])}/events">'
+                                f'<p role="status" data-chat-status>{_escape(STATUS_LABELS[run["status"]])}</p>'
+                                '<p class="meta">El pensamiento del modelo puede contener hipótesis o errores; no es evidencia del DOF.</p>'
+                                '<div data-chat-activity></div></div>')
+            messages.append('</div></section>')
+        disabled = " disabled" if active or (not user.is_admin and remaining < MIN_CHAT_TOKENS) else ""
+        reservation = remaining
+        sidebar_items = ''.join(
+            f'<li><a href="/chat?conversation={item["conversation_id"]}"{' aria-current="page"' if item['conversation_id'] == selected else ''} title="{_escape(item["title"] or "Conversación")}">{_escape((item["title"] or "Conversación")[:80])}</a></li>'
+            for item in conversations
+        ) or '<li class="meta">Aquí aparecerán tus conversaciones.</li>'
+        budget_label = 'Sin límite diario de tokens · administrador' if user.is_admin else f'Disponibles: {remaining:,} / {DAILY_TOKEN_LIMIT:,} tokens · 24 h móviles'
+        budget_description = 'Tu cuenta no tiene cuota diaria ni límite acumulado de tokens. Cada llamada respeta el contexto máximo del modelo (262,144 tokens); siguen vigentes los límites de ejecución y una consulta activa por cuenta.' if user.is_admin else f'Periodo móvil de 24 horas. Incluye historial, instrucciones, evidencia, llamadas de investigación y salida del modelo (incluido razonamiento). Antes de enviar reservamos hasta {reservation:,} tokens, no una estimación del consumo. Al terminar devolvemos los no utilizados. Si falla la consulta y no conocemos el consumo, se cobra la reserva completa. Cada cargo vence 24 horas después del envío.'
+        saved = any(item['conversation_id'] == selected for item in conversations)
+        current_url = f'/chat?conversation={selected}' if saved else '/chat?new=1'
+        title = next((item['title'] for item in conversations if item['conversation_id'] == selected), None) or 'Nueva conversación'
+        conversation = ''.join(messages) or '<div class="chat-empty"><h2>¿Qué quieres consultar en el DOF?</h2><p>Escribe una pregunta y continúa la conversación aquí.</p></div>'
+        body = f'''<div id="chat-body" data-chat-url="{current_url}"><aside class="chat-sidebar" aria-label="Historial de conversaciones">
+<a class="button secondary chat-new" href="/chat?new=1">+ Nueva conversación</a>
+<details open data-chat-sidebar><summary>Conversaciones</summary><ul>{sidebar_items}</ul></details></aside>
+<section class="chat-main"><section class="chat-heading"><h1 title="{_escape(title)}">{_escape(title[:100])}</h1>
+<p class="lede">Conversación privada con fuentes del Diario Oficial.</p>
+<details class="chat-budget"><summary>{budget_label} · ver límites</summary>
+<p class="meta">{budget_description}</p>
+<p class="meta">Se recuerdan hasta seis intercambios anteriores de esta conversación. Las preguntas, respuestas y actividad del modelo se guardan para mejorar el sistema.</p></details></section>
+<div class="chat-messages" data-chat-messages role="region" aria-label="Conversación" tabindex="0">{conversation}</div>
+<form method="post" action="/chat" class="chat-composer" data-chat-form>
+<p class="warning chat-error" role="alert" data-chat-error>{_escape(error)}</p>
+<input type="hidden" name="csrf_token" value="{_escape(_csrf(request))}">
+<input type="hidden" name="client_request_id" value="{uuid.uuid4()}">
+<input type="hidden" name="conversation_id" value="{_escape(selected)}">
+<label for="chat-question">Mensaje</label>
+<textarea id="chat-question" name="question" minlength="3" maxlength="2000" required aria-describedby="chat-compose-hint" placeholder="Pregunta sobre el DOF o continúa la conversación…">{_escape(question)}</textarea>
+<div class="chat-compose-actions"><p id="chat-compose-hint" class="meta">{'Consulta en curso. Puedes preparar tu siguiente mensaje.' if active else 'El mensaje se agregará a esta conversación.'}<br>Enter para enviar · Shift+Enter para nueva línea.</p>
+<button type="submit"{disabled}>Enviar</button></div></form></section></div>'''
+        scripts = f'<script>{CHAT_SCRIPT}</script>'
+        return HTMLResponse(_page("Chat", body, user=user, csrf_token=_csrf(request), page_scripts=page_scripts, trailing_scripts=scripts), status_code=status_code)
+
+    @app.get("/chat", response_class=HTMLResponse)
+    async def chat_page(request: Request) -> Response:
+        user = await current_user(request)
+        if user is None:
+            return login_redirect(request)
+        return render_chat(request, user)
+
+    @app.post("/chat", response_class=HTMLResponse)
+    async def chat_send(request: Request) -> Response:
+        user = await current_user(request)
+        if user is None:
+            return login_redirect(request)
+        question = ""
+        conversation_id = None
+        try:
+            form = await _form(request)
+            if not _csrf_valid(request, form.get("csrf_token")):
+                return render_chat(request, user, error="La sesión del formulario venció.", status_code=403)
+            question = form.get("question", "")
+            conversation_id = form.get('conversation_id')
+            if not conversation_id:
+                conversations = service.store.chat_conversations(user.id)
+                conversation_id = conversations[0]['conversation_id'] if conversations else str(uuid.uuid4())
+            try:
+                conversation_id = str(uuid.UUID(conversation_id))
+            except (ValueError, TypeError, AttributeError) as exc:
+                raise ContractError('Identificador de conversación inválido.') from exc
+            run_request = RunRequest.from_dict({"question": question, "client_request_id": form.get("client_request_id")})
+            remaining = service.store.token_balance(user.id)
+            if not user.is_admin and remaining < MIN_CHAT_TOKENS and service.store.find_idempotent_run(user.id, run_request.client_request_id) is None:
+                raise TokenBudgetExceeded("No quedan suficientes tokens. El presupuesto se recupera conforme vencen los cargos de 24 horas.")
+            # Reserving the full balance relies on service.submit enforcing one
+            # active run per account in the admission transaction; settlement refunds it.
+            run = service.submit(run_request, user_id=user.id, admin=user.is_admin,
+                                 reserved_tokens=None if user.is_admin else max(1, remaining),
+                                 chat=True, conversation_id=conversation_id)
+        except (ContractError, TokenBudgetExceeded) as exc:
+            return render_chat(request, user, error=str(exc), question=question, status_code=422, conversation_id=conversation_id)
+        except (ActiveRunError, IdempotencyConflictError) as exc:
+            return render_chat(request, user, error=str(exc), question=question, status_code=409, conversation_id=conversation_id)
+        except QueueFullError:
+            return render_chat(request, user, error="La cola está llena; intenta más tarde.", question=question, status_code=503, conversation_id=conversation_id)
+        except KeyError:
+            return HTMLResponse(_not_found_page('Conversación no encontrada', 'Esta conversación no existe o no pertenece a tu cuenta.', user=user, csrf_token=_csrf(request), page_scripts=page_scripts), status_code=404)
+        conversation_id = service.store.conversation_for_run(user.id, run['run_id'])
+        return RedirectResponse(f"/chat?conversation={conversation_id}", status_code=303)
+
     @app.post("/runs", response_class=HTMLResponse)
     async def create_run(request: Request) -> Response:
         user = await current_user(request)
@@ -1403,7 +1622,10 @@ Publicada: {_escape(run.get("published_at"))}</p></section>
             feedback_recorded=feedback_recorded,
             feedback_next=f"/runs/{run_id}",
         )
-        admin_html = _admin_panel(run, csrf_token) if user.is_admin else ""
+        is_chat = service.store.is_chat_run(run_id)
+        if is_chat:
+            fragment = _status_fragment(run)
+        admin_html = _admin_panel(run, csrf_token) if user.is_admin and not is_chat else ""
         body = f"""<p><a href="/">← Portada</a></p><section><p class="eyebrow">Ejecución</p>
 <h1>{_escape(run["question"])}</h1><p class="lede">Fecha de corte: {_escape(run.get("as_of") or "sin fecha")} · Documentos mínimos: {_escape(run["required_hops"])}</p></section>
 {fragment}{admin_html}"""
@@ -1431,7 +1653,7 @@ Publicada: {_escape(run.get("published_at"))}</p></section>
         return HTMLResponse(
             _status_fragment(
                 run,
-                csrf_token=_csrf(request),
+                csrf_token="" if service.store.is_chat_run(run_id) else _csrf(request),
                 feedback_next=f"/runs/{run_id}",
             )
         )

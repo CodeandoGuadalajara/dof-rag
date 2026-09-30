@@ -393,7 +393,7 @@ class AgentExecutorConfigTests(unittest.TestCase):
         self.assertEqual(
             str(backend.client.base_url), "http://127.0.0.1:8080/v1/"
         )
-        self.assertEqual(backend.reasoning_effort, "low")
+        self.assertIsNone(backend.reasoning_effort)
 
     def test_llama_server_backend_honors_base_url_override(self):
         executor = AgentRunExecutor(
@@ -1505,7 +1505,7 @@ class AirAppTests(AirAppTestCase):
         # Non-admins cannot see the dashboard nor delete.
         self.as_user("bob")
         home = self.client.get("/")
-        self.assertNotIn('<a href="/admin">admin</a>', home.text)
+        self.assertNotIn('href="/admin"', home.text)
         self.assertEqual(self.client.get("/admin").status_code, 403)
         denied = self.client.post(
             f"/admin/runs/{run_id}/delete",
@@ -1518,7 +1518,7 @@ class AirAppTests(AirAppTestCase):
         # Admins get a header link and the dashboard lists the run.
         self.as_user("root", admin=True)
         home = self.client.get("/")
-        self.assertIn('<a href="/admin">admin</a>', home.text)
+        self.assertIn('<a href="/admin">Admin</a>', home.text)
         dashboard = self.client.get("/admin")
         self.assertEqual(dashboard.status_code, 200)
         self.assertIn("Panel de administración", dashboard.text)
@@ -1591,7 +1591,7 @@ class AirAppTests(AirAppTestCase):
         self.assertEqual(response.status_code, 404)
         self.assertIn("Ejecución no encontrada", response.text)
         self.assertIn("Agente del Diario", response.text)
-        self.assertIn('<a href="/admin">admin</a>', response.text)
+        self.assertIn('<a href="/admin">Admin</a>', response.text)
 
     def test_unknown_api_route_returns_json_404(self):
         response = self.client.get("/api/v1/inexistente")

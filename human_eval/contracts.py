@@ -46,6 +46,10 @@ class RunRequest:
     as_of: str | None = None
     required_hops: int = 1
     client_request_id: str | None = None
+    # Internal only: populated from the persisted reservation, never client input.
+    token_limit: int | None = None
+    history: tuple[dict[str, Any], ...] = ()
+    is_chat: bool = False
 
     @classmethod
     def from_dict(cls, data: Any) -> "RunRequest":

@@ -205,7 +205,7 @@ def _coverage_requirements(question: str) -> list[str]:
         *_enumeration_requirements(question),
         *_explicit_question_requirements(question),
     ]
-    # ponytail: deterministic anchors, not semantic coverage; expand only for measured gaps.
+    # Deterministic anchors measure explicit evidence, not semantic coverage.
     folded = _fold_for_coverage(question)
     requirements.extend(
         f"indicador {name}"
@@ -475,7 +475,7 @@ def _object_schema(properties: dict[str, Any]) -> dict[str, Any]:
 def _normalize_nullable_literals(
     schema: dict[str, Any], arguments: dict[str, Any]
 ) -> dict[str, Any]:
-    """Tolerate local models that serialize null as ``null`` or ``None``."""
+    """Normalize canonical null/boolean strings from local tool-call parsers."""
     normalized = dict(arguments)
     properties = schema.get("properties", {})
     for name, value in arguments.items():
@@ -485,6 +485,8 @@ def _normalize_nullable_literals(
         )
         if is_string_null and isinstance(expected, list) and "null" in expected:
             normalized[name] = None
+        elif isinstance(value, str) and "boolean" in (expected if isinstance(expected, list) else [expected]) and value.strip().lower() in {"true", "false"}:
+            normalized[name] = value.strip().lower() == "true"
     return normalized
 
 
@@ -1057,6 +1059,7 @@ class OpenAIChatCompletionsBackend:
         max_output_tokens: int = 2400,
         client: Any = None,
         enable_thinking: bool | None = None,
+        on_delta: Callable[[str, str], None] | None = None,
     ):
         if client is None:
             from openai import OpenAI
@@ -1067,6 +1070,7 @@ class OpenAIChatCompletionsBackend:
         self.reasoning_effort = reasoning_effort
         self.max_output_tokens = max_output_tokens
         self.enable_thinking = enable_thinking
+        self.on_delta = on_delta
 
     @staticmethod
     def _messages(
@@ -1132,14 +1136,19 @@ class OpenAIChatCompletionsBackend:
             kwargs["reasoning_effort"] = self.reasoning_effort
         if self.enable_thinking is not None:
             kwargs["extra_body"] = {
-                "chat_template_kwargs": {"enable_thinking": self.enable_thinking}
+                "chat_template_kwargs": {"enable_thinking": self.enable_thinking,
+                    **({"reasoning_effort": self.reasoning_effort} if self.reasoning_effort else {})}
             }
         if tools:
             kwargs["tools"] = self._chat_tools(tools)
             kwargs["tool_choice"] = "auto"
         else:
             kwargs["tool_choice"] = "none"
-        response = self.client.chat.completions.create(**kwargs)
+        if self.on_delta is not None:
+            from .chat_stream import collect_chat_stream
+            response = collect_chat_stream(self.client, kwargs, self.on_delta)
+        else:
+            response = self.client.chat.completions.create(**kwargs)
         if not response.choices:
             raise RuntimeError("chat completion returned no choices")
         message = response.choices[0].message
@@ -1178,6 +1187,9 @@ class OpenAIChatCompletionsBackend:
             "output_tokens": int(raw_usage.get("completion_tokens", 0)),
             "total_tokens": int(raw_usage.get("total_tokens", 0)),
         }
+        reasoning_tokens = (raw_usage.get("completion_tokens_details") or {}).get("reasoning_tokens")
+        if isinstance(reasoning_tokens, int) and not isinstance(reasoning_tokens, bool):
+            usage["reasoning_tokens"] = reasoning_tokens
         return ModelTurn(
             response_id=response.id,
             output_items=[message_data],

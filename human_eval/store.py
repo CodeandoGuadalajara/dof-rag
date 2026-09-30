@@ -11,9 +11,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from . import chat_store, token_budget
 from .contracts import FeedbackRequest, RunRequest, utc_now
 
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "7"
 TERMINAL_STATES = frozenset({"succeeded", "failed"})
 EVENT_STATES = frozenset({"queued", "started", *TERMINAL_STATES})
 PROGRESS_EVENT_TYPES = frozenset(
@@ -63,6 +64,7 @@ CREATE TABLE IF NOT EXISTS runs (
     provenance_json TEXT NOT NULL,
     published_at TEXT,
     published_by TEXT,
+    kind TEXT NOT NULL DEFAULT 'evaluation' CHECK (kind IN ('evaluation', 'chat')),
     UNIQUE (user_id, client_request_id)
 );
 CREATE TABLE IF NOT EXISTS run_events (
@@ -143,12 +145,17 @@ class EvaluationStore:
             current = connection.execute(
                 "SELECT value FROM schema_meta WHERE key = 'schema_version'"
             ).fetchone()
-            if current and current[0] not in {"1", "2", SCHEMA_VERSION}:
+            if current and current[0] not in {"1", "2", "3", "4", "5", "6", SCHEMA_VERSION}:
                 raise RuntimeError(
                     f"unsupported evaluation schema {current[0]!r}; expected {SCHEMA_VERSION}"
                 )
             connection.executescript(SCHEMA)
             self._migrate_columns(connection)
+            token_budget.initialize(connection)
+            chat_store.initialize(connection)
+            connection.execute(
+                "UPDATE runs SET kind = 'chat' WHERE run_id IN (SELECT run_id FROM chat_messages)"
+            )
             connection.execute(
                 "INSERT OR IGNORE INTO schema_meta(key, value) VALUES (?, ?)",
                 ("schema_version", SCHEMA_VERSION),
@@ -177,6 +184,11 @@ class EvaluationStore:
             connection.execute("ALTER TABLE runs ADD COLUMN published_at TEXT")
         if "published_by" not in run_columns:
             connection.execute("ALTER TABLE runs ADD COLUMN published_by TEXT")
+        if "kind" not in run_columns:
+            connection.execute(
+                "ALTER TABLE runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'evaluation' "
+                "CHECK (kind IN ('evaluation', 'chat'))"
+            )
         feedback_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(feedback)")
         }
@@ -224,6 +236,10 @@ class EvaluationStore:
         queue_capacity: int | None = None,
         daily_question_limit: int | None = None,
         daily_since: str | None = None,
+        reserved_tokens: int | None = None,
+        daily_token_limit: int = token_budget.DAILY_TOKEN_LIMIT,
+        chat: bool = False,
+        conversation_id: str | None = None,
     ) -> tuple[dict[str, Any], bool]:
         if daily_question_limit is not None and daily_question_limit < 1:
             raise ValueError("daily_question_limit must be positive")
@@ -231,13 +247,15 @@ class EvaluationStore:
             raise ValueError("daily_since is required with daily_question_limit")
         if queue_capacity is not None and queue_capacity < 1:
             raise ValueError("queue_capacity must be positive")
+        is_chat = chat or reserved_tokens is not None
         created_at = utc_now()
         run_id = str(uuid.uuid4())
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             if request.client_request_id:
                 existing = connection.execute(
-                    "SELECT run_id, question, as_of, required_hops FROM runs "
+                    "SELECT run_id, question, as_of, required_hops, "
+                    "(SELECT conversation_id FROM chat_messages m WHERE m.run_id = runs.run_id AND m.role = 'user') AS conversation_id FROM runs "
                     "WHERE user_id = ? "
                     "AND client_request_id = ?",
                     (user_id, request.client_request_id),
@@ -248,6 +266,8 @@ class EvaluationStore:
                             existing["question"] != request.question,
                             existing["as_of"] != request.as_of,
                             existing["required_hops"] != request.required_hops,
+                            bool(existing['conversation_id']) != is_chat,
+                            conversation_id is not None and existing['conversation_id'] != conversation_id,
                         )
                     ):
                         raise IdempotencyPayloadConflict(request.client_request_id)
@@ -270,14 +290,15 @@ class EvaluationStore:
                 reviewed = connection.execute(
                     "SELECT 1 FROM feedback f WHERE f.user_id = ? "
                     "AND f.created_at > COALESCE((SELECT MAX(r.created_at) "
-                    "FROM runs r WHERE r.user_id = ?), '') LIMIT 1",
+                    "FROM runs r WHERE r.user_id = ? AND r.kind = 'evaluation'), '') LIMIT 1",
                     (user_id, user_id),
                 ).fetchone()
                 if reviewed is None:
                     raise ReviewRequiredConflict(user_id)
             if daily_question_limit is not None:
                 submissions = connection.execute(
-                    "SELECT COUNT(*) FROM runs WHERE user_id = ? AND created_at >= ?",
+                    "SELECT COUNT(*) FROM runs WHERE user_id = ? AND created_at >= ? "
+                    "AND kind = 'evaluation'",
                     (user_id, daily_since),
                 ).fetchone()[0]
                 if int(submissions) >= daily_question_limit:
@@ -290,10 +311,14 @@ class EvaluationStore:
                 ).fetchone()[0]
                 if int(queued) >= queue_capacity:
                     raise QueueCapacityConflict(queue_capacity)
+            if reserved_tokens is not None:
+                token_budget.reserve(
+                    connection, run_id, user_id, reserved_tokens, limit=daily_token_limit
+                )
             connection.execute(
                 "INSERT INTO runs(run_id, created_at, question, as_of, required_hops, "
-                "user_id, client_request_id, provenance_json) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "user_id, client_request_id, provenance_json, kind) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     run_id,
                     created_at,
@@ -303,8 +328,11 @@ class EvaluationStore:
                     user_id,
                     request.client_request_id,
                     _json(provenance or {}),
+                    "chat" if is_chat else "evaluation",
                 ),
             )
+            if is_chat:
+                chat_store.add_message(connection, run_id, user_id, created_at, request.question, conversation_id)
             connection.execute(
                 "INSERT INTO run_events(run_id, sequence, event_type, created_at, payload_json) "
                 "VALUES (?, 1, 'queued', ?, '{}')",
@@ -313,6 +341,64 @@ class EvaluationStore:
         found = self.get_run(run_id)
         assert found is not None
         return found, True
+
+    def conversation_for_run(self, user_id: str, run_id: str) -> str:
+        with self._connect() as connection:
+            row = connection.execute(
+                'SELECT m.conversation_id FROM chat_messages m JOIN chat_conversations c ON c.conversation_id = m.conversation_id WHERE c.user_id = ? AND m.run_id = ? LIMIT 1',
+                (user_id, run_id),
+            ).fetchone()
+        if row is None:
+            raise KeyError(run_id)
+        return row[0]
+
+    def chat_conversations(self, user_id: str) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT c.conversation_id, c.created_at, "
+                "(SELECT content FROM chat_messages m WHERE m.conversation_id = c.conversation_id AND m.role = 'user' ORDER BY m.created_at LIMIT 1) AS title, "
+                "COALESCE((SELECT MAX(created_at) FROM chat_messages m WHERE m.conversation_id = c.conversation_id), c.created_at) AS updated_at "
+                "FROM chat_conversations c WHERE c.user_id = ? ORDER BY updated_at DESC", (user_id,)
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def chat_runs(self, user_id: str, *, conversation_id: str | None = None, limit: int | None = None) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT m.run_id FROM chat_messages m JOIN chat_conversations c "
+                "ON c.conversation_id = m.conversation_id "
+                "WHERE c.user_id = ? AND m.role = 'user' "
+                "AND (? IS NULL OR c.conversation_id = ?) "
+                "ORDER BY m.created_at DESC LIMIT COALESCE(?, -1)", (user_id, conversation_id, conversation_id, limit)
+            ).fetchall()
+        runs = []
+        for row in reversed(rows):
+            run = self.get_run(row[0])
+            if run is not None:
+                with self._connect() as connection:
+                    messages = connection.execute(
+                        "SELECT role, content, result_json FROM chat_messages WHERE run_id = ?", (row[0],)
+                    ).fetchall()
+                for message in messages:
+                    if message['role'] == 'user':
+                        run['question'] = message['content']
+                    elif message['result_json'] is not None:
+                        run['result' if run['status'] == 'succeeded' else 'error'] = json.loads(message['result_json'])
+                runs.append(run)
+        return runs
+
+    def is_chat_run(self, run_id: str) -> bool:
+        with self._connect() as connection:
+            return connection.execute("SELECT 1 FROM runs WHERE run_id = ? AND kind = 'chat'", (run_id,)).fetchone() is not None
+
+    def token_balance(self, user_id: str, *, limit: int = token_budget.DAILY_TOKEN_LIMIT) -> int:
+        with self._connect() as connection:
+            return token_budget.balance(connection, user_id, limit=limit)
+
+    def settle_tokens(self, run_id: str, used: int) -> None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            token_budget.settle(connection, run_id, used)
 
     def queue_depth(self) -> int:
         """Runs currently waiting for the scheduler."""
@@ -421,6 +507,14 @@ class EvaluationStore:
             ).fetchall()
             now = utc_now()
             for run in runs:
+                chat_store.finish_message(connection, str(run[0]), 'failed', {
+                    'code': 'service_restarted', 'message': 'La ejecución se interrumpió antes de terminar.',
+                })
+                # Unknown usage after a crash: conservatively charge the reservation.
+                connection.execute(
+                    "UPDATE token_reservations SET used = reserved "
+                    "WHERE run_id = ? AND used IS NULL", (str(run[0]),)
+                )
                 connection.execute(
                     "INSERT INTO run_events(run_id, sequence, event_type, created_at, payload_json) "
                     "VALUES (?, ?, 'failed', ?, ?)",
@@ -527,6 +621,7 @@ class EvaluationStore:
         with self._connect() as connection:
             rows = connection.execute(
                 "SELECT run_id FROM runs WHERE user_id = ? "
+                "AND kind = 'evaluation' "
                 "ORDER BY created_at DESC, run_id DESC LIMIT ?",
                 (user_id, limit),
             ).fetchall()
@@ -537,7 +632,8 @@ class EvaluationStore:
         """Submissions in the window, regardless of outcome (quota basis)."""
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT COUNT(*) FROM runs WHERE user_id = ? AND created_at >= ?",
+                "SELECT COUNT(*) FROM runs WHERE user_id = ? AND created_at >= ? "
+                "AND kind = 'evaluation'",
                 (user_id, since),
             ).fetchone()
         return int(row[0])
@@ -552,7 +648,7 @@ class EvaluationStore:
             row = connection.execute(
                 "SELECT 1 FROM feedback f WHERE f.user_id = ? "
                 "AND f.created_at > COALESCE((SELECT MAX(r.created_at) "
-                "FROM runs r WHERE r.user_id = ?), '') LIMIT 1",
+                "FROM runs r WHERE r.user_id = ? AND r.kind = 'evaluation'), '') LIMIT 1",
                 (user_id, user_id),
             ).fetchone()
         return row is not None
@@ -566,6 +662,7 @@ class EvaluationStore:
                 "JOIN run_events e ON e.run_id = r.run_id AND e.sequence = "
                 "(SELECT MAX(e2.sequence) FROM run_events e2 WHERE e2.run_id = r.run_id) "
                 "WHERE e.event_type = 'succeeded' "
+                "AND r.kind = 'evaluation' "
                 "AND (r.published_at IS NOT NULL OR r.user_id = ?) "
                 "AND NOT EXISTS (SELECT 1 FROM feedback f "
                 "WHERE f.run_id = r.run_id AND f.user_id = ?) "
@@ -601,6 +698,7 @@ class EvaluationStore:
                 "AND e.sequence = (SELECT MAX(e2.sequence) FROM run_events e2 "
                 "WHERE e2.run_id = r.run_id) "
                 "WHERE r.published_at IS NOT NULL AND e.event_type = 'succeeded' "
+                "AND r.kind = 'evaluation' "
                 "ORDER BY r.published_at DESC, r.run_id DESC LIMIT ?",
                 (limit,),
             ).fetchall()
@@ -625,6 +723,7 @@ class EvaluationStore:
                 "AND e.sequence = (SELECT MAX(e2.sequence) FROM run_events e2 "
                 "WHERE e2.run_id = r.run_id) "
                 "WHERE e.event_type = 'succeeded' "
+                "AND r.kind = 'evaluation' "
                 "ORDER BY (r.published_at IS NULL) DESC, r.created_at DESC, "
                 "r.run_id DESC LIMIT ?",
                 (limit,),
@@ -648,6 +747,8 @@ class EvaluationStore:
             ).fetchone()
             if row is None:
                 raise KeyError(run_id)
+            if connection.execute("SELECT 1 FROM runs WHERE run_id = ? AND kind = 'chat'", (run_id,)).fetchone():
+                raise ValueError("chat messages cannot be published as evaluation answers")
             if row[0] != "succeeded":
                 raise ValueError("only succeeded runs can be published")
             connection.execute(
@@ -676,6 +777,7 @@ class EvaluationStore:
                 "FROM runs r JOIN run_events e ON e.run_id = r.run_id "
                 "AND e.sequence = (SELECT MAX(e2.sequence) FROM run_events e2 "
                 "WHERE e2.run_id = r.run_id) "
+                "WHERE r.kind = 'evaluation' "
                 "ORDER BY r.created_at DESC, r.run_id DESC LIMIT ?",
                 (limit,),
             ).fetchall()
@@ -746,6 +848,19 @@ class EvaluationStore:
                 raise ValueError(
                     f"invalid run transition {current['event_type']} -> {event_type}"
                 )
+            if event_type in TERMINAL_STATES:
+                reservation = connection.execute(
+                    "SELECT reserved FROM token_reservations WHERE run_id = ?", (run_id,)
+                ).fetchone()
+                if reservation:
+                    actual = (payload or {}).get("usage", {}).get("total_tokens")
+                    charged = actual if isinstance(actual, int) and not isinstance(actual, bool) and actual >= 0 else reservation[0]
+                    token_budget.settle(connection, run_id, min(charged, reservation[0]))
+                if connection.execute("SELECT 1 FROM runs WHERE run_id = ? AND kind = 'chat'", (run_id,)).fetchone():
+                    if event_type == 'failed':
+                        payload = dict(payload or {})
+                        payload['partial'] = chat_store.saved_partial(connection, run_id)
+                    chat_store.finish_message(connection, run_id, event_type, payload or {})
             connection.execute(
                 "INSERT INTO run_events(run_id, sequence, event_type, created_at, payload_json) "
                 "VALUES (?, ?, ?, ?, ?)",
@@ -816,13 +931,41 @@ class EvaluationStore:
     def get_request(self, run_id: str) -> RunRequest | None:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT question, as_of, required_hops, client_request_id "
+                "SELECT question, as_of, required_hops, client_request_id, user_id "
                 "FROM runs WHERE run_id = ?",
                 (run_id,),
             ).fetchone()
         if row is None:
             return None
-        return RunRequest(row[0], row[1], int(row[2]), row[3])
+        with self._connect() as connection:
+            reservation = connection.execute(
+                "SELECT reserved FROM token_reservations WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            conversation = connection.execute(
+                "SELECT conversation_id, rowid FROM chat_messages WHERE run_id = ? AND role = 'user'", (run_id,)
+            ).fetchone()
+        history = []
+        if conversation:
+            with self._connect() as connection:
+                previous = connection.execute(
+                    "SELECT u.content, a.content FROM chat_messages u JOIN chat_messages a "
+                    "ON a.run_id = u.run_id AND a.role = 'assistant' "
+                    "WHERE u.conversation_id = ? AND u.role = 'user' AND u.rowid < ? "
+                    "AND json_extract(a.result_json, '$.answer.text') IS NOT NULL "
+                    "ORDER BY u.rowid DESC LIMIT 6", (conversation[0], conversation[1])
+                ).fetchall()
+            for user_text, assistant_text in reversed(previous):
+                history.extend([{'role': 'user', 'content': user_text}, {'role': 'assistant', 'content': assistant_text}])
+        # Keep six prior exchanges to bound conversation context.
+        return RunRequest(
+            question=row["question"],
+            as_of=row["as_of"],
+            required_hops=int(row["required_hops"]),
+            client_request_id=row["client_request_id"],
+            token_limit=reservation[0] if reservation else None,
+            history=tuple(history[-12:]),
+            is_chat=bool(conversation),
+        )
 
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         with self._connect() as connection:

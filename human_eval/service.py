@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from math import ceil
 from typing import Any
 
-from .contracts import FeedbackRequest, RunRequest
+from .contracts import ContractError, FeedbackRequest, RunRequest
 from .store import (
     ActiveRunConflict,
     DailyQuotaConflict,
@@ -38,9 +38,10 @@ DEFAULT_RUN_SECONDS = 480.0
 
 
 class PublicExecutionError(RuntimeError):
-    def __init__(self, code: str, message: str):
+    def __init__(self, code: str, message: str, *, used_tokens: int | None = None):
         super().__init__(message)
         self.code = code
+        self.used_tokens = used_tokens
 
 
 class QueueFullError(RuntimeError):
@@ -117,11 +118,17 @@ class EvaluationService:
         user_id: str,
         admin: bool = False,
         daily_question_limit: int = 1,
+        reserved_tokens: int | None = None,
+        chat: bool = False,
+        conversation_id: str | None = None,
     ) -> dict[str, Any]:
         # create_run checks idempotency first and performs every admission
         # decision in one SQLite transaction. No preliminary rejection is
         # safe here: another web process could commit the same idempotency key
         # between a lookup and that rejection.
+        chat = chat or reserved_tokens is not None
+        if chat and not admin and reserved_tokens is None:
+            raise ValueError('non-admin chat requires a token reservation')
         with self._lifecycle_lock:
             if not self._started:
                 raise RuntimeError("service has not started")
@@ -139,11 +146,14 @@ class EvaluationService:
                     user_id=user_id,
                     provenance=None,
                     enforce_active_run=True,
-                    require_review=not admin,
+                    require_review=not admin and not chat,
+                    reserved_tokens=None if admin and chat else reserved_tokens,
+                    chat=chat,
+                    conversation_id=conversation_id,
                     queue_capacity=self.queue_capacity,
                     daily_question_limit=(
                         daily_question_limit
-                        if not admin and daily_question_limit >= 1
+                        if not admin and not chat and daily_question_limit >= 1
                         else None
                     ),
                     daily_since=daily_since,
@@ -237,6 +247,8 @@ class EvaluationService:
         # Any signed-in user may evaluate a published answer; unpublished
         # runs stay private to their author (and admins).
         self.public_run(run_id, user_id=user_id, admin=admin)
+        if self.store.is_chat_run(run_id):
+            raise ContractError("chat messages are not evaluation answers")
         return self.store.add_feedback(run_id, request, user_id=user_id)
 
     def publish(self, run_id: str, *, admin_id: str) -> None:

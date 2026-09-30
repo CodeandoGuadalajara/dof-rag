@@ -1,0 +1,27 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Run tests without PDF conversion or GPU dependencies
+        run: >-
+          uv run --no-project --python 3.13
+          --with air --with airclerk --with httpx
+          --with itsdangerous --with python-multipart --with uvicorn
+          --with markdown-it-py --with nh3 --with openai
+          --with sqlite-vec --with numpy --with tokenizers --with jinja2
+          --with jsonschema --with requests --with typer --with beautifulsoup4
+          python -m unittest discover -s tests -t .
+      - name: Lint application and tests
+        run: uvx ruff check human_eval tests
