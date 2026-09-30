@@ -58,6 +58,7 @@ from .service import (
     ReviewRequiredError,
 )
 from .store import SCHEMA_VERSION, EvaluationStore
+from .token_budget import DAILY_TOKEN_LIMIT, TokenBudgetExceeded
 
 MAX_BODY_BYTES = 16 * 1024
 ACTIVE_STATES = frozenset({"queued", "running"})
@@ -541,7 +542,8 @@ def _page(
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{_escape(title)} · Agente del DOF</title><style>{STYLE}</style></head>
 <body><main class="shell"><header><div><p class="eyebrow">Piloto de investigación</p>
-<a href="/" style="text-decoration:none;color:inherit"><strong>Agente del Diario Oficial</strong></a></div>
+<a href="/" style="text-decoration:none;color:inherit"><strong>Agente del Diario Oficial</strong></a>
+<a href="/chat">Chat</a></div>
 <div class="session">{session_area}</div></header>{body}
 <footer>Las preguntas, respuestas, evidencias y evaluaciones se guardan para análisis y mejora del sistema.
 Las respuestas publicadas son públicas. Las cuentas se gestionan con Clerk; no registramos direcciones IP.</footer>
@@ -1239,6 +1241,90 @@ def create_app(
     async def home(request: Request) -> Response:
         user = await current_user(request)
         return render_home(request, user)
+
+    def render_chat(request: Request, user: User, *, error: str = "", question: str = "", status_code: int = 200) -> HTMLResponse:
+        remaining = service.store.token_balance(user.id)
+        runs = service.store.chat_runs(user.id)
+        active = service.store.has_active_run(user.id)
+        messages = []
+        for run in runs:
+            messages.append(f'<section class="panel"><strong>Tú</strong><p>{_escape(run["question"])}</p>')
+            if run["status"] == "succeeded":
+                result = run["result"]
+                usage = result.get("usage", {})
+                used = usage.get("total_tokens", "no disponible")
+                thoughts = result.get("reasoning", [])
+                thinking = sum(item["tokens"] for item in thoughts) if thoughts and all(isinstance(item.get("tokens"), int) for item in thoughts) else "desglose no disponible"
+                reasoning_html = ''.join(
+                    f'<details open><summary>Pensamiento del modelo · turno {_escape(item["turn"])} · tokens: {_escape(item.get("tokens") if item.get("tokens") is not None else "no disponibles")}</summary>'
+                    f'<p class="meta">Texto devuelto por Qwen; puede contener hipótesis o errores. No es evidencia del DOF.</p><pre>{_escape(item.get("text") or "El servidor no devolvió texto de pensamiento.")}</pre></details>'
+                    for item in thoughts
+                )
+                tool_calls_html = ''.join(
+                    f'<details open><summary>Llamada a herramienta · {_escape(item.get("name", ""))}</summary>'
+                    f'<strong>Argumentos</strong><pre>{_escape(json.dumps(item.get("arguments"), ensure_ascii=False, indent=2))}</pre>'
+                    f'<strong>Resultado</strong><pre>{_escape(json.dumps(item.get("output"), ensure_ascii=False, indent=2))}</pre></details>'
+                    for item in result.get("trace", [])
+                )
+                messages.append(f'<strong>DOF</strong><div class="markdown-body">{render_markdown_html(result["answer"]["text"])}</div>'
+                                f'<p class="meta">Tokens utilizados: {_escape(used)} · entrada: {_escape(usage.get("input_tokens", "no disponible"))} · salida (incluye pensamiento): {_escape(usage.get("output_tokens", "no disponible"))} · pensamiento: {_escape(thinking)} · <a href="/runs/{run["run_id"]}">Ver citas y evidencia</a></p>{reasoning_html}{tool_calls_html}')
+            elif run["status"] == "failed":
+                messages.append(f'<p class="warning">{_escape(run.get("error", {}).get("message", "La consulta falló."))}</p>')
+            else:
+                messages.append(f'<p role="status">{_escape(STATUS_LABELS[run["status"]])} · <a href="/runs/{run["run_id"]}">Ver progreso</a></p>')
+            messages.append('</section>')
+        disabled = " disabled" if active or remaining < 1000 else ""
+        reservation = remaining
+        body = f'''<h1>Chat con el DOF</h1>
+<p class="lede">Conversación privada. Cada respuesta consulta el corpus del DOF; el historial ayuda a interpretar tus preguntas, no sustituye la evidencia.</p>
+<section class="panel"><strong>Disponibles: {remaining:,} / {DAILY_TOKEN_LIMIT:,} tokens</strong>
+<p class="meta">Periodo móvil de 24 horas. Incluye historial, instrucciones, evidencia, llamadas de investigación y salida del modelo (incluido razonamiento).
+Antes de enviar reservamos hasta {reservation:,} tokens, no una estimación del consumo. Al terminar devolvemos los no utilizados.
+Si falla la consulta y no conocemos el consumo, se cobra la reserva completa. Cada cargo vence 24 horas después del envío.</p>
+<p class="meta">Se recuerdan hasta seis intercambios anteriores. Esta primera versión tiene una conversación por cuenta.</p></section>
+<p class="warning" role="alert">{_escape(error)}</p>
+{''.join(messages)}
+<form method="post" action="/chat" class="panel">
+<input type="hidden" name="csrf_token" value="{_escape(_csrf(request))}">
+<input type="hidden" name="client_request_id" value="{uuid.uuid4()}">
+<label for="chat-question">Mensaje</label>
+<textarea id="chat-question" name="question" minlength="3" maxlength="2000" required{disabled}>{_escape(question)}</textarea>
+<p class="meta">{'Espera a que termine la consulta activa.' if active else 'Se necesitan al menos 1,000 tokens disponibles para enviar.'}</p>
+<button type="submit"{disabled}>Enviar · reserva hasta {reservation:,} tokens</button></form>'''
+        scripts = '<script>setTimeout(() => location.reload(), 5000);</script>' if active else ''
+        return HTMLResponse(_page("Chat", body, user=user, csrf_token=_csrf(request), page_scripts=page_scripts, trailing_scripts=scripts), status_code=status_code)
+
+    @app.get("/chat", response_class=HTMLResponse)
+    async def chat_page(request: Request) -> Response:
+        user = await current_user(request)
+        if user is None:
+            return login_redirect(request)
+        return render_chat(request, user)
+
+    @app.post("/chat", response_class=HTMLResponse)
+    async def chat_send(request: Request) -> Response:
+        user = await current_user(request)
+        if user is None:
+            return login_redirect(request)
+        question = ""
+        try:
+            form = await _form(request)
+            if not _csrf_valid(request, form.get("csrf_token")):
+                return render_chat(request, user, error="La sesión del formulario venció.", status_code=403)
+            question = form.get("question", "")
+            run_request = RunRequest.from_dict({"question": question, "client_request_id": form.get("client_request_id")})
+            remaining = service.store.token_balance(user.id)
+            if remaining < 1000 and service.store.find_idempotent_run(user.id, run_request.client_request_id) is None:
+                raise TokenBudgetExceeded("No quedan suficientes tokens. El presupuesto se recupera conforme vencen los cargos de 24 horas.")
+            service.submit(run_request, user_id=user.id, admin=user.is_admin,
+                           reserved_tokens=max(1, remaining))
+        except (ContractError, TokenBudgetExceeded) as exc:
+            return render_chat(request, user, error=str(exc), question=question, status_code=422)
+        except (ActiveRunError, IdempotencyConflictError) as exc:
+            return render_chat(request, user, error=str(exc), question=question, status_code=409)
+        except QueueFullError:
+            return render_chat(request, user, error="La cola está llena; intenta más tarde.", question=question, status_code=503)
+        return RedirectResponse("/chat", status_code=303)
 
     @app.post("/runs", response_class=HTMLResponse)
     async def create_run(request: Request) -> Response:

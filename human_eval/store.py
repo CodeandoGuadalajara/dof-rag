@@ -12,8 +12,9 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import FeedbackRequest, RunRequest, utc_now
+from . import token_budget
 
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "4"
 TERMINAL_STATES = frozenset({"succeeded", "failed"})
 EVENT_STATES = frozenset({"queued", "started", *TERMINAL_STATES})
 PROGRESS_EVENT_TYPES = frozenset(
@@ -143,12 +144,13 @@ class EvaluationStore:
             current = connection.execute(
                 "SELECT value FROM schema_meta WHERE key = 'schema_version'"
             ).fetchone()
-            if current and current[0] not in {"1", "2", SCHEMA_VERSION}:
+            if current and current[0] not in {"1", "2", "3", SCHEMA_VERSION}:
                 raise RuntimeError(
                     f"unsupported evaluation schema {current[0]!r}; expected {SCHEMA_VERSION}"
                 )
             connection.executescript(SCHEMA)
             self._migrate_columns(connection)
+            token_budget.initialize(connection)
             connection.execute(
                 "INSERT OR IGNORE INTO schema_meta(key, value) VALUES (?, ?)",
                 ("schema_version", SCHEMA_VERSION),
@@ -224,6 +226,8 @@ class EvaluationStore:
         queue_capacity: int | None = None,
         daily_question_limit: int | None = None,
         daily_since: str | None = None,
+        reserved_tokens: int | None = None,
+        daily_token_limit: int = token_budget.DAILY_TOKEN_LIMIT,
     ) -> tuple[dict[str, Any], bool]:
         if daily_question_limit is not None and daily_question_limit < 1:
             raise ValueError("daily_question_limit must be positive")
@@ -290,6 +294,10 @@ class EvaluationStore:
                 ).fetchone()[0]
                 if int(queued) >= queue_capacity:
                     raise QueueCapacityConflict(queue_capacity)
+            if reserved_tokens is not None:
+                token_budget.reserve(
+                    connection, run_id, user_id, reserved_tokens, limit=daily_token_limit
+                )
             connection.execute(
                 "INSERT INTO runs(run_id, created_at, question, as_of, required_hops, "
                 "user_id, client_request_id, provenance_json) "
@@ -313,6 +321,23 @@ class EvaluationStore:
         found = self.get_run(run_id)
         assert found is not None
         return found, True
+
+    def chat_runs(self, user_id: str, *, limit: int = 20) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT run_id FROM token_reservations WHERE user_id = ? "
+                "ORDER BY created_at DESC LIMIT ?", (user_id, limit)
+            ).fetchall()
+        return [run for row in reversed(rows) if (run := self.get_run(row[0])) is not None]
+
+    def token_balance(self, user_id: str, *, limit: int = token_budget.DAILY_TOKEN_LIMIT) -> int:
+        with self._connect() as connection:
+            return token_budget.balance(connection, user_id, limit=limit)
+
+    def settle_tokens(self, run_id: str, used: int) -> None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            token_budget.settle(connection, run_id, used)
 
     def queue_depth(self) -> int:
         """Runs currently waiting for the scheduler."""
@@ -421,6 +446,11 @@ class EvaluationStore:
             ).fetchall()
             now = utc_now()
             for run in runs:
+                # Unknown usage after a crash: conservatively charge the reservation.
+                connection.execute(
+                    "UPDATE token_reservations SET used = reserved "
+                    "WHERE run_id = ? AND used IS NULL", (str(run[0]),)
+                )
                 connection.execute(
                     "INSERT INTO run_events(run_id, sequence, event_type, created_at, payload_json) "
                     "VALUES (?, ?, 'failed', ?, ?)",
@@ -746,6 +776,14 @@ class EvaluationStore:
                 raise ValueError(
                     f"invalid run transition {current['event_type']} -> {event_type}"
                 )
+            if event_type in TERMINAL_STATES:
+                reservation = connection.execute(
+                    "SELECT reserved FROM token_reservations WHERE run_id = ?", (run_id,)
+                ).fetchone()
+                if reservation:
+                    actual = (payload or {}).get("usage", {}).get("total_tokens")
+                    charged = actual if isinstance(actual, int) and not isinstance(actual, bool) and actual >= 0 else reservation[0]
+                    token_budget.settle(connection, run_id, charged)
             connection.execute(
                 "INSERT INTO run_events(run_id, sequence, event_type, created_at, payload_json) "
                 "VALUES (?, ?, ?, ?, ?)",
@@ -816,13 +854,29 @@ class EvaluationStore:
     def get_request(self, run_id: str) -> RunRequest | None:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT question, as_of, required_hops, client_request_id "
+                "SELECT question, as_of, required_hops, client_request_id, user_id "
                 "FROM runs WHERE run_id = ?",
                 (run_id,),
             ).fetchone()
         if row is None:
             return None
-        return RunRequest(row[0], row[1], int(row[2]), row[3])
+        with self._connect() as connection:
+            reservation = connection.execute(
+                "SELECT reserved FROM token_reservations WHERE run_id = ?", (run_id,)
+            ).fetchone()
+        history = []
+        if reservation:
+            for previous in self.chat_runs(row[4]):
+                if previous["run_id"] == run_id:
+                    break
+                if previous["status"] == "succeeded":
+                    history.extend([
+                        {"role": "user", "content": previous["question"]},
+                        {"role": "assistant", "content": previous["result"]["answer"]["text"]},
+                    ])
+        # ponytail: six prior exchanges; add conversation selection when needed.
+        return RunRequest(row[0], row[1], int(row[2]), row[3],
+                          reservation[0] if reservation else None, tuple(history[-12:]))
 
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         with self._connect() as connection:

@@ -38,9 +38,10 @@ DEFAULT_RUN_SECONDS = 480.0
 
 
 class PublicExecutionError(RuntimeError):
-    def __init__(self, code: str, message: str):
+    def __init__(self, code: str, message: str, *, used_tokens: int | None = None):
         super().__init__(message)
         self.code = code
+        self.used_tokens = used_tokens
 
 
 class QueueFullError(RuntimeError):
@@ -117,6 +118,7 @@ class EvaluationService:
         user_id: str,
         admin: bool = False,
         daily_question_limit: int = 1,
+        reserved_tokens: int | None = None,
     ) -> dict[str, Any]:
         # create_run checks idempotency first and performs every admission
         # decision in one SQLite transaction. No preliminary rejection is
@@ -139,11 +141,12 @@ class EvaluationService:
                     user_id=user_id,
                     provenance=None,
                     enforce_active_run=True,
-                    require_review=not admin,
+                    require_review=not admin and reserved_tokens is None,
+                    reserved_tokens=reserved_tokens,
                     queue_capacity=self.queue_capacity,
                     daily_question_limit=(
                         daily_question_limit
-                        if not admin and daily_question_limit >= 1
+                        if not admin and reserved_tokens is None and daily_question_limit >= 1
                         else None
                     ),
                     daily_since=daily_since,

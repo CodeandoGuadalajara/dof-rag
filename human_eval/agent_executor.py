@@ -63,13 +63,16 @@ class AgentExecutorConfig:
     @classmethod
     def from_env(cls, repo_root: str | Path) -> "AgentExecutorConfig":
         root = Path(repo_root).resolve()
-        provider = os.environ.get("DOF_AGENT_PROVIDER", "openai-responses")
+        provider = os.environ.get("DOF_AGENT_PROVIDER", "llama-server")
         if provider not in {"openai-responses", "kimi-code", "llama-server"}:
             raise ValueError(
                 "DOF_AGENT_PROVIDER must be openai-responses, kimi-code, "
                 "or llama-server"
             )
-        model = os.environ.get("DOF_AGENT_MODEL", os.environ.get("OPENAI_MODEL", ""))
+        model = os.environ.get(
+            "DOF_AGENT_MODEL",
+            os.environ.get("OPENAI_MODEL", "Qwen3.8-Flash-Next" if provider == "llama-server" else ""),
+        )
         if not model:
             raise ValueError("set DOF_AGENT_MODEL or OPENAI_MODEL")
         retrieval_mode = os.environ.get("DOF_RETRIEVAL_MODE", "lexical")
@@ -105,6 +108,8 @@ class AgentExecutorConfig:
         if model_concurrency < 1:
             raise ValueError("DOF_MODEL_CONCURRENCY must be positive")
         base_url = os.environ.get("DOF_AGENT_BASE_URL")
+        if provider == "llama-server" and not base_url:
+            base_url = "http://192.168.1.117:8888/v1"
         if provider == "llama-server" and retrieval_mode != "lexical":
             host, agent_port = _endpoint_port(
                 base_url or "http://127.0.0.1:8080/v1"
@@ -280,6 +285,7 @@ class AgentRunExecutor:
             return OpenAIChatCompletionsBackend(
                 model=self.config.model,
                 api_key=os.environ.get("DOF_AGENT_API_KEY", "llama-server"),
+                enable_thinking=True if self.config.model == "Qwen3.8-Flash-Next" else None,
                 base_url=self.config.base_url or "http://127.0.0.1:8080/v1",
                 reasoning_effort=self.config.reasoning_effort,
             )
@@ -309,6 +315,20 @@ class AgentRunExecutor:
     ) -> dict[str, Any]:
         try:
             backend = self._backend()
+            if request.token_limit is not None:
+                from .budget_backend import BudgetBackend
+                from .qwen_token_counter import QwenTokenCounter
+                if (self.config.provider != "llama-server"
+                        or self.config.model != "Qwen3.8-Flash-Next"):
+                    raise PublicExecutionError(
+                        "unsupported_token_counter",
+                        "El modelo no tiene un contador de tokens verificado.",
+                    )
+                backend = BudgetBackend(
+                    backend, request.token_limit,
+                    QwenTokenCounter(enable_thinking=backend.enable_thinking is not False,
+                                     reasoning_effort=backend.reasoning_effort),
+                )
             embedder = self.query_embedder()
             with DofRetriever(
                 corpus_db=self.config.corpus_db,
@@ -319,6 +339,14 @@ class AgentRunExecutor:
                     else None
                 ),
             ) as retriever:
+                if request.token_limit is not None:
+                    from .chat_runner import run_chat
+                    return _public_result(run_chat(
+                        backend, DofToolbox(retriever, embedder=embedder), request,
+                        max_turns=self.config.max_model_turns,
+                        max_tool_calls=self.config.max_tool_calls,
+                        on_progress=on_progress,
+                    ))
                 run = AgentRunner(
                     backend,
                     DofToolbox(retriever, embedder=embedder),
@@ -333,6 +361,13 @@ class AgentRunExecutor:
         except PublicExecutionError:
             raise
         except Exception as exc:
+            from .budget_backend import TokenCeilingReached
+            if isinstance(exc, TokenCeilingReached):
+                raise PublicExecutionError(
+                    "token_budget_exhausted",
+                    "La consulta alcanzó su presupuesto de tokens.",
+                    used_tokens=exc.used,
+                ) from exc
             name = type(exc).__name__
             status_code = getattr(exc, "status_code", None)
             if name in {
@@ -445,4 +480,5 @@ def _public_result(run: dict[str, Any]) -> dict[str, Any]:
         "tool_calls": run["tool_calls"],
         "usage": run["usage"],
         "elapsed_ms": run["elapsed_ms"],
+        "reasoning": run.get("reasoning", []),
     }
