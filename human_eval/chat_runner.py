@@ -21,7 +21,7 @@ No repitas búsquedas similares: entra a leer los candidatos útiles.
 """
 
 
-def run_chat(backend, toolbox, request, *, max_turns=8, max_tool_calls=8, on_progress=None) -> dict[str, Any]:
+def run_chat(backend, toolbox, request, *, on_progress=None) -> dict[str, Any]:
     started = perf_counter()
     toolbox.begin(as_of=request.as_of)
     for previous in request.history:
@@ -48,20 +48,17 @@ def run_chat(backend, toolbox, request, *, max_turns=8, max_tool_calls=8, on_pro
     reasoning = []
     usage = {}
     answer = ""
-    stop = "model_turn_limit"
+    number = 0
 
     def emit(kind, payload):
         if on_progress:
             on_progress(kind, payload)
 
     emit("agent_started", {"message": "El asistente está preparando una respuesta."})
-    for number in range(1, max_turns + 1):
-        tools = definitions if number < max_turns and len(traces) < max_tool_calls else []
+    while True:
+        number += 1
         emit("model_turn_started", {"message": "Consultando al asistente.", "turn": number})
-        instructions = INSTRUCTIONS
-        if not tools:
-            instructions += "\nNo quedan herramientas disponibles. Responde ahora en lenguaje natural: explica lo encontrado o lo que falta, sin emitir llamadas a herramientas."
-        turn = backend.create_turn(input_items=messages, tools=tools, instructions=instructions)
+        turn = backend.create_turn(input_items=messages, tools=definitions, instructions=INSTRUCTIONS)
         for key in ("input_tokens", "output_tokens", "total_tokens"):
             usage[key] = usage.get(key, 0) + turn.usage.get(key, 0)
         reasoning.append({
@@ -77,15 +74,12 @@ def run_chat(backend, toolbox, request, *, max_turns=8, max_tool_calls=8, on_pro
         for call in turn.tool_calls:
             emit("tool_started", {"message": f"Consultando {call.name}.", "tool": call.name,
                                   "call_id": call.call_id, "arguments": call.arguments})
-            if tools and len(traces) < max_tool_calls:
-                schema = schemas.get(call.name, {})
-                arguments = {key: value for key, value in defaults.items() if key in schema.get("properties", {})}
-                if call.arguments is not None:
-                    arguments.update(call.arguments)
-                output = toolbox.call(call.name, arguments if call.arguments is not None else None)
-                traces.append({"name": call.name, "arguments": arguments, "output": output})
-            else:
-                output = {"ok": False, "error": {"message": "No quedan llamadas a herramientas; responde con lo disponible."}}
+            schema = schemas.get(call.name, {})
+            arguments = {key: value for key, value in defaults.items() if key in schema.get("properties", {})}
+            if call.arguments is not None:
+                arguments.update(call.arguments)
+            output = toolbox.call(call.name, arguments if call.arguments is not None else None)
+            traces.append({"name": call.name, "arguments": arguments, "output": output})
             progress = _public_tool_progress(call.name, call.arguments, output, elapsed_ms=0, turn=number)
             progress.update({"call_id": call.call_id, "tool": call.name, "output": output})
             emit("tool_completed", progress)

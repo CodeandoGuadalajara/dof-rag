@@ -297,6 +297,10 @@ la evidencia. El texto parcial sigue disponible si se interrumpe la consulta.
   por el contexto de Qwen (262,144 tokens), y se conserva una ejecución activa por cuenta.
 - El chat usa un bucle conversacional independiente del evaluador: puede responder,
   pedir aclaraciones o consultar las herramientas del DOF sin exigir JSON final.
+  No aplica los límites de turnos/herramientas de Preguntas ni fuerza un turno final:
+  las herramientas siguen disponibles hasta que el modelo responde naturalmente.
+  La salida (incluido pensamiento) usa el contexto/presupuesto restante, sin el tope
+  de 2,400 tokens por turno del evaluador.
   Recuerda hasta seis intercambios anteriores de la conversación seleccionada.
 - `chat_conversations` y `chat_messages` guardan el historial; `runs` sigue siendo la
   cola compartida de ejecución. Los mensajes de chat no aparecen en preguntas,

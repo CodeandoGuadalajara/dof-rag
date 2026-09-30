@@ -46,10 +46,26 @@ class ChatRunnerTests(unittest.TestCase):
 
     def test_raw_tool_markup_is_not_shown_as_a_reply(self):
         backend = ScriptedBackend([ModelTurn('reply', [], final_text='<tool_call>bad</tool_call>')])
-        result = run_chat(backend, DofToolbox(FakeRetriever()), RunRequest('Una pregunta'), max_turns=1)
+        result = run_chat(backend, DofToolbox(FakeRetriever()), RunRequest('Una pregunta'))
         self.assertNotIn('<tool_call>', result['answer']['answer'])
         self.assertEqual(result['stop_reason'], 'unparsed_tool_call')
-        self.assertEqual(backend.calls[0]['tools'], [])
+        self.assertTrue(backend.calls[0]['tools'])
+
+    def test_tools_remain_available_beyond_evaluation_limits(self):
+        backend = ScriptedBackend([
+            *[ModelTurn(str(n), [], tool_calls=[
+                ToolCall(str(n), 'get_document_outline', {'document_id': 2})
+            ]) for n in range(10)],
+            ModelTurn('reply', [], final_text='Respuesta libre.'),
+        ])
+        result = run_chat(backend, DofToolbox(FakeRetriever()), RunRequest('Investiga'))
+        self.assertEqual(result['model_turns'], 11)
+        self.assertEqual(result['tool_calls'], 10)
+        self.assertEqual(result['stop_reason'], 'completed')
+        self.assertEqual(result['answer']['answer'], 'Respuesta libre.')
+        for call in backend.calls:
+            self.assertTrue(call['tools'])
+            self.assertNotIn('No quedan herramientas', call['instructions'])
 
     def test_history_is_preserved(self):
         history = ({'role': 'user', 'content': 'Un decreto'}, {'role': 'assistant', 'content': '¿De qué año?'})

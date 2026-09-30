@@ -317,6 +317,9 @@ class AgentRunExecutor:
         flush_stream = None
         try:
             backend = self._backend()
+            if request.is_chat:
+                # BudgetBackend bounds each generation by remaining context/quota.
+                backend.max_output_tokens = 262_144
             if request.is_chat or request.token_limit is not None:
                 if on_progress is not None:
                     pending = {"content": "", "reasoning_content": ""}
@@ -365,8 +368,6 @@ class AgentRunExecutor:
                     from .chat_runner import run_chat
                     return _public_result(run_chat(
                         backend, DofToolbox(retriever, embedder=embedder), request,
-                        max_turns=self.config.max_model_turns,
-                        max_tool_calls=self.config.max_tool_calls,
                         on_progress=on_progress,
                     ))
                 run = AgentRunner(
