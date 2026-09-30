@@ -34,7 +34,7 @@ CHAT_SCRIPT = r"""
       const section = document.createElement('section');
       const thought = document.createElement('details'); thought.open = true;
       const summary = document.createElement('summary'); summary.textContent = `Pensamiento del modelo · turno ${number}`;
-      const reasoning = document.createElement('pre');
+      const reasoning = document.createElement('pre'); reasoning.className = 'chat-thinking';
       thought.append(summary, reasoning);
       const answer = document.createElement('div'); answer.style.whiteSpace = 'pre-wrap';
       section.append(thought, answer); activity.append(section);

@@ -25,7 +25,7 @@ class ChatTests(AirAppTestCase):
         wait_for_terminal(self.service, run['run_id'])
         page = self.client.get('/chat')
         self.assertIn('Respuesta parcial', page.text)
-        self.assertIn('Pensamiento previo', page.text)
+        self.assertIn('<pre class="chat-thinking">Pensamiento previo</pre>', page.text)
         self.assertIn('Texto parcial', page.text)
         self.assertIn('<details><summary>Llamada a herramienta · search_documents', page.text)
         self.assertNotIn('<script>bad</script>', page.text)
@@ -80,6 +80,9 @@ class ChatTests(AirAppTestCase):
         self.assertIn('<details open><summary>Pensamiento del modelo', page.text)
         self.assertIn('&lt;script&gt;query&lt;/script&gt;', page.text)
         self.assertNotIn('<script>thought</script>', page.text)
+        self.assertIn('<pre class="chat-thinking">&lt;script&gt;thought&lt;/script&gt;</pre>', page.text)
+        self.assertIn('.chat-assistant .chat-thinking { max-height:none; overflow:visible;', page.text)
+        self.assertIn("reasoning.className = 'chat-thinking'", page.text)
         second = {**payload, 'client_request_id': self.hidden(page, 'client_request_id'),
                   'question': '¿Y qué significa?'}
         self.client.post('/chat', data=second, follow_redirects=False)

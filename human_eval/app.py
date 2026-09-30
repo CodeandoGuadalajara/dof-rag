@@ -358,6 +358,8 @@ pre { background:#18201c; color:#e9eee9; border-radius:3px; max-height:28rem; ov
 .chat-assistant > strong { color:var(--accent); font-size:.85rem; }
 .chat-assistant details { margin-top:.75rem; border:1px solid var(--line); border-radius:8px; padding:.6rem .85rem; }
 .chat-assistant pre { margin:.65rem 0 .2rem; font-size:.8rem; max-height:18rem; }
+.chat-assistant .chat-thinking { max-height:none; overflow:visible; background:transparent;
+  color:var(--ink); padding:0; white-space:pre-wrap; overflow-wrap:anywhere; }
 .chat-assistant .meta { margin:.8rem 0; }
 .chat-empty { color:var(--muted); text-align:center; padding:3rem 1rem; }
 .chat-composer { flex-shrink:0; border:1px solid var(--line); border-radius:12px; background:var(--panel);
@@ -1143,7 +1145,7 @@ def _chat_partial_html(partial: dict[str, Any]) -> str:
     for turn in partial.get('turns', []):
         if turn.get('reasoning_content'):
             sections.append(f'<details open><summary>Pensamiento del modelo · turno {_escape(turn["turn"])} · incompleto</summary>'
-                            f'<pre>{_escape(turn["reasoning_content"])}</pre></details>')
+                            f'<pre class="chat-thinking">{_escape(turn["reasoning_content"])}</pre></details>')
         if turn.get('content'):
             sections.append(f'<p class="meta">Texto parcial · turno {_escape(turn["turn"])}. No es una respuesta final verificada.</p>'
                             f'<div class="markdown-body">{render_markdown_html(turn["content"])}</div>')
@@ -1354,7 +1356,7 @@ def create_app(
                 thinking = sum(item["tokens"] for item in thoughts) if thoughts and all(isinstance(item.get("tokens"), int) for item in thoughts) else "desglose no disponible"
                 reasoning_html = ''.join(
                     f'<details open><summary>Pensamiento del modelo · turno {_escape(item["turn"])} · tokens: {_escape(item.get("tokens") if item.get("tokens") is not None else "no disponibles")}</summary>'
-                    f'<p class="meta">Texto devuelto por Qwen; puede contener hipótesis o errores. No es evidencia del DOF.</p><pre>{_escape(item.get("text") or "El servidor no devolvió texto de pensamiento.")}</pre></details>'
+                    f'<p class="meta">Texto devuelto por Qwen; puede contener hipótesis o errores. No es evidencia del DOF.</p><pre class="chat-thinking">{_escape(item.get("text") or "El servidor no devolvió texto de pensamiento.")}</pre></details>'
                     for item in thoughts
                 )
                 tool_calls_html = _chat_tools_html(result.get("trace", []))
