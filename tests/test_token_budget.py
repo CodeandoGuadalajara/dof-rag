@@ -4,13 +4,20 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from human_eval.token_budget import initialize, balance, reserve, settle, TokenBudgetExceeded, DAILY_TOKEN_LIMIT
+from human_eval.token_budget import (
+    DAILY_TOKEN_LIMIT,
+    TokenBudgetExceeded,
+    balance,
+    initialize,
+    reserve,
+    settle,
+)
 
 
 class TokenBudgetTests(unittest.TestCase):
     def test_admission_reservation_is_atomic_and_retry_is_free(self):
-        from human_eval.store import EvaluationStore
         from human_eval.contracts import RunRequest
+        from human_eval.store import EvaluationStore
         with tempfile.TemporaryDirectory() as directory:
             store = EvaluationStore(Path(directory) / "runs.sqlite")
             store.initialize()
@@ -29,8 +36,8 @@ class TokenBudgetTests(unittest.TestCase):
             self.assertEqual(store.token_balance("alice"), DAILY_TOKEN_LIMIT - 10_000)
 
     def test_persisted_ceiling_and_terminal_settlement(self):
-        from human_eval.store import EvaluationStore
         from human_eval.contracts import RunRequest
+        from human_eval.store import EvaluationStore
         with tempfile.TemporaryDirectory() as directory:
             store = EvaluationStore(Path(directory) / "runs.sqlite")
             store.initialize()

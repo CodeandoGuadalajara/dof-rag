@@ -1,7 +1,9 @@
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock
+
 from openai.types.chat import ChatCompletionChunk
+
 from agent_tools.agent import OpenAIChatCompletionsBackend
 
 

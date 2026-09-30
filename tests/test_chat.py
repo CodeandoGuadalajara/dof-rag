@@ -1,5 +1,5 @@
-from tests.test_human_eval import AirAppTestCase, wait_for_terminal
 from human_eval.token_budget import DAILY_TOKEN_LIMIT
+from tests.test_human_eval import AirAppTestCase, wait_for_terminal
 
 
 class ChatTests(AirAppTestCase):

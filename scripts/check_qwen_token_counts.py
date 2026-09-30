@@ -3,7 +3,9 @@
 Run: python -m scripts.check_qwen_token_counts
 """
 import os
+
 from openai import OpenAI
+
 from human_eval.qwen_token_counter import QwenTokenCounter
 
 

@@ -47,6 +47,8 @@ from starlette.responses import (
 
 from .agent_executor import AgentExecutorConfig, provenance_for_config
 from .auth import AuthBackend, User
+from .chat_store import partial_from_progress
+from .chat_ui import CHAT_SCRIPT
 from .contracts import ContractError, FeedbackRequest, RunRequest
 from .markdown_render import render_markdown_html
 from .service import (
@@ -59,8 +61,6 @@ from .service import (
 )
 from .store import SCHEMA_VERSION, EvaluationStore
 from .token_budget import DAILY_TOKEN_LIMIT, TokenBudgetExceeded
-from .chat_ui import CHAT_SCRIPT
-from .chat_store import partial_from_progress
 
 MAX_BODY_BYTES = 16 * 1024
 ACTIVE_STATES = frozenset({"queued", "running"})

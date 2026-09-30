@@ -1,8 +1,8 @@
 """Natural-language chat with optional DOF tool calls, not evaluation finalization."""
 import json
 import re
-from typing import Any
 from time import perf_counter
+from typing import Any
 
 from agent_tools.agent import _model_tool_output, _public_tool_progress
 

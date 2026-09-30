@@ -1,6 +1,6 @@
-from tests.test_human_eval import AirAppTestCase, wait_for_terminal
 from human_eval.contracts import RunRequest
 from human_eval.token_budget import DAILY_TOKEN_LIMIT
+from tests.test_human_eval import AirAppTestCase, wait_for_terminal
 
 
 class ConversationTests(AirAppTestCase):
@@ -49,8 +49,9 @@ class ConversationTests(AirAppTestCase):
         self.as_user('alice')
         url, run_id = self.send('/chat?new=1', 'Mensaje privado')
         conversation_id = self.service.store.conversation_for_run('alice', run_id)
-        from human_eval.store import IdempotencyPayloadConflict
         import uuid
+
+        from human_eval.store import IdempotencyPayloadConflict
         with self.assertRaises(IdempotencyPayloadConflict):
             self.service.store.create_run(self.service.store.get_request(run_id), user_id='alice',
                 reserved_tokens=100, conversation_id=str(uuid.uuid4()))
