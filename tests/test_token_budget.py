@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from human_eval.token_budget import initialize, balance, reserve, settle, TokenBudgetExceeded
+from human_eval.token_budget import initialize, balance, reserve, settle, TokenBudgetExceeded, DAILY_TOKEN_LIMIT
 
 
 class TokenBudgetTests(unittest.TestCase):
@@ -15,9 +15,9 @@ class TokenBudgetTests(unittest.TestCase):
             store = EvaluationStore(Path(directory) / "runs.sqlite")
             store.initialize()
             request = RunRequest("A question", client_request_id="retry")
-            run, created = store.create_run(request, user_id="alice", reserved_tokens=30_000)
+            run, created = store.create_run(request, user_id="alice", reserved_tokens=DAILY_TOKEN_LIMIT - 20_000)
             self.assertTrue(created)
-            same, created = store.create_run(request, user_id="alice", reserved_tokens=30_000)
+            same, created = store.create_run(request, user_id="alice", reserved_tokens=DAILY_TOKEN_LIMIT - 20_000)
             self.assertFalse(created)
             self.assertEqual(run["run_id"], same["run_id"])
             with self.assertRaises(TokenBudgetExceeded):
@@ -26,7 +26,7 @@ class TokenBudgetTests(unittest.TestCase):
             self.assertEqual(store.runs_for_user("alice"), [])
             self.assertEqual(store.token_balance("alice"), 20_000)
             store.settle_tokens(run["run_id"], 10_000)
-            self.assertEqual(store.token_balance("alice"), 40_000)
+            self.assertEqual(store.token_balance("alice"), DAILY_TOKEN_LIMIT - 10_000)
 
     def test_persisted_ceiling_and_terminal_settlement(self):
         from human_eval.store import EvaluationStore
@@ -39,10 +39,10 @@ class TokenBudgetTests(unittest.TestCase):
             self.assertEqual(store.get_request(run_id).token_limit, 30_000)
             store.start_run(run_id, provenance={})
             store.append_event(run_id, "succeeded", {"usage": {"total_tokens": 1234}})
-            self.assertEqual(store.token_balance("alice"), 50_000 - 1234)
+            self.assertEqual(store.token_balance("alice"), DAILY_TOKEN_LIMIT - 1234)
             failed, _ = store.create_run(RunRequest("Another question"), user_id="alice", reserved_tokens=10_000)
             store.append_event(failed["run_id"], "failed", {})
-            self.assertEqual(store.token_balance("alice"), 50_000 - 1234 - 10_000)
+            self.assertEqual(store.token_balance("alice"), DAILY_TOKEN_LIMIT - 1234 - 10_000)
             interrupted, _ = store.create_run(RunRequest("Interrupted question"), user_id="alice", reserved_tokens=10_000)
             store.start_run(interrupted["run_id"], provenance={})
             store.fail_interrupted_runs()
@@ -57,25 +57,25 @@ class TokenBudgetTests(unittest.TestCase):
                 initialize(first)
                 first.commit()
                 first.execute("BEGIN IMMEDIATE")
-                reserve(first, "a", "alice", 30_000)
-                reserve(first, "a", "alice", 30_000)  # Retry is free.
+                reserve(first, "a", "alice", DAILY_TOKEN_LIMIT - 20_000)
+                reserve(first, "a", "alice", DAILY_TOKEN_LIMIT - 20_000)  # Retry is free.
                 first.commit()
                 self.assertEqual(balance(second, "alice"), 20_000)
-                self.assertEqual(balance(second, "bob"), 50_000)
+                self.assertEqual(balance(second, "bob"), DAILY_TOKEN_LIMIT)
                 second.execute("BEGIN IMMEDIATE")
                 with self.assertRaises(TokenBudgetExceeded):
                     reserve(second, "b", "alice", 30_000)
                 second.rollback()
                 with self.assertRaises(ValueError):
-                    settle(first, "a", 30_001)
+                    settle(first, "a", DAILY_TOKEN_LIMIT - 20_000 + 1)
                 settle(first, "a", 10_000)
                 first.commit()
-                self.assertEqual(balance(second, "alice"), 40_000)
+                self.assertEqual(balance(second, "alice"), DAILY_TOKEN_LIMIT - 10_000)
                 first.execute("UPDATE token_reservations SET created_at = '2000-01-01' WHERE run_id = 'a'")
                 first.commit()
-                self.assertEqual(balance(second, "alice"), 50_000)
+                self.assertEqual(balance(second, "alice"), DAILY_TOKEN_LIMIT)
                 first.execute("BEGIN IMMEDIATE")
-                reserve(first, "c", "alice", 50_000)
+                reserve(first, "c", "alice", DAILY_TOKEN_LIMIT)
                 first.execute("UPDATE token_reservations SET created_at = '2000-01-01' WHERE run_id = 'c'")
                 first.commit()
                 # Active reservations cannot expire while work is still running.

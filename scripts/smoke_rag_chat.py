@@ -9,6 +9,7 @@ from human_eval.agent_executor import AgentExecutorConfig, AgentRunExecutor
 from human_eval.contracts import RunRequest
 from human_eval.scheduler import execute_claimed_run
 from human_eval.store import EvaluationStore
+from human_eval.token_budget import DAILY_TOKEN_LIMIT
 
 
 def main():
@@ -48,7 +49,7 @@ def main():
                 used = result["usage"]["total_tokens"]
                 assert 0 < used <= remaining
                 charged += used
-                assert store.token_balance("smoke") == 50_000 - charged
+                assert store.token_balance("smoke") == DAILY_TOKEN_LIMIT - charged
                 if i:
                     assert request.history
         finally:

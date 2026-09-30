@@ -3,7 +3,9 @@
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
-DAILY_TOKEN_LIMIT = 50_000
+# Matches the recipe's 262,144-token context capacity numerically;
+# this is cumulative usage over 24h, not a model context-window setting.
+DAILY_TOKEN_LIMIT = 262_144
 
 
 class TokenBudgetExceeded(ValueError):

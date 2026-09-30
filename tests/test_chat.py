@@ -1,4 +1,5 @@
 from tests.test_human_eval import AirAppTestCase, wait_for_terminal
+from human_eval.token_budget import DAILY_TOKEN_LIMIT
 
 
 class ChatTests(AirAppTestCase):
@@ -28,7 +29,7 @@ class ChatTests(AirAppTestCase):
         self.assertIn('Texto parcial', page.text)
         self.assertIn('<details><summary>Llamada a herramienta · search_documents', page.text)
         self.assertNotIn('<script>bad</script>', page.text)
-        self.assertEqual(self.service.store.token_balance('alice'), 50_000 - 1234)
+        self.assertEqual(self.service.store.token_balance('alice'), DAILY_TOKEN_LIMIT - 1234)
         with self.service.store._connect() as connection:
             content = connection.execute("SELECT content FROM chat_messages WHERE role = 'assistant'").fetchone()[0]
             self.assertIn('Respuesta parcial', content)
@@ -47,7 +48,7 @@ class ChatTests(AirAppTestCase):
         self.executor.execute = metered
         self.as_user('alice')
         page = self.client.get('/chat')
-        self.assertIn('50,000', page.text)
+        self.assertIn(f'{DAILY_TOKEN_LIMIT:,}', page.text)
         payload = {'csrf_token': self.hidden(page, 'csrf_token'),
                    'client_request_id': self.hidden(page, 'client_request_id'),
                    'question': 'Pregunta privada'}
@@ -57,7 +58,7 @@ class ChatTests(AirAppTestCase):
         self.assertEqual(sent.status_code, 303)
         run = self.service.store.chat_runs('alice')[0]
         wait_for_terminal(self.service, run['run_id'])
-        self.assertEqual(self.service.store.get_request(run['run_id']).token_limit, 50_000)
+        self.assertEqual(self.service.store.get_request(run['run_id']).token_limit, DAILY_TOKEN_LIMIT)
         # Replay must not reserve again.
         self.client.post('/chat', data=payload, follow_redirects=False)
         self.assertEqual(len(self.service.store.chat_runs('alice')), 1)
