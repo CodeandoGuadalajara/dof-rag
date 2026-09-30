@@ -393,7 +393,7 @@ class AgentExecutorConfigTests(unittest.TestCase):
         self.assertEqual(
             str(backend.client.base_url), "http://127.0.0.1:8080/v1/"
         )
-        self.assertEqual(backend.reasoning_effort, "low")
+        self.assertIsNone(backend.reasoning_effort)
 
     def test_llama_server_backend_honors_base_url_override(self):
         executor = AgentRunExecutor(

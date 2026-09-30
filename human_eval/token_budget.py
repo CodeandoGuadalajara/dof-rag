@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 # Matches the recipe's 262,144-token context capacity numerically;
 # this is cumulative usage over 24h, not a model context-window setting.
 DAILY_TOKEN_LIMIT = 262_144
+MIN_CHAT_TOKENS = 1_000
 
 
 class TokenBudgetExceeded(ValueError):

@@ -54,7 +54,7 @@ class AgentExecutorConfig:
     vec0_db: Path | None = None
     gguf_model: Path | None = None
     embed_port: int = 8086
-    reasoning_effort: str | None = "low"
+    reasoning_effort: str | None = None
     max_model_turns: int = 8
     max_tool_calls: int = 8
     model_concurrency: int = 1
@@ -110,7 +110,7 @@ class AgentExecutorConfig:
             raise ValueError("DOF_MODEL_CONCURRENCY must be positive")
         base_url = os.environ.get("DOF_AGENT_BASE_URL")
         if provider == "llama-server" and not base_url:
-            base_url = "http://192.168.1.117:8888/v1"
+            base_url = "http://127.0.0.1:8080/v1"
         if provider == "llama-server" and retrieval_mode != "lexical":
             host, agent_port = _endpoint_port(
                 base_url or "http://127.0.0.1:8080/v1"
@@ -133,7 +133,9 @@ class AgentExecutorConfig:
             vec0_db=vec0_db,
             gguf_model=gguf_model,
             embed_port=embed_port,
-            reasoning_effort=os.environ.get("DOF_REASONING_EFFORT", "low") or "low",
+            reasoning_effort=os.environ.get(
+                "DOF_REASONING_EFFORT", "low" if provider == "llama-server" else ""
+            ) or None,
             max_model_turns=int(os.environ.get("DOF_MAX_MODEL_TURNS", "8")),
             max_tool_calls=int(os.environ.get("DOF_MAX_TOOL_CALLS", "8")),
             model_concurrency=model_concurrency,
@@ -286,7 +288,7 @@ class AgentRunExecutor:
             return OpenAIChatCompletionsBackend(
                 model=self.config.model,
                 api_key=os.environ.get("DOF_AGENT_API_KEY", "llama-server"),
-                enable_thinking=True if self.config.model == "Qwen3.8-Flash-Next" else None,
+                enable_thinking=True,
                 base_url=self.config.base_url or "http://127.0.0.1:8080/v1",
                 reasoning_effort=self.config.reasoning_effort,
             )

@@ -211,7 +211,10 @@ bucle de hasta ocho turnos; se puede cambiar con `DOF_REASONING_EFFORT` a
 razonamiento bajo de [Simon Willison](https://simonwillison.net/2026/Aug/16/qwen-38-27b/)
 y el soporte nativo descrito en la
 [ficha oficial de Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B).
-Otros servidores compatibles pueden ignorar o rechazar ese parámetro; configura
+El valor `low` predeterminado y `enable_thinking=true` se aplican al proveedor
+`llama-server`, sin depender del nombre del modelo. Otros proveedores no reciben
+un esfuerzo predeterminado; pueden configurarlo con `DOF_REASONING_EFFORT`.
+Otros servidores compatibles pueden ignorar o rechazar esos parámetros; configura
 `DOF_REASONING_EFFORT=` para omitirlo.
 
 Con el servidor escuchando en `http://127.0.0.1:8080/` (verifica el id con
@@ -236,7 +239,7 @@ inferencia. La cola se coordina en `var/human_evaluation.sqlite`, por lo que
 todos los procesos web comparten la misma capacidad; el sitio muestra la
 posición en la cola y una espera aproximada mientras la pregunta espera.
 
-- El proveedor predeterminado es `DOF_AGENT_PROVIDER=llama-server`, con `DOF_AGENT_MODEL=Qwen3.8-Flash-Next` y `DOF_AGENT_BASE_URL=http://192.168.1.117:8888/v1` (TensorFold). Sobrescribe estas variables para otros servidores. No requiere API key; si la sirves con autenticación, pásala por `DOF_AGENT_API_KEY`.
+- El proveedor predeterminado es `DOF_AGENT_PROVIDER=llama-server`, con `DOF_AGENT_MODEL=Qwen3.8-Flash-Next` y `DOF_AGENT_BASE_URL=http://127.0.0.1:8080/v1`. Configura el host de TensorFold u otros servidores sólo en las variables de entorno del despliegue. No requiere API key; si la sirves con autenticación, pásala por `DOF_AGENT_API_KEY`.
 - El modelo de chat local usa el puerto 8080 y el servidor de embeddings del
   modo `hybrid` usa `DOF_EMBED_PORT` (8086 por defecto). Pueden correr a la vez,
   pero la aplicación rechaza configuraciones donde ambos intenten usar el mismo
@@ -292,7 +295,10 @@ la evidencia. El texto parcial sigue disponible si se interrumpe la consulta.
 - Usuarios normales: **262,144 tokens acumulados por cada 24 horas móviles**, entre
   todas sus conversaciones. Se contabilizan entrada, evidencia, historial y salida,
   incluido pensamiento. La admisión reserva el saldo disponible; al terminar se
-  libera lo no consumido. Si una llamada falla sin consumo fiable, se cobra la reserva.
+  libera lo no consumido. Esta reserva completa depende de la regla transaccional de
+  una ejecución activa por cuenta: durante la ejecución el saldo visible baja a cero.
+  Se requieren al menos 1,000 tokens para admitir un mensaje (`MIN_CHAT_TOKENS`).
+  Si una llamada falla sin consumo fiable, se cobra la reserva.
 - Administradores: sin cuota diaria ni límite acumulado; cada llamada sigue limitada
   por el contexto de Qwen (262,144 tokens), y se conserva una ejecución activa por cuenta.
 - El chat usa un bucle conversacional independiente del evaluador: puede responder,
@@ -302,6 +308,7 @@ la evidencia. El texto parcial sigue disponible si se interrumpe la consulta.
   La salida (incluido pensamiento) usa el contexto/presupuesto restante, sin el tope
   de 2,400 tokens por turno del evaluador.
   Recuerda hasta seis intercambios anteriores de la conversación seleccionada.
+  Pendiente: botón para detener una generación prolongada, conservando el texto parcial.
 - `chat_conversations` y `chat_messages` guardan el historial; `runs` sigue siendo la
   cola compartida de ejecución. Los mensajes de chat no aparecen en preguntas,
   respuestas publicadas ni moderación. El scheduler migra la base al **esquema v6**;

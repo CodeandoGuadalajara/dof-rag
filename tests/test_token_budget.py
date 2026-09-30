@@ -57,6 +57,27 @@ class TokenBudgetTests(unittest.TestCase):
                 used = connection.execute("SELECT used FROM token_reservations WHERE run_id = ?", (interrupted["run_id"],)).fetchone()[0]
             self.assertEqual(used, 10_000)
 
+    def test_excess_usage_does_not_block_terminal_event(self):
+        from human_eval.contracts import RunRequest
+        from human_eval.store import EvaluationStore
+        with tempfile.TemporaryDirectory() as directory:
+            store = EvaluationStore(Path(directory) / "runs.sqlite")
+            store.initialize()
+            for state in ("succeeded", "failed"):
+                run, _ = store.create_run(
+                    RunRequest("A question"), user_id=state, reserved_tokens=1000
+                )
+                run_id = run["run_id"]
+                store.start_run(run_id, provenance={})
+                store.append_event(run_id, state, {"usage": {"total_tokens": 1001}})
+                self.assertEqual(store.get_run(run_id)["status"], state)
+                self.assertEqual(store.token_balance(state), DAILY_TOKEN_LIMIT - 1000)
+                with store._connect() as connection:
+                    used = connection.execute(
+                        "SELECT used FROM token_reservations WHERE run_id = ?", (run_id,)
+                    ).fetchone()[0]
+                self.assertEqual(used, 1000)
+
     def test_shared_reservations_settlement_and_rolling_window(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "budget.sqlite"

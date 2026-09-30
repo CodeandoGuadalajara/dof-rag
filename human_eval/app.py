@@ -60,7 +60,7 @@ from .service import (
     ReviewRequiredError,
 )
 from .store import SCHEMA_VERSION, EvaluationStore
-from .token_budget import DAILY_TOKEN_LIMIT, TokenBudgetExceeded
+from .token_budget import DAILY_TOKEN_LIMIT, MIN_CHAT_TOKENS, TokenBudgetExceeded
 
 MAX_BODY_BYTES = 16 * 1024
 ACTIVE_STATES = frozenset({"queued", "running"})
@@ -1379,7 +1379,7 @@ def create_app(
                                 '<p class="meta">El pensamiento del modelo puede contener hipótesis o errores; no es evidencia del DOF.</p>'
                                 '<div data-chat-activity></div></div>')
             messages.append('</div></section>')
-        disabled = " disabled" if active or (not user.is_admin and remaining < 1000) else ""
+        disabled = " disabled" if active or (not user.is_admin and remaining < MIN_CHAT_TOKENS) else ""
         reservation = remaining
         sidebar_items = ''.join(
             f'<li><a href="/chat?conversation={item["conversation_id"]}"{' aria-current="page"' if item['conversation_id'] == selected else ''} title="{_escape(item["title"] or "Conversación")}">{_escape((item["title"] or "Conversación")[:80])}</a></li>'
@@ -1441,8 +1441,10 @@ def create_app(
                 raise ContractError('Identificador de conversación inválido.') from exc
             run_request = RunRequest.from_dict({"question": question, "client_request_id": form.get("client_request_id")})
             remaining = service.store.token_balance(user.id)
-            if not user.is_admin and remaining < 1000 and service.store.find_idempotent_run(user.id, run_request.client_request_id) is None:
+            if not user.is_admin and remaining < MIN_CHAT_TOKENS and service.store.find_idempotent_run(user.id, run_request.client_request_id) is None:
                 raise TokenBudgetExceeded("No quedan suficientes tokens. El presupuesto se recupera conforme vencen los cargos de 24 horas.")
+            # Reserving the full balance relies on service.submit enforcing one
+            # active run per account in the admission transaction; settlement refunds it.
             run = service.submit(run_request, user_id=user.id, admin=user.is_admin,
                                  reserved_tokens=None if user.is_admin else max(1, remaining),
                                  chat=True, conversation_id=conversation_id)

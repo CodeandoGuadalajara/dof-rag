@@ -845,7 +845,7 @@ class EvaluationStore:
                 if reservation:
                     actual = (payload or {}).get("usage", {}).get("total_tokens")
                     charged = actual if isinstance(actual, int) and not isinstance(actual, bool) and actual >= 0 else reservation[0]
-                    token_budget.settle(connection, run_id, charged)
+                    token_budget.settle(connection, run_id, min(charged, reservation[0]))
                 if connection.execute('SELECT 1 FROM chat_messages WHERE run_id = ?', (run_id,)).fetchone():
                     if event_type == 'failed':
                         payload = dict(payload or {})
@@ -947,8 +947,15 @@ class EvaluationStore:
             for user_text, assistant_text in reversed(previous):
                 history.extend([{'role': 'user', 'content': user_text}, {'role': 'assistant', 'content': assistant_text}])
         # ponytail: six prior exchanges; expand history if long conversations need it.
-        return RunRequest(row[0], row[1], int(row[2]), row[3],
-                          reservation[0] if reservation else None, tuple(history[-12:]), bool(conversation))
+        return RunRequest(
+            question=row["question"],
+            as_of=row["as_of"],
+            required_hops=int(row["required_hops"]),
+            client_request_id=row["client_request_id"],
+            token_limit=reservation[0] if reservation else None,
+            history=tuple(history[-12:]),
+            is_chat=bool(conversation),
+        )
 
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         with self._connect() as connection:
