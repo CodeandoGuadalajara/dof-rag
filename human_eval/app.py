@@ -59,6 +59,7 @@ from .service import (
 )
 from .store import SCHEMA_VERSION, EvaluationStore
 from .token_budget import DAILY_TOKEN_LIMIT, TokenBudgetExceeded
+from .chat_ui import CHAT_SCRIPT
 
 MAX_BODY_BYTES = 16 * 1024
 ACTIVE_STATES = frozenset({"queued", "running"})
@@ -1271,27 +1272,31 @@ def create_app(
             elif run["status"] == "failed":
                 messages.append(f'<p class="warning">{_escape(run.get("error", {}).get("message", "La consulta falló."))}</p>')
             else:
-                messages.append(f'<p role="status">{_escape(STATUS_LABELS[run["status"]])} · <a href="/runs/{run["run_id"]}">Ver progreso</a></p>')
+                messages.append(f'<div data-chat-events="/runs/{_escape(run["run_id"])}/events">'
+                                f'<p role="status" data-chat-status>{_escape(STATUS_LABELS[run["status"]])}</p>'
+                                '<p class="meta">El pensamiento del modelo puede contener hipótesis o errores; no es evidencia del DOF.</p>'
+                                '<div data-chat-activity></div></div>')
             messages.append('</section>')
         disabled = " disabled" if active or remaining < 1000 else ""
         reservation = remaining
-        body = f'''<h1>Chat con el DOF</h1>
+        body = f'''<div id="chat-body"><h1>Chat con el DOF</h1>
 <p class="lede">Conversación privada. Cada respuesta consulta el corpus del DOF; el historial ayuda a interpretar tus preguntas, no sustituye la evidencia.</p>
 <section class="panel"><strong>Disponibles: {remaining:,} / {DAILY_TOKEN_LIMIT:,} tokens</strong>
 <p class="meta">Periodo móvil de 24 horas. Incluye historial, instrucciones, evidencia, llamadas de investigación y salida del modelo (incluido razonamiento).
 Antes de enviar reservamos hasta {reservation:,} tokens, no una estimación del consumo. Al terminar devolvemos los no utilizados.
 Si falla la consulta y no conocemos el consumo, se cobra la reserva completa. Cada cargo vence 24 horas después del envío.</p>
 <p class="meta">Se recuerdan hasta seis intercambios anteriores. Esta primera versión tiene una conversación por cuenta.</p></section>
-<p class="warning" role="alert">{_escape(error)}</p>
+<p class="warning" role="alert" data-chat-error>{_escape(error)}</p>
 {''.join(messages)}
-<form method="post" action="/chat" class="panel">
+<form method="post" action="/chat" class="panel" data-chat-form>
 <input type="hidden" name="csrf_token" value="{_escape(_csrf(request))}">
 <input type="hidden" name="client_request_id" value="{uuid.uuid4()}">
 <label for="chat-question">Mensaje</label>
 <textarea id="chat-question" name="question" minlength="3" maxlength="2000" required{disabled}>{_escape(question)}</textarea>
 <p class="meta">{'Espera a que termine la consulta activa.' if active else 'Se necesitan al menos 1,000 tokens disponibles para enviar.'}</p>
-<button type="submit"{disabled}>Enviar · reserva hasta {reservation:,} tokens</button></form>'''
-        scripts = '<script>setTimeout(() => location.reload(), 5000);</script>' if active else ''
+<p class="meta">Enter para enviar; Shift+Enter para una nueva línea.</p>
+<button type="submit"{disabled}>Enviar · reserva hasta {reservation:,} tokens</button></form></div>'''
+        scripts = f'<script>{CHAT_SCRIPT}</script>'
         return HTMLResponse(_page("Chat", body, user=user, csrf_token=_csrf(request), page_scripts=page_scripts, trailing_scripts=scripts), status_code=status_code)
 
     @app.get("/chat", response_class=HTMLResponse)
@@ -1489,7 +1494,10 @@ Publicada: {_escape(run.get("published_at"))}</p></section>
             feedback_recorded=feedback_recorded,
             feedback_next=f"/runs/{run_id}",
         )
-        admin_html = _admin_panel(run, csrf_token) if user.is_admin else ""
+        is_chat = service.store.is_chat_run(run_id)
+        if is_chat:
+            fragment = _status_fragment(run)
+        admin_html = _admin_panel(run, csrf_token) if user.is_admin and not is_chat else ""
         body = f"""<p><a href="/">← Portada</a></p><section><p class="eyebrow">Ejecución</p>
 <h1>{_escape(run["question"])}</h1><p class="lede">Fecha de corte: {_escape(run.get("as_of") or "sin fecha")} · Documentos mínimos: {_escape(run["required_hops"])}</p></section>
 {fragment}{admin_html}"""
@@ -1517,7 +1525,7 @@ Publicada: {_escape(run.get("published_at"))}</p></section>
         return HTMLResponse(
             _status_fragment(
                 run,
-                csrf_token=_csrf(request),
+                csrf_token="" if service.store.is_chat_run(run_id) else _csrf(request),
                 feedback_next=f"/runs/{run_id}",
             )
         )

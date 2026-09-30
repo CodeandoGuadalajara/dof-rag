@@ -28,6 +28,18 @@ class ChatTests(AirAppTestCase):
         # Replay must not reserve again.
         self.client.post('/chat', data=payload, follow_redirects=False)
         self.assertEqual(len(self.service.store.chat_runs('alice')), 1)
+        self.assertEqual(self.service.store.runs_for_user('alice'), [])
+        self.assertEqual(self.service.store.runs_for_moderation(), [])
+        self.assertEqual(self.service.store.admin_runs(), [])
+        self.assertNotIn('Pregunta privada', self.client.get('/').text)
+        self.assertEqual(self.service.store.count_submissions_since('alice', '2000-01-01'), 0)
+        with self.assertRaises(ValueError):
+            self.service.store.publish_run(run['run_id'], publisher_id='admin')
+        with self.service.store._connect() as connection:
+            self.assertEqual(connection.execute('SELECT COUNT(*) FROM chat_conversations').fetchone()[0], 1)
+            self.assertEqual(connection.execute('SELECT COUNT(*) FROM chat_messages').fetchone()[0], 2)
+            content = connection.execute("SELECT content FROM chat_messages WHERE role = 'user'").fetchone()[0]
+            self.assertEqual(content, 'Pregunta privada')
         page = self.client.get('/chat')
         self.assertIn('<details open><summary>Llamada a herramienta · search_documents', page.text)
         self.assertIn('<details open><summary>Pensamiento del modelo', page.text)

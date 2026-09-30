@@ -1059,6 +1059,7 @@ class OpenAIChatCompletionsBackend:
         max_output_tokens: int = 2400,
         client: Any = None,
         enable_thinking: bool | None = None,
+        on_delta: Callable[[str, str], None] | None = None,
     ):
         if client is None:
             from openai import OpenAI
@@ -1069,6 +1070,7 @@ class OpenAIChatCompletionsBackend:
         self.reasoning_effort = reasoning_effort
         self.max_output_tokens = max_output_tokens
         self.enable_thinking = enable_thinking
+        self.on_delta = on_delta
 
     @staticmethod
     def _messages(
@@ -1142,7 +1144,11 @@ class OpenAIChatCompletionsBackend:
             kwargs["tool_choice"] = "auto"
         else:
             kwargs["tool_choice"] = "none"
-        response = self.client.chat.completions.create(**kwargs)
+        if self.on_delta is not None:
+            from .chat_stream import collect_chat_stream
+            response = collect_chat_stream(self.client, kwargs, self.on_delta)
+        else:
+            response = self.client.chat.completions.create(**kwargs)
         if not response.choices:
             raise RuntimeError("chat completion returned no choices")
         message = response.choices[0].message

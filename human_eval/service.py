@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from math import ceil
 from typing import Any
 
-from .contracts import FeedbackRequest, RunRequest
+from .contracts import ContractError, FeedbackRequest, RunRequest
 from .store import (
     ActiveRunConflict,
     DailyQuotaConflict,
@@ -240,6 +240,8 @@ class EvaluationService:
         # Any signed-in user may evaluate a published answer; unpublished
         # runs stay private to their author (and admins).
         self.public_run(run_id, user_id=user_id, admin=admin)
+        if self.store.is_chat_run(run_id):
+            raise ContractError("chat messages are not evaluation answers")
         return self.store.add_feedback(run_id, request, user_id=user_id)
 
     def publish(self, run_id: str, *, admin_id: str) -> None:

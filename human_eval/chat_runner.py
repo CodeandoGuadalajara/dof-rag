@@ -75,7 +75,8 @@ def run_chat(backend, toolbox, request, *, max_turns=8, max_tool_calls=8, on_pro
             stop = "completed" if turn.finish_reason != "length" else "output_token_limit"
             break
         for call in turn.tool_calls:
-            emit("tool_started", {"message": f"Consultando {call.name}.", "tool": call.name})
+            emit("tool_started", {"message": f"Consultando {call.name}.", "tool": call.name,
+                                  "call_id": call.call_id, "arguments": call.arguments})
             if tools and len(traces) < max_tool_calls:
                 schema = schemas.get(call.name, {})
                 arguments = {key: value for key, value in defaults.items() if key in schema.get("properties", {})}
@@ -85,7 +86,9 @@ def run_chat(backend, toolbox, request, *, max_turns=8, max_tool_calls=8, on_pro
                 traces.append({"name": call.name, "arguments": arguments, "output": output})
             else:
                 output = {"ok": False, "error": {"message": "No quedan llamadas a herramientas; responde con lo disponible."}}
-            emit("tool_completed", _public_tool_progress(call.name, call.arguments, output, elapsed_ms=0, turn=number))
+            progress = _public_tool_progress(call.name, call.arguments, output, elapsed_ms=0, turn=number)
+            progress.update({"call_id": call.call_id, "tool": call.name, "output": output})
+            emit("tool_completed", progress)
             messages.append({"type": "function_call_output", "call_id": call.call_id,
                              "output": json.dumps(_model_tool_output(call.name, output), ensure_ascii=False)})
     if "<tool_call>" in answer:

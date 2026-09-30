@@ -7,6 +7,7 @@ import os
 import sqlite3
 import subprocess
 import threading
+from time import monotonic
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -316,6 +317,25 @@ class AgentRunExecutor:
         try:
             backend = self._backend()
             if request.token_limit is not None:
+                if on_progress is not None:
+                    pending = {"content": "", "reasoning_content": ""}
+                    last_flush = monotonic()
+                    stream_turn = 1
+                    def stream_delta(kind, text):
+                        nonlocal last_flush, stream_turn
+                        if kind in pending:
+                            pending[kind] += text
+                        if kind == "done" or monotonic() - last_flush >= 0.1:
+                            for field, value in pending.items():
+                                if value:
+                                    on_progress("model_turn_started", {
+                                        "chat_delta": field, "text": value, "turn": stream_turn,
+                                    })
+                                    pending[field] = ""
+                            last_flush = monotonic()
+                        if kind == "done":
+                            stream_turn += 1
+                    backend.on_delta = stream_delta
                 from .budget_backend import BudgetBackend
                 from .qwen_token_counter import QwenTokenCounter
                 if (self.config.provider != "llama-server"

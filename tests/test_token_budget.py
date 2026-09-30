@@ -22,7 +22,8 @@ class TokenBudgetTests(unittest.TestCase):
             self.assertEqual(run["run_id"], same["run_id"])
             with self.assertRaises(TokenBudgetExceeded):
                 store.create_run(RunRequest("Another question"), user_id="alice", reserved_tokens=30_000)
-            self.assertEqual(len(store.runs_for_user("alice")), 1)
+            self.assertEqual(len(store.chat_runs("alice")), 1)
+            self.assertEqual(store.runs_for_user("alice"), [])
             self.assertEqual(store.token_balance("alice"), 20_000)
             store.settle_tokens(run["run_id"], 10_000)
             self.assertEqual(store.token_balance("alice"), 40_000)

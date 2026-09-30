@@ -35,6 +35,10 @@ def main():
                 print("Status:", run["status"], "Balance:", store.token_balance("smoke"), flush=True)
                 assert run["status"] == "succeeded", run.get("error")
                 result = run["result"]
+                progress = store.progress_for_run(run_id)
+                deltas = [event for event in progress if event['payload'].get('chat_delta')]
+                print('Stream batches:', len(deltas), flush=True)
+                assert deltas, 'The provider did not stream any text'
                 print("Answer:", result["answer"], "Usage:", result["usage"], flush=True)
                 for trace in result.get("trace", []):
                     print("Tool:", trace["name"], "Arguments:", trace.get("arguments"),
