@@ -282,16 +282,30 @@ FINAL_ANSWER_SCHEMA: dict[str, Any] = {
 
 AGENT_INSTRUCTIONS = """Eres un investigador del Diario Oficial de la Federación.
 Usa las herramientas para localizar documentos, buscar pasajes y leer los chunks
-que sostengan la respuesta. No respondas con conocimiento externo. Distingue la
-fecha de publicación de la fecha de entrada en vigor y respeta la fecha de corte.
+que sostengan la respuesta. No respondas con conocimiento externo y respeta la
+fecha de corte. Distingue tres funciones de fecha: publicación (metadata del DOF),
+obtención o periodo del dato (texto del aviso) y entrada en vigor (disposición o
+transitorio). publication_date sólo establece cuándo se publicó el documento:
+no demuestra cuándo se obtuvo el dato ni cuándo comenzó a regir. «El día de hoy»
+en un aviso se interpreta con la fecha del propio aviso, no automáticamente con
+publication_date. Busca y verifica la función de fecha que pide la pregunta.
 Una coincidencia de búsqueda no es una cita: sólo puedes citar IDs devueltos por
 read_chunks y debes incluir al menos una cita válida. Si la evidencia es
 insuficiente, dilo. Marca una premisa como false únicamente cuando los chunks
 citados establezcan la corrección y exprésala de forma afirmativa. "No se encontró"
 no demuestra que una premisa sea falsa; si no puedes documentar la corrección,
-usa unclear. Mantén la respuesta concreta. Indica la fecha de publicación de las
-fuentes que sostienen tu respuesta y, si la evidencia más reciente disponible es
-antigua, advierte que la regla o el programa pudo haber cambiado.
+usa unclear. Si la evidencia establece una fecha o cifra que contradice la
+premisa, corrígela explícitamente; no la presentes a la vez como falsa e incierta.
+Responde sólo los datos solicitados y las condiciones necesarias para entenderlos.
+Cada afirmación debe estar sustentada por los chunks citados, no sólo por otros
+chunks leídos. Omite explicaciones adicionales, fechas no solicitadas, conversiones,
+ubicaciones o reglas que no sean necesarias. No calcules una fecha límite si sólo
+se pide el plazo legal; conserva su unidad (días naturales o hábiles).
+No añadas una advertencia de antigüedad a una pregunta histórica por defecto.
+Si se pide vigencia actual y no verificaste cambios posteriores, indica ese límite
+sin afirmar que no hubo reformas. MAT significa edición matutina; VES, vespertina:
+son ediciones, no materias jurídicas. No infieras la ubicación de un inmueble
+por la oficina indicada en su folio registral.
 Al terminar devuelve SOLO JSON con la forma
 {"answer":"...","citations":[123],"premise_status":"supported|false|unclear"}.
 
@@ -300,7 +314,7 @@ Política de herramientas:
   search_evidence, read_chunks y respuesta.
 - No repitas búsquedas con variaciones menores: tras una o dos search_documents
   entra a la evidencia (search_evidence, get_document_outline, read_chunks).
-  La vigencia se verifica leyendo los documentos, no con más búsquedas.
+  Una búsqueda de reformas sólo descubre candidatos; la vigencia requiere leerlos.
   search_documents se desactiva después de unas pocas llamadas.
 - Cuando search_evidence muestre chunks de documentos recientes, incluye al
   menos el mejor chunk de cada documento reciente en tu read_chunks antes de
@@ -309,6 +323,10 @@ Política de herramientas:
   list_publications cuando la fecha de publicación sea el dato de entrada.
 - El año sobre el que rige una norma o cantidad no implica que se publicara ese
   año. No fijes date_from sólo a partir del año mencionado en la pregunta.
+  date_from y date_to filtran publicación, no obtención ni vigencia. No restrinjas
+  la búsqueda al día de obtención: el aviso puede publicarse después, siempre
+  dentro de la fecha de corte. Conserva los nombres de instrumentos de la pregunta;
+  no sustituyas Plan por Programa ni agregues cifras que no aparezcan en ella.
 - Si la pregunta trata sobre programas, apoyos, requisitos o reglas vigentes y
   no fija una fecha histórica, usa prefer_recent=true en search_documents y
   search_evidence, y comprueba si el instrumento encontrado fue reformado,
@@ -320,7 +338,11 @@ Política de herramientas:
 - Conserva todas las partes de la pregunta desde la primera búsqueda. Mantén
   una lista de los datos solicitados y del chunk que sustenta cada uno. Busca
   por separado los elementos faltantes; leer un pasaje no cubre toda la pregunta.
-  En una comparación entre años, busca evidencia para ambos años.
+  En una comparación entre años, busca evidencia para ambos años. Antes de cerrar,
+  comprueba que cada parte tiene un chunk leído y citado; los vecinos leídos no
+  quedan citados automáticamente. Si un candidato cubre una parte pendiente,
+  prioriza read_chunks sobre otra búsqueda, especialmente en la última oportunidad
+  de usar herramientas. Los candidatos no leídos no cuentan como evidencia.
 - Para rangos de trabajadores, lee el campo de aplicación además de las
   obligaciones. Para vigencia, lee los transitorios. Si falta una sección,
   usa get_document_outline o read_chunks con neighbor_window=1.
@@ -684,9 +706,11 @@ class DofToolbox:
             "as_of": _nullable("string")
             | {"description": "Fecha de corte YYYY-MM-DD."},
             "date_from": _nullable("string")
-            | {"description": "Fecha inicial YYYY-MM-DD."},
-            "date_to": _nullable("string") | {"description": "Fecha final YYYY-MM-DD."},
-            "section": _nullable("string") | {"description": "Sección del DOF o null."},
+            | {"description": "Inicio de publicación YYYY-MM-DD; no obtención ni vigencia."},
+            "date_to": _nullable("string")
+            | {"description": "Fin de publicación YYYY-MM-DD; no obtención ni vigencia."},
+            "section": _nullable("string")
+            | {"description": "Edición del DOF: MAT (matutina), VES (vespertina), EXT (extraordinaria), o null."},
         }
         return {
             "list_publications": _object_schema(
@@ -1355,20 +1379,35 @@ class AgentRunner:
         terminal_stop_reason = "model_turn_limit"
         for turn_number in range(1, self.max_model_turns + 1):
             final_turn = turn_number == self.max_model_turns
-            available_tools = [] if final_turn else self._available_tools()
+            tools_left = max(0, self.max_tool_calls - len(traces))
+            available_tools = (
+                [] if final_turn or not tools_left else self._available_tools()
+            )
             force_final = not available_tools
-            turn_input = input_items
-            if force_final:
-                turn_input = [
-                    *input_items,
-                    {
-                        "role": "user",
-                        "content": (
-                            "No solicites más herramientas. Responde ahora únicamente con "
-                            "el objeto JSON final requerido, usando sólo los chunks leídos."
-                        ),
-                    },
-                ]
+            # This snapshot is recomputed, not accumulated in conversation history.
+            unread = sorted(self.toolbox.visible_chunk_ids - self.toolbox.read_chunk_ids)
+            turn_input = [
+                *input_items,
+                {
+                    "role": "user",
+                    "content": (
+                        f"Turnos restantes antes del cierre obligatorio: {self.max_model_turns - turn_number}. "
+                        f"Llamadas a herramientas restantes: {0 if force_final else tools_left}.\n"
+                        f"Cobertura pendiente: {json.dumps(self.toolbox.missing_coverage, ensure_ascii=False)}.\n"
+                        f"Chunks leídos que puedes citar si sustentan la respuesta: {sorted(self.toolbox.read_chunk_ids)}.\n"
+                        f"Candidatos no leídos (hasta 8 de {len(unread)}): {unread[:8]}. "
+                        "Son candidatos, no evidencia ni una obligación de leerlos todos.\n"
+                        + (
+                            "No solicites más herramientas. Entrega el JSON final con sólo "
+                            "la parte sustentada y señala expresamente qué no pudiste verificar."
+                            if force_final
+                            else "Si un candidato cubre una parte pendiente, léelo antes de "
+                            "gastar otra llamada en buscar. Reserva una llamada para leer "
+                            "antes del cierre; no añadas afirmaciones que no se te pidieron."
+                        )
+                    ),
+                },
+            ]
             _emit_progress(
                 on_progress,
                 "model_turn_started",
@@ -1517,7 +1556,7 @@ class AgentRunner:
                 if not self.toolbox.read_chunk_ids:
                     last_parse_error = "no se ha leído evidencia"
                     terminal_stop_reason = "evidence_not_read"
-                    if final_turn:
+                    if force_final:
                         break
                     input_items.append(
                         {
@@ -1529,7 +1568,7 @@ class AgentRunner:
                         }
                     )
                     continue
-                if self.toolbox.missing_coverage and not final_turn:
+                if self.toolbox.missing_coverage and not force_final:
                     last_parse_error = "faltan requisitos de cobertura: " + ", ".join(
                         self.toolbox.missing_coverage
                     )
