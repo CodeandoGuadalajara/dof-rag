@@ -133,7 +133,7 @@ class AgentExecutorConfig:
             vec0_db=vec0_db,
             gguf_model=gguf_model,
             embed_port=embed_port,
-            reasoning_effort=os.environ.get("DOF_REASONING_EFFORT", "low") or None,
+            reasoning_effort=os.environ.get("DOF_REASONING_EFFORT", "low") or "low",
             max_model_turns=int(os.environ.get("DOF_MAX_MODEL_TURNS", "8")),
             max_tool_calls=int(os.environ.get("DOF_MAX_TOOL_CALLS", "8")),
             model_concurrency=model_concurrency,

@@ -37,13 +37,17 @@ class ChatStreamTests(unittest.TestCase):
         deltas = []
         client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
         backend = OpenAIChatCompletionsBackend(model='qwen', api_key='local', base_url='http://local',
-                                               client=client, on_delta=lambda *args: deltas.append(args))
+                                               client=client, reasoning_effort='low', enable_thinking=True,
+                                               on_delta=lambda *args: deltas.append(args))
         turn = backend.create_turn(input_items=[{'role': 'user', 'content': 'Hola'}], tools=[], instructions='Chat')
         self.assertEqual(deltas, [('reasoning_content', 'Buscando'), ('content', 'Hola '), ('content', 'mundo'), ('done', '')])
         self.assertEqual(turn.final_text, 'Hola mundo')
         self.assertEqual(turn.output_items[0]['reasoning_content'], 'Buscando')
         self.assertEqual(turn.tool_calls[0].arguments, {'chunk_ids': [4]})
         self.assertEqual(turn.usage['total_tokens'], 15)
+        self.assertEqual(create.call_args.kwargs['reasoning_effort'], 'low')
+        self.assertEqual(create.call_args.kwargs['extra_body']['chat_template_kwargs'],
+                         {'enable_thinking': True, 'reasoning_effort': 'low'})
         self.assertTrue(create.call_args.kwargs['stream'])
         self.assertEqual(create.call_args.kwargs['stream_options'], {'include_usage': True})
 

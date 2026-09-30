@@ -2,10 +2,18 @@ import os
 import unittest
 from unittest.mock import patch
 
-from human_eval.agent_executor import AgentExecutorConfig
+from human_eval.agent_executor import AgentExecutorConfig, AgentRunExecutor
 
 
 class LocalProviderDefaultTests(unittest.TestCase):
+    def test_empty_reasoning_effort_defaults_to_low(self):
+        with patch.dict(os.environ, {'DOF_REASONING_EFFORT': ''}, clear=True):
+            config = AgentExecutorConfig.from_env('.')
+            self.assertEqual(config.reasoning_effort, 'low')
+            backend = AgentRunExecutor(config)._backend()
+            self.assertEqual(backend.reasoning_effort, 'low')
+            self.assertTrue(backend.enable_thinking)
+
     def test_local_server_is_default_and_can_be_overridden(self):
         with patch.dict(os.environ, {}, clear=True):
             config = AgentExecutorConfig.from_env(".")
