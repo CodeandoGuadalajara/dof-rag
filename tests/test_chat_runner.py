@@ -15,6 +15,15 @@ class ChatRunnerTests(unittest.TestCase):
         self.assertEqual(_normalize_nullable_literals(schema, {'prefer_recent': 'TRUE'})['prefer_recent'], True)
         self.assertEqual(_normalize_nullable_literals(schema, {'prefer_recent': 'yes'})['prefer_recent'], 'yes')
 
+    def test_tool_nullable_integer_strings_are_normalized(self):
+        # TensorFold stringifies values of union-typed fields (probe: var/flash-next-schema-probe.py).
+        from agent_tools.agent import _normalize_nullable_literals
+        schema = {'properties': {'n': {'type': ['integer', 'null']}, 'plain': {'type': 'integer'},
+                                 'f': {'type': ['number', 'null']}, 's': {'type': 'string'}}}
+        out = _normalize_nullable_literals(schema, {'n': '42', 'plain': '7', 'f': '3.5', 's': '42'})
+        self.assertEqual(out, {'n': 42, 'plain': 7, 'f': 3.5, 's': '42'})
+        self.assertEqual(_normalize_nullable_literals(schema, {'n': 'cuatro'})['n'], 'cuatro')
+
     def test_clarification_needs_no_tools_or_json(self):
         backend = ScriptedBackend([ModelTurn('reply', [], final_text='¿Qué decreto te interesa?')])
         result = run_chat(backend, DofToolbox(FakeRetriever()), RunRequest('Hola, ayúdame'))

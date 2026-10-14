@@ -109,14 +109,26 @@ TOPIC_STOP_WORDS = {
 SEARCH_FAILURE_RE = re.compile(
     r"\b(?:no\s+se\s+(?:encontr[oó]|localiz[oó]|hall[oó])|"
     r"no\s+fue\s+posible\s+(?:encontrar|localizar)|"
-    r"evidencia\s+(?:disponible\s+)?insuficiente|"
+    r"evidencia\s+(?:disponible\s+)?(?:es\s+)?insuficiente|"
     r"chunks?\s+(?:le[ií]dos?\s+)?no\s+(?:contienen?|muestran?))\b",
     re.I,
 )
 CORRECTION_ASSERTION_RE = re.compile(
     r"\b(?:reform\w*|expid\w*|derog\w*|establec\w*|dispus\w*|"
     r"comprend\w*|correspond\w*|consta\w*|incluy\w*|vigent\w*|"
-    r"formad[oa]s?)\b",
+    r"formad[oa]s?|(?<!no )(?<!no se )esta[n]? estructurad[oa]s?|"
+    r"(?<!no )(?<!no se )fij[aoó]|(?<!no )se compone[n]?|"
+    r"(?<!no )(?<!no se )expropi[aoó]|"
+    r"(?<!no )(?<!no se )(?<!nunca )comenzaron a regir)\b",
+    re.I,
+)
+
+
+# This is a correction-form signal, not proof that the replacement value is true.
+# Keep "es" out of the generic assertion verbs: "la evidencia es insuficiente" is not a correction.
+NUMERIC_PREMISE_CONTRAST_RE = re.compile(
+    r"\bno\s+(?:es|son)\s+(?:de\s+)?\$?\d+(?:[.,]\d+)*"
+    r"[^.;\n]*?\bsino\s+(?:de\s+)?\$?\d+(?:[.,]\d+)*\b",
     re.I,
 )
 
@@ -221,6 +233,8 @@ def _coverage_requirements(question: str) -> list[str]:
 
 def _has_affirmative_premise_correction(answer: str) -> bool:
     """Reject a false-premise answer that only reports an unsuccessful search."""
+    if NUMERIC_PREMISE_CONTRAST_RE.search(_fold_for_coverage(answer)):
+        return True
     for clause in re.split(r"[.;]\s*", _fold_for_coverage(answer)):
         if not clause:
             continue
@@ -243,6 +257,8 @@ def _has_explicit_premise_correction(answer: str) -> bool:
     when the answer appears to negate the premise (``no ...`` or a ``sino``
     contrast) and then state affirmatively what holds instead.
     """
+    if NUMERIC_PREMISE_CONTRAST_RE.search(_fold_for_coverage(answer)):
+        return True
     clauses = [
         clause
         for clause in re.split(r"[.;]\s*", _fold_for_coverage(answer))
@@ -475,18 +491,30 @@ def _object_schema(properties: dict[str, Any]) -> dict[str, Any]:
 def _normalize_nullable_literals(
     schema: dict[str, Any], arguments: dict[str, Any]
 ) -> dict[str, Any]:
-    """Normalize canonical null/boolean strings from local tool-call parsers."""
+    """Normalize canonical scalar strings emitted by local tool-call parsers.
+
+    TensorFold/Qwen3.8-Flash-Next serializes values of union-typed
+    (nullable) fields as JSON strings ("true", "null", "42"); see
+    docs/tensorfold-tool-calling-investigation.md and
+    var/flash-next-schema-probe.py. Only exact canonical encodings are
+    coerced; anything else stays a schema error.
+    """
     normalized = dict(arguments)
     properties = schema.get("properties", {})
     for name, value in arguments.items():
-        expected = properties.get(name, {}).get("type")
-        is_string_null = (
-            isinstance(value, str) and value.strip().lower() in {"null", "none"}
-        )
-        if is_string_null and isinstance(expected, list) and "null" in expected:
+        if not isinstance(value, str):
+            continue
+        declared = properties.get(name, {}).get("type")
+        expected = declared if isinstance(declared, list) else [declared]
+        text = value.strip().lower()
+        if text in {"null", "none"} and "null" in expected:
             normalized[name] = None
-        elif isinstance(value, str) and "boolean" in (expected if isinstance(expected, list) else [expected]) and value.strip().lower() in {"true", "false"}:
-            normalized[name] = value.strip().lower() == "true"
+        elif text in {"true", "false"} and "boolean" in expected:
+            normalized[name] = text == "true"
+        elif "integer" in expected and re.fullmatch(r"-?\d+", value.strip()):
+            normalized[name] = int(value.strip())
+        elif "number" in expected and re.fullmatch(r"-?\d+(\.\d+)?", value.strip()):
+            normalized[name] = float(value.strip())
     return normalized
 
 

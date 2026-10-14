@@ -355,3 +355,9 @@ uv run ruff check human_eval tests
 ├── pyproject.toml        # Dependencias del proyecto
 └── README.md
 ```
+
+## Modelo local y resultados de selección
+
+El despliegue por defecto es TensorFold 1.0 (FP8) sirviendo `Qwen3.8-Flash-Next`; guía de operación y rollback en `AGENTS.md` de la raíz del repositorio y en `docs/flash-next-eval-runbook.md`.
+
+Los resultados completos de la selección de modelos (2026-10-14, 33 brazos evaluados y revisados) están en `docs/all-qwen-model-selection-results.md` con su índice machine-readable en `docs/all-qwen-model-selection-results-2026-10-14.json`. Para evaluar un candidato nuevo, repetir el congelado protocolo de 42 preguntas descrito en ese documento y comparar contra la tabla.
