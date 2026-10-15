@@ -1,9 +1,36 @@
 import unittest
 
 from agent_tools.agent import DofToolbox, ModelTurn, ToolCall
-from human_eval.chat_runner import run_chat
+from agent_tools.models import (
+    DocumentHit,
+    DocumentSearchResult,
+    RetrievalStrategy,
+    SearchFilters,
+)
+from human_eval.chat_runner import chat_instructions, run_chat
 from human_eval.contracts import RunRequest
 from tests.test_agent_evidence import FakeRetriever, ScriptedBackend
+
+
+class FakeEmbedder:
+    def embed_query(self, query):
+        return b"0"
+
+
+class SearchFakeRetriever(FakeRetriever):
+    def __init__(self):
+        self.search_calls = []
+
+    def search_documents(self, query, *, strategy, filters=None, query_vector=None,
+                         top_k=20, **kwargs):
+        self.search_calls.append({"query": query, "strategy": strategy, "top_k": top_k})
+        return DocumentSearchResult(
+            query=query,
+            strategy=RetrievalStrategy(strategy),
+            filters=filters or SearchFilters(),
+            documents=[DocumentHit(2, "doc.md", "2025-01-01", "MAT", 1.0,
+                                   title="Reglas aplicables en 2025")],
+        )
 
 
 class ChatRunnerTests(unittest.TestCase):
@@ -82,6 +109,80 @@ class ChatRunnerTests(unittest.TestCase):
         backend = ScriptedBackend([ModelTurn('reply', [], final_text='Gracias por aclararlo.')])
         run_chat(backend, DofToolbox(FakeRetriever()), RunRequest('De 2006', history=history))
         self.assertEqual(backend.calls[0]['input_items'][:2], list(history))
+
+    def _search_backend(self):
+        return ScriptedBackend([
+            ModelTurn('search', [], tool_calls=[ToolCall('1', 'search_documents', {'query': 'apoyos'})]),
+            ModelTurn('reply', [], final_text='Listo.'),
+        ])
+
+    def test_search_documents_defaults_to_eight_candidates_and_configured_strategy(self):
+        retriever = SearchFakeRetriever()
+        backend = self._search_backend()
+        result = run_chat(backend, DofToolbox(retriever, embedder=FakeEmbedder()),
+                          RunRequest('Apoyos'), retrieval_strategy='hybrid')
+        self.assertEqual(retriever.search_calls[0]['top_k'], 8)
+        self.assertEqual(retriever.search_calls[0]['strategy'], 'hybrid')
+        trace = result['traces'][0]
+        self.assertEqual(trace['arguments']['top_k'], 8)
+        self.assertEqual(trace['arguments']['strategy'], 'hybrid')
+
+    def test_configured_hybrid_falls_back_to_lexical_without_embedder(self):
+        # Never label a search hybrid when no vector index/embedder is live.
+        retriever = SearchFakeRetriever()
+        result = run_chat(self._search_backend(), DofToolbox(retriever),
+                          RunRequest('Apoyos'), retrieval_strategy='hybrid')
+        self.assertEqual(retriever.search_calls[0]['strategy'], 'lexical')
+        self.assertEqual(result['traces'][0]['arguments']['strategy'], 'lexical')
+
+    def test_optional_strategy_and_top_k_overrides_are_honored(self):
+        retriever = SearchFakeRetriever()
+        backend = ScriptedBackend([
+            ModelTurn('search', [], tool_calls=[
+                ToolCall('1', 'search_documents', {'query': 'apoyos', 'top_k': 2})]),
+            ModelTurn('reply', [], final_text='Listo.'),
+        ])
+        result = run_chat(backend, DofToolbox(retriever), RunRequest('Apoyos'))
+        self.assertEqual(retriever.search_calls[0]['top_k'], 2)
+        self.assertEqual(result['traces'][0]['arguments']['top_k'], 2)
+
+    def test_invalid_strategy_override_is_rejected_and_the_loop_continues(self):
+        retriever = SearchFakeRetriever()
+        backend = ScriptedBackend([
+            ModelTurn('search', [], tool_calls=[
+                ToolCall('1', 'search_documents', {'query': 'apoyos', 'strategy': 'hybrid'})]),
+            ModelTurn('reply', [], final_text='Sin búsqueda vectorial disponible.'),
+        ])
+        result = run_chat(backend, DofToolbox(retriever), RunRequest('Apoyos'))
+        self.assertEqual(retriever.search_calls, [])
+        self.assertFalse(result['traces'][0]['output']['ok'])
+        self.assertEqual(result['traces'][0]['output']['error']['type'], 'invalid_arguments')
+        self.assertEqual(result['stop_reason'], 'completed')
+
+    def test_strategy_and_top_k_are_exposed_as_optional_parameters(self):
+        backend = ScriptedBackend([ModelTurn('reply', [], final_text='Hola.')])
+        run_chat(backend, DofToolbox(FakeRetriever()), RunRequest('Hola'))
+        tools = {tool['name']: tool for tool in backend.calls[0]['tools']}
+        search = tools['search_documents']['parameters']
+        self.assertIn('strategy', search['properties'])
+        self.assertIn('top_k', search['properties'])
+        self.assertEqual(search['required'], ['query'])
+        self.assertNotIn('limit', tools['list_publications']['parameters']['properties'])
+        self.assertNotIn('neighbor_window', tools['read_chunks']['parameters']['properties'])
+
+    def test_instructions_include_today_and_user_cutoff(self):
+        backend = ScriptedBackend([ModelTurn('reply', [], final_text='Hola.')])
+        run_chat(backend, DofToolbox(FakeRetriever()),
+                 RunRequest('Hola', as_of='2025-12-31'), today='2026-02-10')
+        instructions = backend.calls[0]['instructions']
+        self.assertIn('La fecha de hoy es 2026-02-10', instructions)
+        self.assertIn('hasta el 2025-12-31', instructions)
+        self.assertIn('hipótesis de búsqueda, no evidencia', instructions)
+
+    def test_instructions_without_cutoff_omit_cutoff_line(self):
+        instructions = chat_instructions(today='2026-02-10')
+        self.assertIn('La fecha de hoy es 2026-02-10', instructions)
+        self.assertNotIn('corte explícito', instructions)
 
 
 if __name__ == '__main__':
