@@ -1,0 +1,210 @@
+{
+  "qid": "Q1-apoyos-desempleo",
+  "rep": 1,
+  "question": "¿Qué apoyos del gobierno federal existen para una persona que perdió su empleo?",
+  "elapsed_s": 128.061,
+  "stop_reason": "completed",
+  "model_turns": 23,
+  "tool_calls": 22,
+  "usage": {
+    "input_tokens": 504218,
+    "output_tokens": 5581,
+    "total_tokens": 509799
+  },
+  "citations": [
+    5395326,
+    6652624,
+    6652626,
+    6652632,
+    6652693,
+    6652705
+  ],
+  "reasoning_tokens": [
+    158,
+    90,
+    42,
+    134,
+    134,
+    151,
+    81,
+    16,
+    104,
+    153,
+    113,
+    127,
+    63,
+    56,
+    50,
+    69,
+    25,
+    175,
+    107,
+    35,
+    576,
+    59,
+    465
+  ],
+  "searches": [
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 10,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "seguro de desempleo apoyos personas que perdieron su empleo"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 10,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "seguro de desempleo prestación por desempleo"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 10,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "prestaciones por desempleo trabajadores cesantes ahorro SAR"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 10,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "seguro de cesantía en edad avanzada y vejez"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 10,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "programa apoyo empleo personas sin trabajo capacitación beca"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 10,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Jóvenes Construyendo el Futuro apoyos beca capacitación trabajo"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 5,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Ley de los Sistemas de Ahorro para el Trabajo seguro desempleo cesantía prestaciones"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 5,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 5,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Ley del Seguro Social artículo 191 prestación seguro desempleo"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 5,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 5,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": "VES",
+        "query": "ley seguro social prestaciones desempleo cotización semanas desempleo derecho"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 5,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 5,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "programa social personas desocupadas vulnerables empleo 2025 2026 bienestar"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 5,
+      "ok": true
+    }
+  ],
+  "answer": "Con base en las disposiciones publicadas en el Diario Oficial de la Federación, te comparto los principales apoyos federales para personas que perdieron su empleo:\n\n---\n\n## 1. Programa de Apoyo al Empleo (PAE)\n\nLas más recientes Reglas de Operación, publicadas el 31 de diciembre de 2025 para el ejercicio fiscal 2026, establecen este programa administrado por la Secretaría del Trabajo y Previsión Social (STPS) a través del Servicio Nacional de Empleo (SNE). Ofrece:\n\n- **Subprograma Intermediación Laboral:** servicios gratuitos de asesoría, orientación, información, registro en la Bolsa de Trabajo, Ferias de Empleo, Portal del Empleo, y talleres para búsqueda de empleo. Meta para 2026: 618,800 personas insertadas en un empleo formal.\n- **Subprograma Movilidad Laboral:** apoyo para personas que necesiten trasladarse a otra entidad federativa o al extranjero para desarrollar trabajos estacionales. Meta para 2026: 48,100 personas.\n\nEstá dirigido a **cualquier persona mayor de 18 años en búsqueda de empleo**. Los servicios son gratuitos, tienen cobertura en las 32 entidades federativas y se requiere únicamente registrarse en las Oficinas del Servicio Nacional de Empleo. [chunk 6652705]\n\n---\n\n## 2. Programa Jóvenes Construyendo el Futuro\n\nPara **jóvenes de 18 a 29 años que no estudian y no trabajan**. Las reglas más recientes (31 de diciembre de 2025) señalan que, a partir de una reforma constitucional al artículo 123 publicada el 1 de abril de 2025, el Estado **otorga un apoyo económico mensual equivalente al menos a un salario mínimo general vigente** por un periodo de hasta **12 meses**, a fin de que se capaciten en unidades económicas. [chunk 6652624]\n\nLos apoyos integran tres componentes:\n- **Capacitación para el trabajo** (en negocios, empresas, talleres, tiendas, etc.)\n- **Apoyo económico mensual**\n- **Seguro médico** ante el IMSS (enfermedades y maternidad, riesgos de trabajo) [chunk 6652632]\n\nLa meta para esta administración es atender a 1.7 millones de jóvenes, priorizando municipios con rezago social y grupos históricamente discriminados. [chunk 6652626]\n\n---\n\n## 3. Retiro Parcial por Desempleo (AFORE)\n\nLos trabajadores que cotizaron en una **Cuenta Individual de Ahorro para el Retiro (AFORE)** pueden solicitar un **Retiro Parcial por Desempleo**, conforme al artículo 191 de la Ley del Seguro Social. Las disposiciones de operación (publicadas el 29 de junio de 2021) describen el procedimiento: se puede recibir en pagos mensuales (inciso a) o en un solo pago (inciso b), según se elija. [chunk 5395326]\n\nPara tramitarlo, el trabajador debe estar desempleado, tener al menos 5 años desde su primer registro ante el IMSS y haber cumplido los periodos mínimos de cotización establecidos en la ley.\n\n---\n\n## 4. Servicio Nacional de Empleo (en general)\n\nDe acuerdo con la Ley Federal del Trabajo, el SNE tiene como objetivo:\n- Orientar a buscadores de empleo hacia vacantes disponibles\n- Diseñar programas para generar oportunidades para jóvenes y grupos vulnerables (personas con discapacidad, adultos mayores, mujeres, migrantes repatriados, personas privadas de su libertad, etc.) [chunk 6652693]\n\n---\n\n### Nota importante\nLa evidencia consultada proviene exclusivamente del corpus del DOF. Es posible que existan apoyos adicionales por parte de gobiernos estatales y municipales, o cambios recientes no incluidos en estos documentos. Para la situación de una persona en particular, se recomienda acudir a la **Oficina del Servicio Nacional de Empleo** de su entidad federativa o ingresar al portal del empleo del gobierno federal para conocer opciones según su perfil."
+}

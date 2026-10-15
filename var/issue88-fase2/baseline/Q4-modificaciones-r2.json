@@ -1,0 +1,539 @@
+{
+  "qid": "Q4-modificaciones",
+  "rep": 2,
+  "question": "¿Qué modificaciones han tenido las reglas de operación del Programa Jóvenes Construyendo el Futuro y cuál es la versión más reciente publicada en el DOF?",
+  "elapsed_s": 286.832,
+  "stop_reason": "output_token_limit",
+  "model_turns": 74,
+  "tool_calls": 73,
+  "usage": {
+    "input_tokens": 3392857,
+    "output_tokens": 14559,
+    "total_tokens": 3407416
+  },
+  "citations": [
+    5042832,
+    5050496,
+    5050502,
+    5165528,
+    5253642,
+    5316802,
+    5316803,
+    5424648,
+    5536137,
+    5838788,
+    6126432,
+    6417947,
+    6652655
+  ],
+  "reasoning_tokens": [
+    68,
+    63,
+    9,
+    88,
+    51,
+    135,
+    76,
+    29,
+    19,
+    57,
+    44,
+    43,
+    42,
+    41,
+    67,
+    47,
+    22,
+    46,
+    51,
+    31,
+    23,
+    217,
+    19,
+    251,
+    34,
+    230,
+    21,
+    137,
+    36,
+    13,
+    23,
+    13,
+    35,
+    7,
+    34,
+    18,
+    9,
+    16,
+    11,
+    61,
+    89,
+    23,
+    26,
+    17,
+    4,
+    7,
+    17,
+    6,
+    27,
+    11,
+    25,
+    36,
+    41,
+    40,
+    120,
+    125,
+    15,
+    31,
+    76,
+    684,
+    17,
+    10,
+    7,
+    45,
+    42,
+    87,
+    37,
+    38,
+    45,
+    366,
+    76,
+    1201,
+    1143,
+    1475
+  ],
+  "searches": [
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "True",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "reglas de operación Programa Jóvenes Construyendo el Futuro"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "True",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "\"Reglas de Operación del Programa Jóvenes Construyendo el Futuro\" modificaciones"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": "2026-10-15",
+        "date_from": "2018-01-01",
+        "date_to": null,
+        "section": null,
+        "query": "\"Jóvenes Construyendo el Futuro\""
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": "2026-10-15",
+        "date_from": "2018-01-01",
+        "date_to": null,
+        "section": null,
+        "query": "\"Programa Jóvenes Construyendo el Futuro\" Reglas Operación"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "REGLAS de Operación del Programa Jóvenes Construyendo el Futuro 31 de diciembre de 2024"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Programa Jóvenes Construyendo el Futuro reglas operación modificaciones"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": "2026-10-15",
+        "date_from": "2018-01-01",
+        "date_to": "2022-12-31",
+        "section": null,
+        "query": "Jóvenes Construyendo el Futuro reglas operación"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": "2026-10-15",
+        "date_from": "2018-01-01",
+        "date_to": "2020-12-31",
+        "section": null,
+        "query": "\"Jóvenes Construyendo el Futuro\" programa operación beca"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": "2026-10-15",
+        "date_from": "2019-01-01",
+        "date_to": "2019-12-31",
+        "section": null,
+        "query": "\"Jóvenes Construyendo el Futuro\" reglas operación"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": "2026-10-15",
+        "date_from": "2019-01-01",
+        "date_to": "2019-12-31",
+        "section": null,
+        "query": "\"Reglas de Operación del Programa Jóvenes Construyendo el Futuro\""
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": "2026-10-15",
+        "date_from": "2024-01-01",
+        "date_to": "2024-12-31",
+        "section": null,
+        "query": "REGLAS de Operación Programa Jóvenes Construyendo el Futuro 2024 Secretaría del Trabajo"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": "2026-10-15",
+        "date_from": "2026-01-01",
+        "date_to": null,
+        "section": null,
+        "query": "\"Jóvenes Construyendo el Futuro\" regla vigencia"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "false",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "reforma reglas operación Jóvenes Construyendo el Futuro 3 de septiembre de 2020"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "false",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Acuerdo modifica Reglas Operación Jóvenes Construyendo el Futuro 20 de agosto de 2021"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": "2026-10-15",
+        "date_from": "2024-12-01",
+        "date_to": "2025-01-31",
+        "section": null,
+        "query": "Secretaría del Trabajo y Previsión Social reglas operación programa jóvenes construyendo futuro presupuesto egresos 2025"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "\"REGLAS DE OPERACIÓN DEL PROGRAMA JÓVENES CONSTRUYENDO EL FUTURO\""
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Anexos de las Reglas de Operación del Programa Jóvenes Construyendo el Futuro para el ejercicio fiscal 2025"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": "2025-01-23",
+        "date_from": "2024-12-31",
+        "date_to": "2024-12-31",
+        "section": "MAT",
+        "query": "jóvenes construyendo futuro"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 1,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": "2025-01-01",
+        "date_from": "2024-12-31",
+        "date_to": "2024-12-31",
+        "section": "EXT"
+      },
+      "strategy": null,
+      "vector_candidates": null,
+      "documents": 0,
+      "ok": false
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": "2025-01-01",
+        "date_from": "2024-12-31",
+        "date_to": "2024-12-31",
+        "section": "EXT",
+        "query": "programa jóvenes construyendo futuro"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 0,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": "2025-01-01",
+        "date_from": "2024-12-31",
+        "date_to": "2024-12-31",
+        "section": "VES",
+        "query": "jóvenes construyendo futuro reglas operación"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 2,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "\"31 de diciembre de 2024\" \"Programa Jóvenes Construyendo el Futuro\""
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": "2026-10-15",
+        "date_from": "2026-01-01",
+        "date_to": null,
+        "section": null,
+        "query": "Reglas Operación Jóvenes Construyendo el Futuro modifican"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": "2026-10-15",
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Programa Jóvenes Construyendo el Futuro 2026 reglas operación simplificación"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": "2025-12-31",
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "simplificación Jóvenes Construyendo el Futuro acuerdos previos"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": "2026-10-15",
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-30",
+        "section": null,
+        "query": "Programa Jóvenes Construyendo el Futuro reglas operación"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": "2025-12-31",
+        "date_from": "2024-12-31",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "STPS Programa Jóvenes Construyendo el Futuro"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    }
+  ],
+  "answer": "Con la evidencia disponible en el corpus del DOF, el Programa Jóvenes Construyendo el Futuro ha tenido tres tipos de cambios: **nuevas Reglas de Operación anuales que sustituyen a las anteriores**, **acuerdos de reforma/adicición** y **notas o aclaraciones**. No siempre hubo una sola reforma continua.\n\n## Principales modificaciones verificadas\n\n| Fecha de publicación en el DOF | Cambio identificado |\n|---|---|\n| **28 jun 2019** | Antecedente: Lineamientos para la operación del Programa, luego abrogados por las primeras Reglas. [chunk 5042832] |\n| **10 feb 2020** | Primeras Reglas de Operación del Programa; entraron en vigor desde su publicación y abrogaron los lineamientos de 2019. [chunk 5042832] |\n| **18 feb 2020** | Aclaración a las Reglas de 10 feb 2020: corregía domicilios/representaciones y corregía el monto de la beca a **$3,748.00**. [chunk 5050496] [chunk 5050502] |\n| **3 sep 2020** | Reforma: añadió conceptos como “Aprendiz egresado” y “Centros Integradores de Desarrollo”, amplió a 24 meses el apoyo para capacitación vinculada a Sembrando Vida/CID y previó la posibilidad de segundo cambio de Centro de Trabajo. [chunk 5165528] |\n| **23 dic 2020** | Nueva versión anual: abrogó las Reglas del 10 feb 2020, su reforma del 3 sep 2020 y la aclaración del 18 feb 2020; previó igualar la beca al salario mínimo para 2021. [chunk 5253642] |\n| **19 mar 2021** | Modificación y adición: actualizó el monto de la beca a **$4,310.00**, añadió requisitos documentales, derechos para tutores y reglas de entrega anticipada de apoyos por contingencias. [chunk 5316802] [chunk 5316803] |\n| **20 ago 2021** | Adición: integró formalmente un Comité Técnico del Programa con funciones para casos no previstos, interpretación y ajustes presupuestarios. [chunk 5424648] |\n| **29 dic 2021** | Nuevas Reglas anuales: abrogaron las reglas de 2020 y sus reformas; fijaron el apoyo en **$5,258.13** para 2022. [chunk 5536137] |\n| **29 dic 2022** | Nuevas Reglas anuales: abrogaron las publicadas el 29 dic 2021; fijaron el apoyo en **$6,310.00**. [chunk 5838788] |\n| **29 dic 2023** | Nuevas Reglas anuales: abrogaron las publicadas el 29 dic 2022; fijaron el apoyo en **$7,572.00** para 2024. [chunk 6126432] |\n| **31 dic 2024** | Se publicaron nuevas Reglas de Operación para el programa; su contenido exacto no pude verificarlo con los pasajes accesibles, pero existe y luego fue sustituida. [chunk 6652655] |\n| **23 ene 2025** | Nota aclaratoria: precisó que, cuando la baja definitiva por incumplimiento sea atribuible al Centro de Trabajo **como a** la o el Aprendiz, quienes estén en capacitación perderán una oportunidad de vinculación. [chunk 6417947] |\n|"
+}

@@ -1,0 +1,147 @@
+{
+  "qid": "Q4-modificaciones",
+  "rep": 2,
+  "question": "¿Qué modificaciones han tenido las reglas de operación del Programa Jóvenes Construyendo el Futuro y cuál es la versión más reciente publicada en el DOF?",
+  "elapsed_s": 120.51,
+  "stop_reason": "completed",
+  "model_turns": 24,
+  "tool_calls": 23,
+  "usage": {
+    "input_tokens": 404020,
+    "output_tokens": 5774,
+    "total_tokens": 409794
+  },
+  "citations": [
+    5536137,
+    5838788,
+    6126432,
+    6417947,
+    6652624,
+    6652626
+  ],
+  "reasoning_tokens": [
+    72,
+    61,
+    385,
+    73,
+    165,
+    22,
+    19,
+    26,
+    126,
+    123,
+    8,
+    196,
+    94,
+    56,
+    238,
+    243,
+    36,
+    79,
+    32,
+    199,
+    59,
+    67,
+    107,
+    124
+  ],
+  "searches": [
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Reglas de Operación Jóvenes Construyendo el Futuro"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": "MAT",
+        "query": "modificación reforma Reglas Operación Jóvenes Construyendo el Futuro"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2023-01-01",
+        "date_to": null,
+        "section": "MAT",
+        "query": "Jóvenes Construyendo el Futuro modificación acuerdo"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2023-12-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "\"Construyendo el Futuro\" reglas operación"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2024-12-01",
+        "date_to": "2025-03-01",
+        "section": "MAT",
+        "query": "Reglas Operación Jóvenes Construyendo el Futuro ejercicio 2025"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": "VES",
+        "query": "\"Construyendo el Futuro\" reglas operación 2024"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    }
+  ],
+  "answer": "Con base en la investigación en el corpus del DOF, te presento la secuencia de publicaciones y modificaciones de las Reglas de Operación del Programa Jóvenes Construyendo el Futuro, todas expedidas por la Secretaría del Trabajo y Previsión Social.\n\n## Versión más reciente publicada en el DOF\n\nLa publicación más reciente que aparece en el corpus es la de las **\"REGLAS de Operación del Programa Jóvenes Construyendo el Futuro\" para el ejercicio fiscal 2026, publicada en el DOF (matutina) el 31 de diciembre de 2025**, firmada por Marath Baruch Bolaños López, Secretario del Trabajo. En su transitorio tercero **abroga expresamente las Reglas publicadas el 31 de diciembre de 2024** [cita no verificada].\n\nEsta edición introduce dos novedades relevantes:\n1. Se apoya en la reforma al artículo 123 constitucional publicada el 1 de abril de 2025, que eleva a rango constitucional el apoyo económico mensual para jóvenes de 18 a 29 años en desocupación, con un monto al menos equivalente a un salario mínimo, por hasta 12 meses [chunk 6652624].\n2. Define una meta de hasta 1.7 millones de jóvenes capacitados y fija la categoría programática S280 del Ramo 14 [chunk 6652626].\n\n## Secuencia histórica (con base en los transitorios de abrogación)\n\n| Publicación | Documento en el corpus | ¿Qué hace? |\n|---|---|---|\n| 10 feb 2020 | Reglas de Operación (doc. 527545) | Primera expedición. |\n| 18 feb 2020 | Aclaración (doc. 528125) | Corrige la publicación anterior. |\n| 3 sep 2020 | Acuerdo que modifica las Reglas (doc. 536428) | Añade, entre otras cosas, el concepto de \"Centros Integradores de Desarrollo\" y la figura de \"Aprendiz egresado\" [cita no verificada]. |\n| 23 dic 2020 | Reglas de Operación (doc. 542359) | Sustituye las de 2020. |\n| 19 mar 2021 | Acuerdo que modifica y adiciona (doc. 545648) | Introduce, entre otras, la entrega anticipada de apoyos en supuestos excepcionales (Regla VIGÉSIMO CUARTA) [cita no verificada]. |\n| 20 ago 2021 | Acuerdo que adiciona (doc. 554618) | Adiciona la Regla VIGÉSIMO QUINTO sobre el Comité Técnico a las publicadas el 23/12/2020 [cita no verificada]. |\n| 29 dic 2021 | Reglas de Operación para 2022 (doc. 562796) | **Abroga** las publicadas el 23/12/2020 y sus reformas del 19/3/2021 y 20/8/2021 [chunk 5536137]. Monto de beca: $5,258.13. |\n| 29 dic 2022 | Reglas de Operación para 2023 (doc. 586380) | **Abroga** las del 29/12/2021. Monto: $6,310 [chunk 5838788]. |\n| 29 dic 2023 | Reglas de Operación para 2024 (doc. 611143) | **Abroga** las del 29/12/2022. Monto: $7,572 [chunk 6126432]. |\n| 31 dic 2024 | (No localizada como documento independiente en este corpus) | Expedición de Reglas para el ejercicio 2025, referida por la nota aclaratoria siguiente. |\n| 23 ene 2025 | Nota aclaratoria (doc. 632180) | Corrige la redacción de la regla relativa a baja definitiva por incumplimiento de obligaciones, precisando que se pierde una oportunidad de vinculación por causas atribuibles \"tanto al Centro de Trabajo como a la o el Aprendiz\" [chunk 6417947]. |\n| 31 dic 2025 | Reglas de Operación para 2026 (doc. 652410) | **Abroga** las del 31/12/2024 [cita no verificada]. Versión vigente según este corpus. |\n\n## Lagunas que conviene señalar\n\n- **No pude confirmar** que el documento original del 31/12/2024 esté indexado en el corpus que manejo; su existencia la infiero por la nota aclaratoria del 23/01/2025 y por el transitorio tercero de las reglas del 31/12/2025.\n- La vigencia efectiva de las reglas del 31/12/2025 depende del Presupuesto de Egresos 2026 y de las actualizaciones posteriores, algo que no verifiqué más allá del propio texto.\n- Hubo además modificaciones sustantivas menores (monto de beca, Comité Técnico, casos de excepción) en cada edición anual, no solo reformas puntuales.\n\n¿Quieres que profundice en algún período concreto, por ejemplo en los cambios del monto del apoyo económico, en el nuevo anclaje constitucional de 2025, o en las diferencias entre las reglas de 2024 y 2026?"
+}

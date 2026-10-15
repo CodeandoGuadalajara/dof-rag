@@ -1,0 +1,148 @@
+{
+  "qid": "Q4-modificaciones",
+  "rep": 2,
+  "question": "¿Qué modificaciones han tenido las reglas de operación del Programa Jóvenes Construyendo el Futuro y cuál es la versión más reciente publicada en el DOF?",
+  "elapsed_s": 115.406,
+  "stop_reason": "completed",
+  "model_turns": 24,
+  "tool_calls": 23,
+  "usage": {
+    "input_tokens": 405789,
+    "output_tokens": 6219,
+    "total_tokens": 412008
+  },
+  "citations": [
+    5536137,
+    5838788,
+    6126432,
+    6417947,
+    6652624,
+    6652654,
+    6652655
+  ],
+  "reasoning_tokens": [
+    72,
+    61,
+    385,
+    73,
+    165,
+    22,
+    19,
+    26,
+    126,
+    123,
+    8,
+    196,
+    94,
+    56,
+    238,
+    243,
+    36,
+    79,
+    32,
+    199,
+    59,
+    67,
+    117,
+    427
+  ],
+  "searches": [
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Reglas de Operación Jóvenes Construyendo el Futuro"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": "MAT",
+        "query": "modificación reforma Reglas Operación Jóvenes Construyendo el Futuro"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2023-01-01",
+        "date_to": null,
+        "section": "MAT",
+        "query": "Jóvenes Construyendo el Futuro modificación acuerdo"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2023-12-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "\"Construyendo el Futuro\" reglas operación"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2024-12-01",
+        "date_to": "2025-03-01",
+        "section": "MAT",
+        "query": "Reglas Operación Jóvenes Construyendo el Futuro ejercicio 2025"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": "VES",
+        "query": "\"Construyendo el Futuro\" reglas operación 2024"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    }
+  ],
+  "answer": "## Reglas de Operación del Programa “Jóvenes Construyendo el Futuro”: secuencia de publicaciones y modificaciones\n\nDe acuerdo con el corpus del DOF consultado, la trayectoria normativa del programa (STPS) ha sido la siguiente:\n\n### Publicaciones principales (cada una deroga a la anterior)\n\n| Fecha DOF | Documento | Referencia |\n|---|---|---|\n| 10/febrero/2020, MAT | Reglas de Operación iniciales | [cita no verificada] (doc. 527545) |\n| 18/febrero/2020, MAT | **Aclaración** a las reglas publicadas el 10/02/2020 | (doc. 528125) |\n| 3/septiembre/2020, MAT | **Acuerdo por el que se modifican las Reglas** (adición, entre otras, de la figura “Centros Integradores de Desarrollo”) | [cita no verificada] (doc. 536428) |\n| 23/diciembre/2020, MAT | Reglas de Operación (nueva versión) | (doc. 542359) |\n| 19/marzo/2021, MAT | **Acuerdo que modifica y adiciona** las Reglas | [cita no verificada] (doc. 545648) |\n| 20/agosto/2021, MAT | **Acuerdo que adiciona** (reforma de la Regla VIGÉSIMO QUINTO, del Comité Técnico) | [cita no verificada] (doc. 554618) |\n| 29/diciembre/2021, MAT | Reglas para 2022 (abrogó 23/12/2020 y sus reformas de 19/3/2021 y 20/8/2021) | [chunk 5536137] (doc. 562796) |\n| 29/diciembre/2022, MAT | Reglas para 2023 (abrogó las del 29/12/2021) | [chunk 5838788] (doc. 586380) |\n| 29/diciembre/2023, MAT | Reglas para 2024 (abrogó las del 29/12/2022) | [chunk 6126432] (doc. 611143) |\n| 31/diciembre/2024 | Reglas para el ejercicio 2025 (referenciada en la nota aclaratoria y como antecedente derogado; no aparece como documento individual en el corpus consultado) | referida en [chunk 6652655] y [chunk 6417947] |\n| 23/enero/2025, MAT | **Nota aclaratoria** a las Reglas del 31/12/2024 (corrección al artículo II sobre “baja definitiva por incumplimiento” y pérdida de oportunidad de vinculación) | [chunk 6417947] (doc. 632180) |\n| 31/diciembre/2025, MAT | **Reglas para el ejercicio 2026 — versión vigente más reciente** | (doc. 652410) |\n\n### La versión más reciente publicada en el DOF (hasta el corpus consultado)\n\nSon las **“REGLAS de Operación del Programa Jóvenes Construyendo el Futuro”**, publicadas el **31 de diciembre de 2025** en el Diario Oficial de la Federación, sección matutina, suscritas por el Secretario del Trabajo y Previsión Social, Marath Baruch Bolaños López [chunk 6652624].\n\nElementos relevantes:\n- **Entrada en vigor:** el día siguiente de su publicación [chunk 6652654].\n- **Alcance temporal:** mantienen vigencia en ejercicios fiscales subsecuentes mientras no se expidan otras que las sustituyan y no se opongan al PEF correspondiente [chunk 6652654].\n- **Derogación expresa:** se abrogan las Reglas publicadas el **31 de diciembre de 2024** [chunk 6652655].\n- **Monto del apoyo para 2026:** **$9,582.47 pesos** mensuales, en concordancia con la Resolución del Consejo de Representantes de la CONASUROM publicada el 9 de diciembre de 2025 [chunk 6652655].\n- **Novedad constitucional:** se fundamentan, además, en el segundo párrafo al artículo 123 de la Constitución, adicionado por el decreto publicado en el DOF el **1 de abril de 2025**, que eleva a rango constitucional el apoyo económico mensual a jóvenes de 18 a 29 años en desocupación que no cursen educación formal [chunk 6652624].\n- **Comité Técnico:** se integra ahora, además, por la Titular de la Dirección General de Administración de la Plataforma Digital, como novedad organizacional [chunk 6652654].\n\n### Lagunas / notas de precisión\n- Las **Reglas del 31/12/2024** (para el ejercicio fiscal 2025) están referenciadas tanto por la nota aclaratoria del 23/01/2025 [chunk 6417947] como por el transitorio tercero de las reglas de 2026 [chunk 6652655], pero **no aparecen como documento individual en este corpus**; por tanto, no puedo detallar su contenido exacto más allá de esas referencias.\n- No he encontrado una “modificación” intermedia entre el 31/12/2024 y el 31/12/2025 distinta de la nota aclaratoria del 23/01/2025.\n- La “vigencia” de las reglas del 31/12/2025 como norma aplicable hoy (15/10/2026) se apoya en su transitorio segundo, que la extiende a ejercicios subsecuentes, pero no he verificado modificaciones posteriores emitidas en 2026 (si existieran)."
+}

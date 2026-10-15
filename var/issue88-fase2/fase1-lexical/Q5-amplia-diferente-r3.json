@@ -1,0 +1,251 @@
+{
+  "qid": "Q5-amplia-diferente",
+  "rep": 3,
+  "question": "¿Qué apoyos económicos directos a personas publicó el gobierno federal en 2025?",
+  "elapsed_s": 309.473,
+  "stop_reason": "output_token_limit",
+  "model_turns": 42,
+  "tool_calls": 41,
+  "usage": {
+    "input_tokens": 1351388,
+    "output_tokens": 17820,
+    "total_tokens": 1369208
+  },
+  "citations": [
+    6412026,
+    6415208,
+    6418532,
+    6418535,
+    6423616,
+    6423617,
+    6426036,
+    6427307,
+    6430554,
+    6430597,
+    6436831,
+    6436832
+  ],
+  "reasoning_tokens": [
+    144,
+    96,
+    125,
+    142,
+    265,
+    268,
+    149,
+    113,
+    678,
+    81,
+    70,
+    24,
+    328,
+    123,
+    732,
+    151,
+    99,
+    326,
+    48,
+    662,
+    284,
+    511,
+    139,
+    59,
+    404,
+    273,
+    391,
+    330,
+    70,
+    219,
+    475,
+    56,
+    247,
+    197,
+    601,
+    60,
+    37,
+    270,
+    172,
+    469,
+    1645,
+    726
+  ],
+  "searches": [
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 10,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "pensión para personas adultas mayores monto bimestral"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 10,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "Reglas de Operación programa becas niñas niños adolescentes Rita Cetina"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 8,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "Jóvenes Construyendo el Futuro apoyo manutención beca"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 8,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 8,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "pensión mujeres bienestar línea de captación monto bimestral apoyo económico"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 8,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 8,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "Reglas de Operación Programa Pensión Bienestar Personas Adultas Mayores ejercicio fiscal 2025"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 8,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 6,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "Reglas de Operación Producción para el Bienestar Secretaría de Agricultura ejercicio fiscal 2025 apoyo"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 6,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 8,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "apoyo personas cuidadoras bienestar bimestre monto programa 2025"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 8,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 6,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "pensión niñas niños adolescentes víctimas feminicidio programa bienestar"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 6,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 6,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "Fábricas de Paz apoyo económico personas jóvenes reglas operación"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 6,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 6,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "apoyos económicos personas afectadas inundaciones huracán rehabilitación vivienda damnificados"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 6,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 6,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2025-12-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "Reglas de Operación Pensión Bienestar Personas Adultas Mayores ejercicio fiscal 2026 monto"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 6,
+      "ok": true
+    }
+  ],
+  "answer": "En el DOF de 2025 se publicaron las reglas/lineamientos anuales de los programas federal­es que entregan dinero directamente a personas (sin intermediarios). Los principales, con fechas y montos verificados:\n\n## Secretaría de Bienestar\n\n**Pensión para el Bienestar de las Personas Adultas Mayores** — Reglas de Operación 2025, DOF 22‑01‑2025. Pensión de **$3,100.00 mensuales pagaderos bimestralmente** para todas las personas de 65 años o más, más un \"pago de marcha\" de $3,100 al adulto auxiliar cuando fallece la persona derechohabiente. Se advierte que el monto \"se actualizará a partir del año 2026\" [chunk 6415208].\n\n**Pensión para el Bienestar de las Personas con Discapacidad Permanente** — Reglas 2025, DOF 22‑01‑2025. **$1,600.00 mensuales** pagaderos bimestralmente, además de apoyos en especie; alcanza a personas con discapacidad permanente de 0‑29 años y de 30 hasta antes de los 65, en municipios indígenas o afromexicanos o de alta marginación, entre otros supuestos [cita no verificada] [cita no verificada].\n\n**Pensión Mujeres Bienestar** (programa creado en 2025) — Lineamientos, DOF 31‑01‑2025. **$1,500.00 mensuales** en entregas bimestrales, con un pago de marcha del mismo monto; para mujeres de 60‑64 años en municipios/localidades indígenas o afromexicanas y de 63‑64 años en el resto [chunk 6426036].\n\n**Apoyo para el Bienestar de las Niñas y Niños, Hijos de Madres Trabajadoras** — Reglas 2025, DOF 24‑01‑2025. Modalidad A (hijos hasta 4 años, o 6 si tienen discapacidad): **$1,650.00 bimestrales por niño** y **$3,720.00 bimestrales** por niño con discapacidad, máximo 3 niños por hogar [chunk 6418532]. Modalidad B (hijos/as en orfandad materna, madres fallecidas desde marzo de 2013): **$830.00** (0‑15 años), **$1,130.00** (16‑18) y **$1,240.00** (19‑23) bimestrales [chunk 6418535].\n\n**Personas en Emergencia Social o Natural** — Lineamientos, DOF 17‑01‑2025. Apoyos económicos y en especie a personas afectadas por fenómenos naturales o sociales: el apoyo económico es de **cuando menos 1 UMA mensual** durante la emergencia, entregado por tarjeta o cheque [chunk 6412026].\n\n*Nota:* también se publicaron los Lineamientos del programa **Salud Casa por Casa** (28‑02‑2025, documento 634105), pero son una estrategia de atención médica domiciliaria: no encontré en ellos un monto en efectivo verificable.\n\n## Becas (Coordinación Nacional de Becas Benito Juárez / SEP)\n\n- **Beca Universal de Educación Básica Rita Cetina** — Reglas, DOF 05‑02‑2025: **$1,900.00 bimestrales por familia**, más $700 por cada becario adicional de secundaria, pagados durante los 10 meses del ciclo escolar [chunk 6427307]. Fue modificada por el Acuerdo 24/08/25 (29‑08‑2025) [cita no verificada].\n- **Beca Universal de Educación Media Superior Benito Juárez** — Reglas, DOF 13‑02‑2025: **$1,900.00 bimestrales**, hasta 5 bimestres en 2025 y máximo 40 meses por becario [chunk 6430597].\n- **Jóvenes Escribiendo el Futuro** (educación superior) — Reglas, DOF 13‑02‑2025: **$5,800.00 bimestrales**, hasta 5 bimestres en 2025, con tope de 45 mensualidades (55 para medicina en escuelas prioritarias) [chunk 6430554]. El Acuerdo 23/08/25 (29‑08‑2025) modificó el numeral de apoyos para ampliar el límite de mensualidades y ajustar el domicilio geográfico, sin cambiar el monto en lo que pude constatar [cita no verificada].\n- **Becas Elisa Acuña** — Reglas, DOF 21‑02‑2025: apoyos según componente (movilidad internacional con mínimo de **$50,000**, becas complemento de posgrado mínimo **$70,000**, docentes mínimo **$4,000**, manutención para extranjeros/asistentes de idioma mínimo **$9,000**), en pagos anuales o únicos según la modalidad [chunk 6436831] [chunk 6436832].\n\n## Secretaría de Agricultura y Desarrollo Rural\n\n**Producción para el Bienestar** (apoyos productivos directos a productores) — Reglas, DOF 28‑01‑2025: $6,400 / $8,000 / $10,000 por productor de pequeña escala de granos según superficie; $6,200 para mediana escala de riego; $7,300 para café, cacao, caña, nopal o miel; y $1,200 por hectárea para mediana escala de 5‑20 ha. Con piso y techo: **ningún beneficiario recibe menos de $6,000 ni más de $24,000** al año [chunk 6423616] [chunk 6423617].\n\n## Lo que conviene tener en cuenta\n\n- **Vigencia:** todos los montos anteriores corresponden al *ejercicio fiscal 2025* y sus reglas operan hasta el 31‑12‑2025; no están vigentes hoy (15‑10‑2026) y no verifiqué las reglas de 2026, salvo en dos casos. Para **Jóvenes Construyendo el Futuro** las reglas publicadas el 31‑12‑2025 fijan una beca de **$9,582.47 mensuales** pero con efectos para el **ejercicio 2026** [cita no verificada]; no encontré en 2025 una publicación que fije el monto aplicable a 2025. Las reglas de Producción para el Bienestar para 20"
+}

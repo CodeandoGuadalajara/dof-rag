@@ -1,0 +1,84 @@
+{
+  "qid": "Q2-programa-especifico",
+  "rep": 1,
+  "question": "¿Cuáles son las reglas de operación vigentes del Programa Jóvenes Construyendo el Futuro y cuánto es el apoyo mensual que otorga?",
+  "elapsed_s": 91.267,
+  "stop_reason": "completed",
+  "model_turns": 11,
+  "tool_calls": 10,
+  "usage": {
+    "input_tokens": 141147,
+    "output_tokens": 3948,
+    "total_tokens": 145095
+  },
+  "citations": [
+    6652627,
+    6652654,
+    6652655,
+    6652674
+  ],
+  "reasoning_tokens": [
+    219,
+    161,
+    88,
+    140,
+    228,
+    186,
+    28,
+    273,
+    351,
+    27,
+    938
+  ],
+  "searches": [
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "True",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Programa Jóvenes Construyendo el Futuro reglas de operación vigentes"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "True",
+        "as_of": null,
+        "date_from": "2026-01-01",
+        "date_to": null,
+        "section": null,
+        "query": "Jóvenes Construyendo el Futuro reglas de operación modificación apoyo económico"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 10,
+        "prefer_recent": "True",
+        "as_of": null,
+        "date_from": "2026-01-01",
+        "date_to": "2026-10-15",
+        "section": null,
+        "query": "\"Jóvenes Construyendo el Futuro\""
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 10,
+      "ok": true
+    }
+  ],
+  "answer": "Con la evidencia del corpus, las reglas aplicables son las **Reglas de Operación del Programa Jóvenes Construyendo el Futuro**, publicadas en el DOF el **31 de diciembre de 2025** y expedidas por la **Secretaría del Trabajo y Previsión Social**. Entraron en vigor **el día siguiente de su publicación**, para el ejercicio fiscal **2026**, y deben mantenerse vigentes en ejercicios posteriores mientras no se emitan otras reglas que las sustituyan y siempre que no contradigan al Presupuesto de Egresos aplicable [chunk 6652654] [chunk 6652655].\n\nEl apoyo mensual, por concepto de beca, es:\n\n**$9,582.47 MXN**  \n(*nueve mil quinientos ochenta y dos pesos 47/100 M.N.*)\n\nSe entrega directamente al beneficiario, **hasta por 12 emisiones**, y su monto es igual en todas las entidades del país. El documento lo vincula al salario mínimo general mensual determinado por la CONASAMI para 2026 [chunk 6652627] [chunk 6652655] [chunk 6652674].\n\nEn las búsquedas de 2026 no encontré una nueva publicación que sustituya esas reglas, por lo que, con la evidencia revisada, seguirían siendo las vigentes al 15 de octubre de 2026."
+}
