@@ -1,0 +1,44 @@
+{
+  "qid": "Q3-consulta-historica",
+  "rep": 1,
+  "question": "¿Qué reforma laboral se publicó en el DOF en 2021 sobre la subcontratación y qué establecía respecto al reparto de utilidades?",
+  "elapsed_s": 34.818,
+  "stop_reason": "completed",
+  "model_turns": 5,
+  "tool_calls": 4,
+  "usage": {
+    "input_tokens": 14844,
+    "output_tokens": 1608,
+    "total_tokens": 16452
+  },
+  "citations": [
+    5344585,
+    5344586
+  ],
+  "reasoning_tokens": [
+    105,
+    25,
+    255,
+    279,
+    267
+  ],
+  "searches": [
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "false",
+        "as_of": null,
+        "date_from": "2021-01-01",
+        "date_to": "2021-12-31",
+        "section": null,
+        "query": "reforma laboral subcontratación reparto de utilidades"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    }
+  ],
+  "answer": "Se trata del **Decreto publicado en el DOF el 23 de abril de 2021**, en sección **vespertina**, que reformó varias leyes, principalmente la **Ley Federal del Trabajo**, y reguló la subcontratación.\n\nEn materia de **subcontratación**, la reforma estableció que solo es permitida cuando se contratan **servicios especializados o la ejecución de obras especializadas** que no formen parte del objeto social ni de la actividad económica preponderante de la empresa beneficiaria, siempre que el contratista esté registrado en un padrón público ante la STPS [chunk 5344585]. También exigió contratos escritos, informó responsabilidad solidaria del patrón beneficiario y contempló multas por subcontratar sin registro o contraviniendo las reglas de subcontratación [chunk 5344585][chunk 5344586].\n\nRespecto al **reparto de utilidades**, añadió un tope al derecho de participación de los trabajadores: el monto de la **participación de utilidades** tendrá como límite máximo **tres meses del salario del trabajador** o el **promedio de la participación recibida en los últimos tres años**, aplicándose el que resulte más favorable para el trabajador [chunk 5344585][chunk 5344586]."
+}

@@ -1,0 +1,306 @@
+{
+  "qid": "Q5-amplia-diferente",
+  "rep": 3,
+  "question": "¿Qué apoyos económicos directos a personas publicó el gobierno federal en 2025?",
+  "elapsed_s": 147.166,
+  "stop_reason": "completed",
+  "model_turns": 36,
+  "tool_calls": 35,
+  "usage": {
+    "input_tokens": 670671,
+    "output_tokens": 8834,
+    "total_tokens": 679505
+  },
+  "citations": [
+    6412022,
+    6415205,
+    6417947,
+    6418523,
+    6423616,
+    6426036,
+    6427287,
+    6436681,
+    6626627
+  ],
+  "reasoning_tokens": [
+    78,
+    54,
+    51,
+    33,
+    14,
+    11,
+    51,
+    81,
+    14,
+    147,
+    54,
+    37,
+    284,
+    95,
+    110,
+    116,
+    562,
+    109,
+    34,
+    82,
+    7,
+    120,
+    471,
+    846,
+    15,
+    78,
+    101,
+    75,
+    66,
+    48,
+    73,
+    55,
+    13,
+    104,
+    1112,
+    41
+  ],
+  "searches": [
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "apoyos económicos directos personas programas sociales"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "pensión becas bienestar apoyo económico"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "jefas de familia producción para el bienestar adultos mayores"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "adultos mayores jóvenes salud niños becas"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "lineamientos operación programa 2025"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "Programa Adultos Mayores Pensión Bienestar 2025"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "jóvenes construyendo futuro sembrando vida"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "Becas Benito Juárez Producción Bienestar lineamientos reglas 2025"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "Producción para el Bienestar lineamientos reglas 2025 Secretaría Agricultura"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "Reglas Operación Pensión Bienestar Personas Adultas Mayores 2025"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-03-01",
+        "section": null,
+        "query": "Pensión Bienestar Adultos Mayores Secretaría Bienestar"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": null,
+        "section": null,
+        "query": "\"Personas Adultas Mayores\" ejercicio fiscal 2025 Secretaría Bienestar"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2024-12-01",
+        "date_to": "2025-01-31",
+        "section": null,
+        "query": "\"Personas Adultas Mayores\" reglas operación"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2024-12-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "Pensión Bienestar Adultos Mayores Secretaría Bienestar"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "Secretaría Bienestar acuerdo ejercicio fiscal"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    }
+  ],
+  "answer": "# Apoyos económicos directos a personas publicados en el DOF durante 2025\n\nA continuación, los acuerdos, lineamientos y reglas de operación de programas federales de transferencias directas que el Gobierno de México publicó en el DOF durante 2025:\n\n## Reglas de Operación / Lineamientos del ejercicio fiscal 2025\n\n| Programa | Publicación en DOF | Apoyo principal |\n|---|---|---|\n| **Pensión para el Bienestar de las Personas en Emergencia Social o Natural** (Secretaría de Bienestar) | 17‑ene‑2025, matutina | Apoyos económicos y/o en especie, directos y sin intermediarios, para personas afectadas por emergencias sociales o naturales [chunk 6412022] |\n| **Pensión para el Bienestar de las Personas Adultas Mayores** y **Pensión para el Bienestar de las Personas con Discapacidad Permanente** (Secretaría de Bienestar) | 22‑ene‑2025, matutina. En el mismo documento se expiden las dos reglas [chunk 6415205] | En 2025, la PBPAM asciende a $3,100 pesos mensuales pagaderos bimestralmente, según el Programa Sectorial de Bienestar [chunk 6626627] |\n| **Programa de Apoyo para el Bienestar de las Niñas y Niños, Hijos de Madres Trabajadoras** (Secretaría de Bienestar) | 24‑ene‑2025, matutina [chunk 6418523] | $1,650 bimestrales por niño (hasta 4 años) y $3,720 bimestrales por niño con discapacidad (hasta 6 años); en modalidad B (orfandad materna), $830, $1,130 o $1,240 bimestrales según edad [chunk 6418532, chunk 6418535] |\n| **Producción para el Bienestar** (Secretaría de Agricultura) | 28‑ene‑2025, matutina [chunk 6423616] | Entre $6,200 y $10,000 pesos por productor, según estrato y superficie, y $1,200 por hectárea adicional |\n| **Pensión Mujeres Bienestar** (Secretaría de Bienestar) | 31‑ene‑2025, matutina | $1,500 mensuales (bimestrales), más pago de marcha por el mismo monto, para mujeres de 60‑64 años en municipios indígenas/afromexicanos y 63‑64 años en el resto del país [chunk 6426036] |\n| **Beca Universal para Estudiantes de Educación Básica \"Rita Cetina\"** (SEP) | 5‑feb‑2025, vespertina | $1,900 bimestrales por familia, más $700 bimestrales por NNA adicional en secundaria, hasta 5 bimestres [chunk 6427287] |\n| **Programa Jóvenes Escribiendo el Futuro** y **Beca Universal de Educación Media Superior Benito Juárez** (SEP) | 13‑feb‑2025, matutina | Jóvenes Escribiendo el Futuro: $5,800 bimestrales para TSU/licenciatura en escuelas prioritarias. Beca Benito Juárez media superior: $1,900 bimestrales, hasta 5 bimestres [chunk 6430554, chunk 6430597] |\n| **Sembrando Vida** (Secretaría de Bienestar) | 21‑feb‑2025, matutina | $6,450 mensuales a mes vencido por persona sujeta de derecho, más apoyos adicionales y en especie [chunk 6436681] |\n| **Salud Casa por Casa** | 28‑feb‑2025, vespertina | Lineamientos de operación (programa de atención domiciliaria; incluye componentes en efectivo y en especie) |\n\n## Marco general publicado en 2025\n\n- **Decreto por el que se aprueba el Programa Sectorial de Bienestar 2025‑2030** (26‑nov‑2025). Define la ruta para los programas priorizados (PBPAM, PBPCD, Becas Benito Juárez, Jóvenes Construyendo el Futuro, Producción para el Bienestar y Sembrando Vida), y ratifica las cifras del PBPAM en 2025 ($3,100 mensuales) y los lineamientos del programa de Hijos de Madres Trabajadoras, incluyendo nuevos apoyos por orfandad materna [chunk 6626626, chunk 6626627, chunk 6626653].\n\n## Nota importante sobre dos programas que no publicaron reglas en 2025\n\n- **Jóvenes Construyendo el Futuro** (STPS): sus reglas fueron publicadas el 31‑dic‑2024; en enero de 2025 solo se publicó una nota aclaratoria [chunk 6417947].\n- Las reglas para el ejercicio 2025 de la Pensión Adultos Mayores sí se publicaron (22‑ene‑2025), mientras que las correspondientes al ejercicio 2026 ya salieron en 2026.\n\n¿Te interesa algún monto, población objetivo o fecha en particular?"
+}

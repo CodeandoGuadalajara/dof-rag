@@ -1,0 +1,11 @@
+{
+  "variant": "fase1-hybrid",
+  "today": "2026-10-15",
+  "model": "Qwen3.8-Flash-Next",
+  "base_url": "http://127.0.0.1:8888/v1",
+  "reasoning_effort": "low",
+  "enable_thinking": true,
+  "seed": null,
+  "code_revision": "d2d42672fd5e74291cb4a056160d228d96efc81f",
+  "started_at": "2026-10-15T13:33:36-0600"
+}

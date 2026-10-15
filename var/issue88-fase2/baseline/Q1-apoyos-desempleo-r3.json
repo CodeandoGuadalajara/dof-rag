@@ -1,0 +1,544 @@
+{
+  "qid": "Q1-apoyos-desempleo",
+  "rep": 3,
+  "question": "¿Qué apoyos del gobierno federal existen para una persona que perdió su empleo?",
+  "elapsed_s": 197.648,
+  "stop_reason": "completed",
+  "model_turns": 55,
+  "tool_calls": 54,
+  "usage": {
+    "input_tokens": 1372634,
+    "output_tokens": 9585,
+    "total_tokens": 1382219
+  },
+  "citations": [
+    5002054,
+    6126405,
+    6627260,
+    6627266
+  ],
+  "reasoning_tokens": [
+    45,
+    48,
+    101,
+    78,
+    79,
+    68,
+    66,
+    113,
+    101,
+    117,
+    307,
+    53,
+    102,
+    96,
+    136,
+    62,
+    45,
+    111,
+    112,
+    106,
+    109,
+    48,
+    214,
+    112,
+    69,
+    49,
+    34,
+    114,
+    32,
+    49,
+    75,
+    27,
+    62,
+    27,
+    97,
+    116,
+    49,
+    21,
+    22,
+    31,
+    111,
+    30,
+    186,
+    55,
+    124,
+    543,
+    16,
+    30,
+    177,
+    63,
+    22,
+    69,
+    21,
+    103,
+    828
+  ],
+  "searches": [
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "apoyo desempleo seguro paro trabajadores"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "seguro de desempleo protección al salario Ley de los Sistemas de Ahorro para el Retiro"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "seguro por tiempo de desempleo trabajadores protección al salario prestaciones"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Seguro de Desempleo Ley de los Sistemas de Ahorro para el Retiro reforma"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "apoyos para personas sin empleo programa federal bienestar desempleo"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Ley Federal del Trabajo despido indemnización finiquito salario caído"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Programa Nacional Becas Bienestar apoyos económicos 2024 2025"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "protección al salario seguro desempleo reforma Ley Federal del Trabajo prestaciones seguridad social"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "decreto reforma Ley de los Sistemas de Ahorro para el Retiro seguro por tiempo de desempleo protección"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Reglas de Operación Programa Producción para el Bienestar Jóvenes Construyendo el Futuro apoyo temporal"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Ley Federal del Trabajo indemnización constitucional despido injustificado tres meses salario prima de antigüedad"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "apoyo a trabajadores sin empleo subsidio temporal empleo temporal federal programa"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Ley Federal del Trabajo artículo 50 indemnización finiquito separación injustificada"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "decreto reforma Ley Federal del Trabajo artículo 717 seguro protección al salario desempleo"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "decreto reforma diciembre 2014 seguro de desempleo prestaciones económicas Ley Sistemas Ahorro Retiro"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Ley de los Sistemas de Ahorro para el Retiro artículo 284 seguro desempleo retiro cesantía en edad avanzada"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Reglas Operación Programa Prosperar Bienestar Adultos Mayores apoyo universal"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "decreto reforma Ley del Seguro Social seguro de desempleo 2014 prestaciones"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2014-01-01",
+        "date_to": "2015-12-31",
+        "section": null,
+        "query": "reformas Ley de los Sistemas de Ahorro para el Retiro seguro cesantía desempleo retiro"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2014-12-20",
+        "date_to": "2014-12-31",
+        "section": null,
+        "query": "decreto reforma Ley de los Sistemas de Ahorro para el Retiro seguro desempleo retiro cesantía"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2014-12-22",
+        "date_to": "2015-01-10",
+        "section": null,
+        "query": "sistemas ahorro retiro reforma prestaciones seguro"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Programa Nacional Empleo Productivo Bienestar apoyo económico temporal personas desempleadas"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "seguro protección al salario derecho prestaciones sociales IMSS trabajador desempleado subsidio"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Ley Federal del Trabajo indemnización despido artículo 47 48 50 finiquito"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Programa Sectorial Trabajo Previsión Social 2025 2030"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Programa Apoyo al Empleo PAE subsidio temporal temporalidad"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": "EXT",
+        "query": "Ley de los Sistemas Ahorro Retiro artículo seguro desempleo retiro cesantía reforma decreto"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 0,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "\"seguro de desempleo\" prestaciones Ley Federal del Trabajo reforma artículo"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 3,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "\"Programa de Apoyo al Empleo\" \"PAE\" subsidio apoyos temporales"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 3,
+      "ok": true
+    }
+  ],
+  "answer": "Con la información del corpus del DOF, puedo decirte lo siguiente sobre los apoyos federales disponibles para una persona que perdió su empleo:\n\n---\n\n## 1. Programa de Apoyo al Empleo (PAE) / Servicio Nacional de Empleo (SNE)\n\nLa Secretaría del Trabajo y Previsión Social (STPS) opera el Servicio Nacional de Empleo, que ofrece a las personas buscadoras de empleo (mayores de 18 años) [chunk 5002054]:\n\n- **Intermediación laboral** (gratuita): bolsa de trabajo, ferias de empleo, y portal electrónico para vincular a buscadores con vacantes.\n- **Capacitación para la empleabilidad**: cursos de 1 a 3 meses con:\n  - **Beca de $150 a $300 pesos por día** de asistencia.\n  - **Seguro contra accidentes** durante el curso.\n  - Materiales de capacitación incluidos.\n- **Movilidad laboral**: para trasladarse a otro estado o país por trabajo.\n- **Estrategia \"Abriendo Espacios\"**: atención especial para personas con discapacidad y adultos mayores.\n\nEstas acciones se refuerzan en el **Programa Sectorial de Trabajo y Previsión Social 2025-2030** (publicado el 27 de noviembre de 2025), cuyo objetivo es \"promover la colocación de personas buscadoras de empleo en puestos de trabajo formales\" [chunk 6627266].\n\n## 2. Programa Jóvenes Construyendo el Futuro (para jóvenes de 18 a 29 años)\n\nPara jóvenes desempleados que además no estudian, la STPS ofrece [chunk 6126405]:\n\n- **Apoyo económico**: **$7,572 pesos mensuales** (equivale al salario mínimo, actualizado anualmente) por hasta **12 meses**.\n- **Capacitación en un centro de trabajo** con tutor.\n- **Seguro médico del IMSS**: mediante decreto, se incorporaron a los becarios al régimen obligatorio del Seguro Social (seguros de Enfermedades y Maternidad, y Riesgos de Trabajo) [cita no verificada].\n\n## 3. Sistema de Justicia Laboral\n\nSi la pérdida del empleo fue por despido, la reforma laboral creó los Centros de Conciliación Laboral, donde la persona puede exigir:\n\n- **Conciliación obligatoria**: en 2024, el 72.4% de los conflictos laborales individuales se resolvieron mediante convenio [chunk 6627260].\n- Posibilidad de reclamar **indemnización constitucional** (3 meses de salario más prima de antigüedad y salarios vencidos), aunque estos artículos específicos de la Ley Federal del Trabajo no los encontré en el corpus consultado.\n\n## 4. Acceso a financiamiento (FONACOT)\n\nPara personas que tuvieron empleo formal, el Instituto FONACOT ofrece créditos en condiciones favorables, como el producto \"Mujer Efectivo\" [chunk 6627266].\n\n---\n\n**Nota importante**: No encontré en el corpus algún documento del DOF vigente que describa un **\"Seguro de Desempleo\"** federal activo con pagos directos periódicos (como existen en otros países). El marco legal de la seguridad social mexicana cubre principalmente vejez, invalidez, salud y riesgos de trabajo, pero no cuenta con un mecanismo robusto de seguro por desempleo no involuntario vigente, según la información disponible en las fuentes consultadas."
+}
