@@ -371,6 +371,7 @@ class AgentRunExecutor:
                     return _public_result(run_chat(
                         backend, DofToolbox(retriever, embedder=embedder), request,
                         on_progress=on_progress,
+                        retrieval_strategy=self.config.retrieval_mode,
                     ))
                 run = AgentRunner(
                     backend,
