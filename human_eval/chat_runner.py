@@ -38,8 +38,10 @@ def chat_instructions(*, as_of: str | None = None, today: str | None = None) -> 
     today = today or date.today().isoformat()
     lines = [
         INSTRUCTIONS,
-        f"La fecha de hoy es {today}; el corpus puede no incluir las "
-        "publicaciones más recientes.",
+        (
+            f"La fecha de hoy es {today}; el corpus puede no incluir las "
+            "publicaciones más recientes."
+        ),
     ]
     if as_of:
         lines.append(

@@ -62,7 +62,7 @@ class AgentExecutorConfig:
     base_url: str | None = None
 
     @classmethod
-    def from_env(cls, repo_root: str | Path) -> "AgentExecutorConfig":
+    def from_env(cls, repo_root: str | Path) -> AgentExecutorConfig:
         root = Path(repo_root).resolve()
         provider = os.environ.get("DOF_AGENT_PROVIDER", "llama-server")
         if provider not in {"openai-responses", "kimi-code", "llama-server"}:
