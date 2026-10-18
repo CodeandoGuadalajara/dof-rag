@@ -49,7 +49,7 @@ class SchedulerCleanupTests(unittest.TestCase):
                 ''').replace("FAILURE", repr(failure))
                 result = subprocess.run(
                     [sys.executable, "-c", program],
-                    capture_output=True, text=True, timeout=10,
+                    capture_output=True, text=True, timeout=10, check=False,
                 )
                 self.assertEqual(result.returncode, 1, result.stderr)
 
@@ -65,15 +65,16 @@ class SchedulerCleanupTests(unittest.TestCase):
                 completed = []
                 original_poll = scheduler.poll_once
 
-                def poll():
-                    scheduler._pool.submit(lambda: completed.append(True))
+                def poll(scheduler=scheduler, completed=completed,
+                         original_poll=original_poll):
+                    scheduler._pool.submit(lambda completed=completed: completed.append(True))
                     return original_poll()
 
                 closed_after = []
-                executor.close.side_effect = lambda: closed_after.extend(completed)
-                with mock.patch.object(scheduler, "poll_once", side_effect=poll):
-                    with self.assertRaisesRegex(RuntimeError, source):
-                        scheduler.run()
+                executor.close.side_effect = lambda completed=completed, closed_after=closed_after: closed_after.extend(completed)
+                with (mock.patch.object(scheduler, "poll_once", side_effect=poll),
+                      self.assertRaisesRegex(RuntimeError, source)):
+                    scheduler.run()
                 executor.close.assert_called_once()
                 self.assertEqual(closed_after, [True])
                 self.assertIsNone(scheduler._pool)

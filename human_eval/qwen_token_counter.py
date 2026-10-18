@@ -22,7 +22,7 @@ class QwenTokenCounter:
         messages = deepcopy(messages)
         for message in messages:
             if not isinstance(message.get("content", ""), (str, type(None))):
-                raise ValueError("only text messages are supported")
+                raise TypeError("only text messages are supported")
             if message.get("content") is None:
                 message["content"] = ""
             for call in message.get("tool_calls", []):
@@ -31,9 +31,9 @@ class QwenTokenCounter:
                     parsed = json.loads(arguments)
                     if isinstance(parsed, dict):
                         call["function"]["arguments"] = parsed
-        kwargs = dict(add_generation_prompt=True, tokenize=False,
-                      enable_thinking=self.enable_thinking,
-                      thinking_mode="thinking" if self.enable_thinking else "chat")
+        kwargs = {"add_generation_prompt": True, "tokenize": False,
+                  "enable_thinking": self.enable_thinking,
+                  "thinking_mode": "thinking" if self.enable_thinking else "chat"}
         if tools:
             kwargs["tools"] = tools
         if self.enable_thinking and self.reasoning_effort:

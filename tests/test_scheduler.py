@@ -340,13 +340,12 @@ class CrossProcessAdmissionTests(unittest.TestCase):
         self.store.append_event(created["run_id"], "succeeded", {"answer": {}})
         with mock.patch.object(
             second.store, "find_idempotent_run", return_value=None
-        ):
-            with self.assertRaises(IdempotencyConflictError):
-                second.submit(
-                    RunRequest("distinta", client_request_id="shared-key"),
-                    user_id="user",
-                    admin=True,
-                )
+        ), self.assertRaises(IdempotencyConflictError):
+            second.submit(
+                RunRequest("distinta", client_request_id="shared-key"),
+                user_id="user",
+                admin=True,
+            )
 
     def test_same_idempotency_retry_wins_over_admission_rejections(self):
         first = EvaluationService(self.store, queue_capacity=1)
@@ -506,7 +505,7 @@ class SchedulerFailureTests(unittest.TestCase):
         self.store.initialize()
 
     def test_persistence_failure_stops_scheduler_for_supervised_restart(self):
-        scheduler, thread = start_scheduler(self.store, FakeExecutor())
+        _, thread = start_scheduler(self.store, FakeExecutor())
         service = EvaluationService(self.store)
         service.start()
         # A terminal write that cannot persist strands the run in 'started';

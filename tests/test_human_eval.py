@@ -951,9 +951,9 @@ class ServiceTests(SchedulerTestCase):
             user_id="u2",
             admin=True,
         )
-        with self.assertLogs("human_eval.service", level="WARNING") as captured:
-            with self.assertRaises(QueueFullError):
-                service.submit(
+        with (self.assertLogs("human_eval.service", level="WARNING") as captured,
+              self.assertRaises(QueueFullError)):
+            service.submit(
                     RunRequest("tercera", client_request_id="q3"),
                     user_id="u3",
                     admin=True,
@@ -970,13 +970,13 @@ class ServiceTests(SchedulerTestCase):
             admin=True,
         )
         self.assertTrue(executor.started.wait(timeout=3))
-        with self.assertLogs("human_eval.service", level="WARNING") as captured:
-            with self.assertRaises(ActiveRunError):
-                service.submit(
-                    RunRequest("segunda", client_request_id="active-2"),
-                    user_id="sensitive-user-id",
-                    admin=True,
-                )
+        with (self.assertLogs("human_eval.service", level="WARNING") as captured,
+              self.assertRaises(ActiveRunError)):
+            service.submit(
+                RunRequest("segunda", client_request_id="active-2"),
+                user_id="sensitive-user-id",
+                admin=True,
+            )
         message = captured.output[0]
         self.assertIn("active run exists", message)
         self.assertIn("depth=0", message)

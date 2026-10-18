@@ -27,7 +27,7 @@ class ConversationTests(AirAppTestCase):
 
     def test_new_selection_append_and_history_are_conversation_scoped(self):
         self.as_user('alice')
-        alpha, first = self.send('/chat?new=1', 'Pregunta alfa')
+        alpha, _first = self.send('/chat?new=1', 'Pregunta alfa')
         same, second = self.send(alpha, 'Continúa con alfa')
         self.assertEqual(alpha, same)
         beta, third = self.send('/chat?new=1', 'Pregunta beta')

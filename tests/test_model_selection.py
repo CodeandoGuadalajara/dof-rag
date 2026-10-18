@@ -46,9 +46,11 @@ class ModelSelectionTests(unittest.TestCase):
             self.assertEqual(json.loads(output.getvalue())["request"], body)
             raise httpx.ReadTimeout("simulated", request=request)
 
-        with httpx.Client(transport=httpx.MockTransport(timeout), event_hooks={"request": [lambda request: capture_chat_request(request, output)]}) as client:
-            with self.assertRaises(httpx.ReadTimeout):
-                client.post("http://127.0.0.1:1/v1/chat/completions", json=body, headers={"Authorization": "Bearer secret-test-key"})
+        with (
+            httpx.Client(transport=httpx.MockTransport(timeout), event_hooks={"request": [lambda request: capture_chat_request(request, output)]}) as client,
+            self.assertRaises(httpx.ReadTimeout),
+        ):
+            client.post("http://127.0.0.1:1/v1/chat/completions", json=body, headers={"Authorization": "Bearer secret-test-key"})
         self.assertNotIn("secret-test-key", output.getvalue())
         self.assertEqual(len(output.getvalue().splitlines()), 1)
 
@@ -154,9 +156,9 @@ class ModelSelectionTests(unittest.TestCase):
 
     def test_stream_errors_are_not_successful_tokens(self):
         wire = b'data: {"error":"invalid request"}\n\n'
-        with patch("urllib.request.urlopen", return_value=io.BytesIO(wire)):
-            with self.assertRaisesRegex(RuntimeError, "Streaming server error"):
-                stream_request("http://127.0.0.1:8000/v1", "dummy", {})
+        with (patch("urllib.request.urlopen", return_value=io.BytesIO(wire)),
+              self.assertRaisesRegex(RuntimeError, "Streaming server error")):
+            stream_request("http://127.0.0.1:8000/v1", "dummy", {})
         self.assertEqual(
             summaries([{"case": "bad", "error": "failed"}]),
             [{"case": "bad", "successful_requests": 0}],
@@ -533,7 +535,7 @@ class ModelSelectionTests(unittest.TestCase):
         for skips_unknown in (False, True):
             module = types.ModuleType("dates")
 
-            def date(text):
+            def date(text, skips_unknown=skips_unknown):
                 if "inventado" in text and skips_unknown:
                     return "2016-02-05"
                 if "inventado" in text or "30 de febrero" in text:
@@ -568,12 +570,12 @@ class ModelSelectionTests(unittest.TestCase):
         )
         log = io.StringIO()
         env = {"json": json, "time": time, "http_log": log}
-        exec(compile(ast.Module(body=[callback], type_ignores=[]), str(source), "exec"), env)
+        exec(compile(ast.Module(body=[callback], type_ignores=[]), str(source), "exec"), env)  # noqa: S102
         payload = {"messages": [], "seed": 1234, "max_tokens": 2400}
         for status in (200, 400):
             with httpx.Client(
                 transport=httpx.MockTransport(
-                    lambda request: httpx.Response(
+                    lambda request, status=status: httpx.Response(
                         status,
                         stream=httpx.ByteStream(json.dumps({"status": status}).encode()),
                     )
@@ -603,7 +605,7 @@ class ModelSelectionTests(unittest.TestCase):
             env = {"args": types.SimpleNamespace(seed=1234, startup_max_tokens=budget,
                                                 thinking="on", finalization="original"),
                    "transform": None, "original_create": lambda **request: request}
-            exec(compile(ast.Module(body=[callback], type_ignores=[]), str(source), "exec"), env)
+            exec(compile(ast.Module(body=[callback], type_ignores=[]), str(source), "exec"), env)  # noqa: S102
             smoke = env["seeded_create"](max_tokens=512, extra_body={
                 "chat_template_kwargs": {"enable_thinking": False}})
             self.assertEqual(smoke["max_tokens"], budget)

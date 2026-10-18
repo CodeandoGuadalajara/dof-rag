@@ -11,7 +11,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from math import ceil
 from typing import Any
 
@@ -133,13 +133,12 @@ class EvaluationService:
             if not self._started:
                 raise RuntimeError("service has not started")
             daily_since: str | None = None
-            if not admin:
-                if daily_question_limit >= 1:
-                    daily_since = (
-                        (datetime.now(timezone.utc) - timedelta(hours=24))
-                        .isoformat()
-                        .replace("+00:00", "Z")
-                    )
+            if not admin and daily_question_limit >= 1:
+                daily_since = (
+                    (datetime.now(UTC) - timedelta(hours=24))
+                    .isoformat()
+                    .replace("+00:00", "Z")
+                )
             try:
                 run, _ = self.store.create_run(
                     request,
@@ -194,9 +193,9 @@ class EvaluationService:
         run = self.store.get_run(run_id)
         if run is None:
             raise KeyError(run_id)
-        if not admin and not self._is_public(run):
-            if user_id is None or not self.store.run_belongs_to(run_id, user_id):
-                raise KeyError(run_id)
+        if (not admin and not self._is_public(run)
+                and (user_id is None or not self.store.run_belongs_to(run_id, user_id))):
+            raise KeyError(run_id)
         run["events_url"] = f"/runs/{run_id}/events"
         if run["status"] == "queued":
             position = self.store.queue_position(run_id)
@@ -216,7 +215,7 @@ class EvaluationService:
         )
         available = self.store.model_activity(self.model_concurrency)["available"]
         batches = ceil(max(0, position - available) / self.model_concurrency)
-        return max(0, int(round(batches * average)))
+        return max(0, round(batches * average))
 
     def queue_retry_after(self) -> int:
         """Estimate when the next completion should free one queue place."""
@@ -224,7 +223,7 @@ class EvaluationService:
         average = (
             sum(durations) / len(durations) if durations else DEFAULT_RUN_SECONDS
         )
-        return max(60, int(round(average)))
+        return max(60, round(average))
 
     def queue_snapshot(self) -> dict[str, int]:
         """Return shared queue state for the status UI and health endpoints."""

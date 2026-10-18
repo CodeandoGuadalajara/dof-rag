@@ -19,14 +19,14 @@ class PartialFlushTests(unittest.TestCase):
         def interrupted(*args, **kwargs):
             backend.on_delta('content', 'Último fragmento')
             raise TokenCeilingReached('budget exhausted', used=7)
-        with patch.object(executor, '_backend', return_value=backend), \
-             patch('human_eval.agent_executor.monotonic', return_value=0), \
-             patch('human_eval.qwen_token_counter.QwenTokenCounter'), \
-             patch('human_eval.agent_executor.DofRetriever'), \
-             patch('human_eval.chat_runner.run_chat', side_effect=interrupted):
-            with self.assertRaises(PublicExecutionError):
-                executor.execute(RunRequest('Pregunta', token_limit=10),
-                    on_progress=lambda kind, payload: events.append((kind, payload)))
+        with (patch.object(executor, '_backend', return_value=backend),
+              patch('human_eval.agent_executor.monotonic', return_value=0),
+              patch('human_eval.qwen_token_counter.QwenTokenCounter'),
+              patch('human_eval.agent_executor.DofRetriever'),
+              patch('human_eval.chat_runner.run_chat', side_effect=interrupted),
+              self.assertRaises(PublicExecutionError)):
+            executor.execute(RunRequest('Pregunta', token_limit=10),
+                on_progress=lambda kind, payload: events.append((kind, payload)))
         self.assertEqual(events[0][1]['text'], 'Último fragmento')
         self.assertEqual(events[0][1]['chat_delta'], 'content')
 

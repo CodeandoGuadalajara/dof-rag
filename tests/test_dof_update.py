@@ -155,13 +155,12 @@ class DailyUpdateTests(unittest.TestCase):
         response.raise_for_status = lambda: None
         session.get.return_value = response
 
-        with tempfile.TemporaryDirectory() as temporary:
-            with mock.patch.object(
-                get_word_dof, "process_sidof_notices", return_value=0
-            ) as notices:
-                downloaded = get_word_dof.process_dof_page(
-                    session, "26/08/2026", "MAT", Path(temporary), sleep_delay=0
-                )
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
+            get_word_dof, "process_sidof_notices", return_value=0
+        ) as notices:
+            downloaded = get_word_dof.process_dof_page(
+                session, "26/08/2026", "MAT", Path(temporary), sleep_delay=0
+            )
 
         self.assertEqual(downloaded, 0)
         notices.assert_called_once()
@@ -173,17 +172,17 @@ class DailyUpdateTests(unittest.TestCase):
         response.raise_for_status = lambda: None
         session.get.return_value = response
 
-        with tempfile.TemporaryDirectory() as temporary:
-            with (
-                mock.patch.object(get_word_dof, "ERROR_COUNT", 0),
-                mock.patch.object(
-                    get_word_dof, "process_sidof_notices", return_value=0
-                ),
-            ):
-                get_word_dof.process_dof_page(
-                    session, "26/08/2026", "MAT", Path(temporary), sleep_delay=0
-                )
-                self.assertEqual(get_word_dof.ERROR_COUNT, 1)
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            mock.patch.object(get_word_dof, "ERROR_COUNT", 0),
+            mock.patch.object(
+                get_word_dof, "process_sidof_notices", return_value=0
+            ),
+        ):
+            get_word_dof.process_dof_page(
+                session, "26/08/2026", "MAT", Path(temporary), sleep_delay=0
+            )
+            self.assertEqual(get_word_dof.ERROR_COUNT, 1)
 
     def test_malformed_sidof_listing_is_an_error(self):
         session = mock.Mock()

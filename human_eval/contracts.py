@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import Any
 
 RATINGS = frozenset({"helpful", "partially_helpful", "not_helpful"})
@@ -31,7 +31,7 @@ class ContractError(ValueError):
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _reject_unknown(data: dict[str, Any], allowed: set[str]) -> None:
@@ -52,7 +52,7 @@ class RunRequest:
     is_chat: bool = False
 
     @classmethod
-    def from_dict(cls, data: Any) -> "RunRequest":
+    def from_dict(cls, data: Any) -> RunRequest:
         if not isinstance(data, dict):
             raise ContractError("request body must be a JSON object")
         _reject_unknown(
@@ -114,7 +114,7 @@ class FeedbackRequest:
     comment: str = ""
 
     @classmethod
-    def from_dict(cls, data: Any) -> "FeedbackRequest":
+    def from_dict(cls, data: Any) -> FeedbackRequest:
         if not isinstance(data, dict):
             raise ContractError("request body must be a JSON object")
         _reject_unknown(data, {"rating", "problem_types", "comment"})

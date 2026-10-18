@@ -27,7 +27,7 @@ import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlparse
@@ -104,7 +104,7 @@ class WebSettings:
     schema_wait_seconds: float = 0.0
 
     @classmethod
-    def from_env(cls, repo_root: Path) -> "WebSettings":
+    def from_env(cls, repo_root: Path) -> WebSettings:
         session_secret = os.environ.get("DOF_SESSION_SECRET", "")
         if len(session_secret) < 32:
             raise ValueError("set DOF_SESSION_SECRET to at least 32 characters")
@@ -152,15 +152,15 @@ def _seconds_between(start: Any, end: Any) -> float | None:
     if not isinstance(start, str) or not isinstance(end, str):
         return None
     try:
-        began = datetime.fromisoformat(start.replace("Z", "+00:00"))
-        finished = datetime.fromisoformat(end.replace("Z", "+00:00"))
+        began = datetime.fromisoformat(start)
+        finished = datetime.fromisoformat(end)
     except ValueError:
         return None
     return max(0.0, (finished - began).total_seconds())
 
 
 def _fmt_duration(seconds: float) -> str:
-    total = int(round(seconds))
+    total = round(seconds)
     minutes, secs = divmod(total, 60)
     if minutes:
         return f"{minutes} min {secs} s"
@@ -939,7 +939,7 @@ def _attach_chunk_html(event: dict[str, Any]) -> None:
             chunk["excerpt_html"] = render_markdown_html(excerpt)
 
 
-def _queue_wait_text(seconds: int | float | None) -> str:
+def _queue_wait_text(seconds: float | None) -> str:
     if seconds is None:
         return "Espera aproximada: calculando…"
     if seconds < 60:
@@ -1262,7 +1262,7 @@ def create_app(
                     review_target = service.store.next_answer_to_review(user.id)
                 elif settings.daily_question_limit >= 1:
                     cutoff = (
-                        (datetime.now(timezone.utc) - timedelta(hours=24))
+                        (datetime.now(UTC) - timedelta(hours=24))
                         .isoformat()
                         .replace("+00:00", "Z")
                     )
@@ -1336,10 +1336,11 @@ def create_app(
         remaining = service.store.token_balance(user.id)
         conversations = service.store.chat_conversations(user.id)
         selected = conversation_id or request.query_params.get('conversation')
-        if selected is not None and not any(item['conversation_id'] == selected for item in conversations):
-            # An unsaved UUID is allowed only when returning a failed form.
-            if not error:
-                return HTMLResponse(_not_found_page('Conversación no encontrada', 'Esta conversación no existe o no pertenece a tu cuenta.', user=user, csrf_token=_csrf(request), page_scripts=page_scripts), status_code=404)
+        # An unsaved UUID is allowed only when returning a failed form.
+        if (selected is not None
+                and not any(item['conversation_id'] == selected for item in conversations)
+                and not error):
+            return HTMLResponse(_not_found_page('Conversación no encontrada', 'Esta conversación no existe o no pertenece a tu cuenta.', user=user, csrf_token=_csrf(request), page_scripts=page_scripts), status_code=404)
         if selected is None and request.query_params.get('new') != '1' and conversations:
             selected = conversations[0]['conversation_id']
         selected = selected or str(uuid.uuid4())

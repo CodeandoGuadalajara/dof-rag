@@ -24,9 +24,9 @@ class EmbeddingServerTests(unittest.TestCase):
                 side_effect=RuntimeError("occupied"),
             ),
             mock.patch("corpus_store.embed.subprocess.Popen") as popen,
+            self.assertRaisesRegex(RuntimeError, "occupied"),
         ):
-            with self.assertRaisesRegex(RuntimeError, "occupied"):
-                start_server(Path("model.gguf"), ctx=8192, port=8086)
+            start_server(Path("model.gguf"), ctx=8192, port=8086)
         popen.assert_not_called()
 
     def test_start_server_reaps_a_child_that_exits_during_startup(self):
@@ -35,9 +35,9 @@ class EmbeddingServerTests(unittest.TestCase):
         with (
             mock.patch("corpus_store.embed._assert_port_available"),
             mock.patch("corpus_store.embed.subprocess.Popen", return_value=process),
+            self.assertRaisesRegex(RuntimeError, "code 9"),
         ):
-            with self.assertRaisesRegex(RuntimeError, "code 9"):
-                start_server(Path("model.gguf"), ctx=8192, port=8086)
+            start_server(Path("model.gguf"), ctx=8192, port=8086)
         process.wait.assert_called_once_with()
 
     def test_stop_server_kills_a_child_that_ignores_terminate(self):
@@ -100,7 +100,7 @@ class EmbeddingServerTests(unittest.TestCase):
             def run_query():
                 try:
                     embedder.embed_query("consulta")
-                except BaseException as exc:
+                except BaseException as exc:  # noqa: BLE001 (capture any embedder failure)
                     errors.append(exc)
 
             def run_close():

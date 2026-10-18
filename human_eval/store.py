@@ -574,10 +574,8 @@ class EvaluationStore:
         durations: list[float] = []
         for row in rows:
             try:
-                began = datetime.fromisoformat(row["started_at"].replace("Z", "+00:00"))
-                ended = datetime.fromisoformat(
-                    row["finished_at"].replace("Z", "+00:00")
-                )
+                began = datetime.fromisoformat(row["started_at"])
+                ended = datetime.fromisoformat(row["finished_at"])
             except (TypeError, ValueError):
                 continue
             durations.append(max(0.0, (ended - began).total_seconds()))

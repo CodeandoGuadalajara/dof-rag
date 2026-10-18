@@ -12,7 +12,7 @@ class ChatMigrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = EvaluationStore(Path(directory) / 'eval.sqlite')
             store.initialize()
-            run, _ = store.create_run(RunRequest('Historial existente'), user_id='alice', reserved_tokens=1000)
+            _run, _ = store.create_run(RunRequest('Historial existente'), user_id='alice', reserved_tokens=1000)
             with store._connect() as connection:
                 conversations = [tuple(row) for row in connection.execute('SELECT * FROM chat_conversations')]
                 messages = [tuple(row) for row in connection.execute('SELECT * FROM chat_messages')]

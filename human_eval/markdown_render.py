@@ -91,5 +91,6 @@ def render_markdown_html(text: Any) -> str:
             attributes=_ALLOWED_ATTRIBUTES,
             link_rel="noopener noreferrer nofollow",
         )
-    except Exception:
+    # Sanitizer/markdown failures must never break rendering of the source.
+    except Exception:  # noqa: BLE001
         return f'<p class="chunk-text">{html.escape(source)}</p>'

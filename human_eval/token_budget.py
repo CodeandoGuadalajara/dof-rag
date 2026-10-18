@@ -1,7 +1,7 @@
 """Transactional token reservations; shared by web workers and the scheduler."""
 
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 # Matches the recipe's 262,144-token context capacity numerically;
 # this is cumulative usage over 24h, not a model context-window setting.
@@ -24,7 +24,7 @@ def initialize(connection: sqlite3.Connection) -> None:
 
 
 def balance(connection: sqlite3.Connection, user_id: str, *, limit: int = DAILY_TOKEN_LIMIT) -> int:
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    cutoff = (datetime.now(UTC) - timedelta(hours=24)).isoformat()
     charged = connection.execute(
         "SELECT COALESCE(SUM(COALESCE(used, reserved)), 0) "
         "FROM token_reservations WHERE user_id = ? "
@@ -52,7 +52,7 @@ def reserve(connection: sqlite3.Connection, run_id: str, user_id: str, tokens: i
         raise TokenBudgetExceeded("Insufficient tokens in the rolling 24-hour budget")
     connection.execute(
         "INSERT INTO token_reservations VALUES (?, ?, ?, ?, NULL)",
-        (run_id, user_id, datetime.now(timezone.utc).isoformat(), tokens),
+        (run_id, user_id, datetime.now(UTC).isoformat(), tokens),
     )
 
 
