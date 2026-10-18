@@ -1,0 +1,11 @@
+{
+  "variant": "baseline",
+  "today": "2026-10-15",
+  "model": "Qwen3.8-Flash-Next",
+  "base_url": "http://127.0.0.1:8888/v1",
+  "reasoning_effort": "low",
+  "enable_thinking": true,
+  "seed": null,
+  "code_revision": "720d1be7ea9d1315b80a717563247b965cd5fd8a",
+  "started_at": "2026-10-15T12:57:02-0600"
+}

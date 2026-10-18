@@ -1,0 +1,54 @@
+{
+  "qid": "Q3-consulta-historica",
+  "rep": 3,
+  "question": "¿Qué reforma laboral se publicó en el DOF en 2021 sobre la subcontratación y qué establecía respecto al reparto de utilidades?",
+  "elapsed_s": 52.208,
+  "stop_reason": "completed",
+  "model_turns": 11,
+  "tool_calls": 10,
+  "usage": {
+    "input_tokens": 93446,
+    "output_tokens": 2954,
+    "total_tokens": 96400
+  },
+  "citations": [
+    5344584,
+    5344585,
+    5344586,
+    5344591,
+    5415091,
+    5415092
+  ],
+  "reasoning_tokens": [
+    99,
+    96,
+    99,
+    55,
+    15,
+    49,
+    44,
+    118,
+    58,
+    34,
+    853
+  ],
+  "searches": [
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 10,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2021-01-01",
+        "date_to": "2021-12-31",
+        "section": null,
+        "query": "reforma laboral subcontratación outsourcing reparto de utilidades"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 10,
+      "ok": true
+    }
+  ],
+  "answer": "## La reforma en materia de subcontratación laboral de 2021\n\nEl decreto principal es el **\"DECRETO por el que se reforman, adicionan y derogan diversas disposiciones de la Ley Federal del Trabajo...\" en materia de Subcontratación Laboral**, publicado en el DOF el **23 de abril de 2021** (sección vespertina), y modificado por un segundo decreto publicado el **31 de julio de 2021**. [chunk 5344584][chunk 5415091]\n\n### Lo que estableció sobre subcontratación:\n\n1. **Prohibición de la subcontratación de personal** (artículo 12): Quedó prohibida cuando una persona física o moral \"proporciona o pone a disposición trabajadores propios en beneficio de otra.\" [chunk 5344584]\n\n2. **Se permite únicamente la subcontratación de servicios especializados o ejecución de obras especializadas** (artículo 13): Solo si no forman parte del objeto social ni de la actividad económica preponderante de la beneficiaria, siempre que el contratista esté registrado ante la STPS. [chunk 5344585]\n\n3. **Registro obligatorio ante STPS** (artículo 15): Las empresas que proporcionen servicios de subcontratación deben estar registradas en un padrón público renovable cada tres años. [chunk 5344585]\n\n4. **Responsabilidad solidaria del contratante** (artículo 14) y multas de 2,000 a 50,000 UMA por subcontratación irregular (artículo 1004-C). [chunk 5344586]\n\n### Lo que estableció sobre el reparto de utilidades:\n\nSe añadió una **fracción VIII al artículo 127 de la Ley Federal del Trabajo** que introduce un **tope a la participación de utilidades**: [chunk 5344586]\n\n> \"El monto de la participación de utilidades tendrá como límite máximo **tres meses del salario del trabajador** o el **promedio de la participación recibida en los últimos tres años**; se aplicará el monto que resulte más favorable al trabajador.\"\n\nAdemás, se reformó el **primer párrafo del artículo 127** para exigir **igualdad salarial y de prestaciones** entre los trabajadores de servicios especializados y los de la empresa beneficiaria. [chunk 5344585]\n\n### Entrada en vigor y transitorios relevantes:\n\n- El decreto principal entró en vigor el día siguiente a su publicación (24 de abril de 2021), excepto los artículos referidos al Apartado B del artículo 123 constitucional, que entrarían en vigor en el **ejercicio fiscal 2022**. [chunk 5344591]\n- El decreto modificador del 31 de julio de 2021 amplió plazos: el registro ante STPS quedó para el **1 de septiembre de 2021** y otros transitorios se ajustaron. [chunk 5415092]\n\n### Nota importante:\n\nEl tope de tres meses del reparto de utilidades fue objeto de **acciones de inconstitucionalidad promovidas ante la SCJN**. La información que tengo del corpus no permite verificar el resultado de esos juicios, por lo que no puedo confirmar si ese límite sigue vigente."
+}
