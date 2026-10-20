@@ -77,6 +77,12 @@ def _fold(text: str) -> str:
     return "".join(c for c in text if not unicodedata.combining(c))
 
 
+MATCH_HEADING_LIMIT = 2
+MATCH_HEADING_CHARS = 160
+EXCERPT_SOURCE_CHUNKS = 3
+EXCERPT_CHARS = 240
+
+
 def _tokens(text: str) -> list[str]:
     return TOKEN_RE.findall(_fold(text))
 
@@ -770,6 +776,51 @@ class DofRetriever:
             )
         return result
 
+    def _candidate_match_evidence(
+        self, document_id: int, query: str
+    ) -> tuple[list[str], str | None]:
+        """Best-matching headings and a brief excerpt for a document candidate.
+
+        Helps the model choose which candidates to open without reading chunks
+        blindly. Snippet only; not citable evidence (see read_chunks).
+        """
+        terms = [term for term in _match_query(query) if len(term) >= 4]
+        if not terms:
+            return [], None
+        rows = self.chunks.execute(
+            "SELECT chunk_id, heading_path FROM chunks "
+            "WHERE document_id = ? ORDER BY chunk_index",
+            (document_id,),
+        ).fetchall()
+        headings: list[str] = []
+        matched_chunk_ids: list[int] = []
+        for chunk_id, heading_path in rows:
+            parsed = _parse_heading_path(heading_path)
+            heading = " > ".join(parsed)[:MATCH_HEADING_CHARS] if parsed else ""
+            if heading and any(term in _fold(heading) for term in terms):
+                if heading not in headings:
+                    headings.append(heading)
+                matched_chunk_ids.append(int(chunk_id))
+            if (
+                len(headings) >= MATCH_HEADING_LIMIT
+                and len(matched_chunk_ids) >= EXCERPT_SOURCE_CHUNKS
+            ):
+                break
+        excerpt = None
+        if matched_chunk_ids:
+            records = self._chunk_metadata(matched_chunk_ids[:EXCERPT_SOURCE_CHUNKS])
+            reconstructed = self._reconstruct_records(list(records.values()))
+            for record, text in reconstructed:
+                folded = _fold(text)
+                positions = [folded.find(term) for term in terms]
+                positions = [position for position in positions if position >= 0]
+                if not positions:
+                    continue
+                start = max(0, min(positions) - 80)
+                excerpt = " ".join(text[start : start + EXCERPT_CHARS].split())
+                break
+        return headings[:MATCH_HEADING_LIMIT], excerpt
+
     def _records_for_documents(self, document_ids: list[int]) -> list[_ChunkRecord]:
         if not document_ids:
             return []
@@ -1059,6 +1110,9 @@ class DofRetriever:
             header = headers[doc_id]
             if _title_is_fragment(header.title):
                 header = self._document_header(doc_id, full=True)
+            match_headings, match_excerpt = self._candidate_match_evidence(
+                doc_id, query
+            )
             documents.append(
                 DocumentHit(
                     document_id=doc_id,
@@ -1073,6 +1127,8 @@ class DofRetriever:
                     institution=header.institution,
                     title_boost=title_boost,
                     recency_boost=recency.get(doc_id, 0.0),
+                    match_headings=match_headings,
+                    match_excerpt=match_excerpt,
                 )
             )
         return DocumentSearchResult(
