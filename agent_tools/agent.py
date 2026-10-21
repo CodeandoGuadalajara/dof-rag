@@ -808,7 +808,8 @@ class DofToolbox:
         descriptions = {
             "list_publications": "Lista publicaciones por fecha y sección sin buscar texto.",
             "search_documents": (
-                "Encuentra documentos candidatos con su fecha de publicación. "
+                "Encuentra documentos candidatos con su fecha de publicación, "
+                "encabezados coincidentes y un extracto breve (no citable). "
                 "No devuelve evidencia citable."
             ),
             "search_evidence": "Busca chunks relevantes dentro de documentos candidatos.",

@@ -1,0 +1,144 @@
+{
+  "qid": "Q4-modificaciones",
+  "rep": 1,
+  "question": "¿Qué modificaciones han tenido las reglas de operación del Programa Jóvenes Construyendo el Futuro y cuál es la versión más reciente publicada en el DOF?",
+  "elapsed_s": 111.47,
+  "stop_reason": "completed",
+  "model_turns": 21,
+  "tool_calls": 20,
+  "usage": {
+    "input_tokens": 335796,
+    "output_tokens": 5776,
+    "total_tokens": 341572
+  },
+  "citations": [
+    5165528,
+    5316798,
+    5424648,
+    6417947,
+    6652654,
+    6652655
+  ],
+  "reasoning_tokens": [
+    85,
+    676,
+    168,
+    120,
+    23,
+    19,
+    203,
+    131,
+    213,
+    126,
+    106,
+    13,
+    515,
+    60,
+    33,
+    17,
+    26,
+    23,
+    85,
+    53,
+    642
+  ],
+  "searches": [
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Reglas de Operación Programa Jóvenes Construyendo el Futuro"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2024-01-01",
+        "date_to": "2024-12-31",
+        "section": null,
+        "query": "Reglas de Operación Jóvenes Construyendo el Futuro 2024"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2024-12-25",
+        "date_to": "2025-01-05",
+        "section": null,
+        "query": "Reglas Operación Jóvenes Construyendo el Futuro"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2024-12-28",
+        "date_to": "2024-12-31",
+        "section": "MAT",
+        "query": "Jóvenes Construyendo el Futuro Reglas Operación Secretaría del Trabajo"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "modifica adiciona Reglas Operación Jóvenes Construyendo el Futuro"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2022-01-01",
+        "date_to": "2023-12-28",
+        "section": null,
+        "query": "Jóvenes Construyendo el Futuro modifica adiciona"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    }
+  ],
+  "answer": "Con base en la investigación del corpus del DOF, te presento el historial de las Reglas de Operación del Programa Jóvenes Construyendo el Futuro:\n\n## Versión más reciente\n\nLa versión más reciente publicada en el DOF es la de las **REGLAS de Operación del Programa Jóvenes Construyendo el Futuro, publicadas el 31 de diciembre de 2025** (matutina), para el ejercicio fiscal 2026, firmada por Marath Baruch Bolaños López, Secretario del Trabajo y Previsión Social. Esta versión **abroga expresamente** las reglas publicadas el 31 de diciembre de 2024 [chunk 6652655].\n\nEl monto del apoyo económico (beca) para 2026 es de **$9,582.47 M.N.** mensuales, equivalente a un salario mínimo general vigente [chunk 6652655].\n\n## Historial de publicaciones y modificaciones\n\n| Fecha publicación | Documento | Tipo |\n|---|---|---|\n| 2020-02-10 | Reglas originales (ejercicio fiscal 2020) | Publicación inicial |\n| 2020-02-18 | Aclaración | Corrección editorial |\n| **2020-09-03** | **Acuerdo modificador** | Modificación sustancial |\n| 2020-12-23 | Nuevas Reglas (ejercicio fiscal 2021) | Sustitución anual |\n| **2021-03-19** | **Acuerdo que modifica y adiciona** | Modificación parcial |\n| **2021-08-20** | **Acuerdo que adiciona (Comité Técnico)** | Adición |\n| 2021-12-29 | Nuevas Reglas (ejercicio fiscal 2022) | Sustitución anual |\n| 2022-12-29 | Nuevas Reglas (ejercicio fiscal 2023) | Sustitución anual |\n| 2023-12-29 | Nuevas Reglas (ejercicio fiscal 2024) | Sustitución anual |\n| 2024-12-31 | Nuevas Reglas (ejercicio fiscal 2025) | Sustitución anual |\n| **2025-01-23** | **Nota Aclaratoria** | Corrección textual |\n| 2025-12-31 | Nuevas Reglas (ejercicio fiscal 2026) | Sustitución vigente |\n\n## Principales modificaciones intermedias\n\n**1. Modification de 2020-09-03** (al ejercicio fiscal 2020):\n- Se añadió el concepto de \"Centros Integradores de Desarrollo\" y CONEVAL.\n- Se amplió a 24 meses la beca y seguro para jóvenes que transiten a Sembrando Vida o Centros Integradores de Desarrollo.\n- Se permitió un **segundo cambio de Centro de Trabajo** por parte de STPS.\n- Se ampliaron medios de atención [chunk 5165528].\n\n**2. Modification de 2021-03-19** (a las reglas del ejercicio fiscal 2021):\n- Se incorporaron referencias a la Estrategia Nacional de Seguridad Pública y los ODS.\n- Se amplió el marco regulatorio con fundamentos en la Ley Federal de Derechos (19-B) [chunk 5316798].\n\n**3. Adición de 2021-08-20** (al ejercicio fiscal 2021):\n- Se creó el **Comité Técnico** (Regla Vigésimo Quinto) para resolver casos no previstos, interpretar las reglas y dictaminar apoyos extraordinarios [chunk 5424648].\n\n**4. Nota Aclaratoria de 2025-01-23** (a las reglas publicadas el 31 de diciembre de 2024):\n- Se corrigió un error en la regla sobre baja definitiva: dond decía \"por causas atribuibles tanto al Centro de Trabajo, la o el Aprendiz\" debió decir \"por causas atribuibles tanto al Centro de Trabajo **como a** la o el Aprendiz, **aquellos Aprendices** que se encuentren...\" [chunk 6417947].\n\n## Modelo de sustitución\n\nEl programa se rige por un modelo de **publicación anual** (a finales de diciembre), donde cada versión deroga a la anterior. Además, el transitorio segundo de las reglas de 2026 establece que mantienen su vigencia en ejercicios subsecuentes siempre que no se opongan al Decreto de Presupuesto de Egresos correspondiente, y hasta en tanto no se emitan otras que las sustituyan [chunk 6652654]."
+}

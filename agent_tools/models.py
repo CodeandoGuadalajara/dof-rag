@@ -89,6 +89,8 @@ class DocumentHit:
     institution: str | None = None
     title_boost: float = 0.0
     recency_boost: float = 0.0
+    match_headings: list[str] = field(default_factory=list)
+    match_excerpt: str | None = None
 
 
 @dataclass(frozen=True)

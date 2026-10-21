@@ -47,7 +47,8 @@ class ExistingEmbedder:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--variant", required=True,
-                        choices=["baseline", "fase1-hybrid", "fase1-lexical"])
+                        choices=["baseline", "fase1-hybrid", "fase1-lexical",
+                                 "fase3-hybrid"])
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
     out = Path(args.out) / args.variant
@@ -93,7 +94,7 @@ def main() -> None:
                 if args.variant != "baseline":
                     kwargs["today"] = TODAY
                     kwargs["retrieval_strategy"] = (
-                        "hybrid" if args.variant == "fase1-hybrid" else "lexical")
+                        "hybrid" if args.variant.endswith("hybrid") else "lexical")
                 result = chat_runner.run_chat(backend, toolbox, RunRequest(question), **kwargs)
             record = {
                 "qid": qid, "rep": rep, "question": question,
