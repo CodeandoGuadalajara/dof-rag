@@ -22,6 +22,7 @@ import html
 import json
 import os
 import secrets
+import sqlite3
 import time
 import uuid
 from collections.abc import AsyncIterator, Callable
@@ -34,6 +35,7 @@ from urllib.parse import quote, urlparse
 
 import air
 import uvicorn
+from starlette.exceptions import HTTPException
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
@@ -1179,6 +1181,7 @@ def create_app(
     auth_backend: AuthBackend,
     page_scripts: Callable[[User | None], str] | None = None,
     login_scripts: Callable[[str], str] | None = None,
+    passage_reader: Callable[[int], list[Any]] | None = None,
 ) -> Any:
     """Build an Air app around injected service/auth so UI behavior is testable."""
 
@@ -1286,6 +1289,25 @@ def create_app(
             status_code=status_code,
             headers=headers,
         )
+
+    @app.get("/pasajes/{chunk_id}", response_class=HTMLResponse)
+    def read_passage(chunk_id: int) -> HTMLResponse:
+        # Corpus-only links carry no chat or run identifiers, even for private chats.
+        from .reader import passage_body
+
+        if chunk_id < 1 or passage_reader is None:
+            raise HTTPException(status_code=404)
+        try:
+            passages = passage_reader(chunk_id)
+        except KeyError:
+            raise HTTPException(status_code=404) from None
+        except (OSError, sqlite3.Error, ValueError):
+            return HTMLResponse(
+                _page("Pasaje no disponible", '<h1>Pasaje no disponible</h1>'
+                      '<p>No pudimos leer y verificar este texto. Intenta de nuevo más tarde.</p>'),
+                status_code=503,
+            )
+        return HTMLResponse(_page("Pasaje del DOF", passage_body(chunk_id, passages)))
 
     @app.get("/login", response_class=HTMLResponse)
     async def login(request: Request, next: str = "/") -> Response:
@@ -1918,6 +1940,16 @@ def build_default_app(repo_root: Path | None = None) -> tuple[Any, WebSettings]:
         queue_capacity=settings.queue_capacity,
         model_concurrency=settings.model_concurrency,
     )
+    def passage_reader(chunk_id: int) -> list[Any]:
+        from agent_tools.retrieval import DofRetriever
+
+        if not config.corpus_db.is_file() or not config.chunks_db.is_file():
+            raise FileNotFoundError("Corpus reader databases are unavailable")
+        with DofRetriever(
+            corpus_db=config.corpus_db, chunks_db=config.chunks_db, vec0_db=None
+        ) as retriever:
+            return retriever.read_chunks([chunk_id], neighbor_window=1)
+
     app = create_app(
         service,
         settings,
@@ -1925,6 +1957,7 @@ def build_default_app(repo_root: Path | None = None) -> tuple[Any, WebSettings]:
         auth_backend=auth_backend,
         page_scripts=clerk_page_scripts,
         login_scripts=clerk_login_scripts,
+        passage_reader=passage_reader,
     )
     app.include_router(airclerk.router)
     return app, settings
