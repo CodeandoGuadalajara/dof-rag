@@ -1,0 +1,141 @@
+{
+  "qid": "Q1-apoyos-desempleo",
+  "rep": 2,
+  "question": "¿Qué apoyos del gobierno federal existen para una persona que perdió su empleo?",
+  "elapsed_s": 152.271,
+  "stop_reason": "completed",
+  "model_turns": 17,
+  "tool_calls": 16,
+  "usage": {
+    "input_tokens": 245588,
+    "output_tokens": 6888,
+    "total_tokens": 252476
+  },
+  "citations": [
+    2020467,
+    6652696,
+    6652703,
+    6652704,
+    6652705,
+    6652706,
+    6652708
+  ],
+  "reasoning_tokens": [
+    94,
+    76,
+    55,
+    253,
+    116,
+    147,
+    235,
+    18,
+    239,
+    397,
+    169,
+    206,
+    258,
+    530,
+    261,
+    552,
+    452
+  ],
+  "searches": [
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "True",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "apoyo por desempleo seguro de desempleo trabajador despedido"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "True",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "seguro de desempleo prestaciones por pérdida involuntaria del empleo Ley del Seguro Social"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "True",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "programa bienestar apoyo económico personas desempleadas Jóvenes Construyendo el Futuro beca"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "True",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "seguro de desempleo prestación por desempleo monto requisitos Ley del Seguro Social"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 8,
+        "prefer_recent": "True",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "riesgo de recisión involuntaria del empleo seguro de desempleo cuantía cotización semanas"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 8,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "vector",
+        "top_k": 10,
+        "prefer_recent": "True",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "\"seguro de desempleo\" IMSS prestación en dinero trabajadores asegurados pérdida involuntaria salario promedio"
+      },
+      "strategy": "vector",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    }
+  ],
+  "answer": "Con base en el corpus del DOF, esto es lo que encontré verificable. Hay que distinguir entre **apoyos que dan dinero** y **apoyos que dan servicios para conseguir empleo**, porque el grueso del apoyo federal al desempleado es de esta segunda clase.\n\n## 1. Programa de Apoyo al Empleo (STPS / Servicio Nacional de Empleo)\nEs el programa federal orientado específicamente a quien busca trabajo. Su población son las **\"Personas Buscadoras de Empleo\": personas de 18 años o más que buscan activamente empleo por estar desocupadas**, o que, aun teniendo empleo, desean mejorarlo [chunk 6652696]. La población potencial se estima con base en la población desocupada (ENOE) [chunk 6652703].\n\nLos **apoyos son servicios, no dinero en efectivo**: asesoría, orientación, información, intermediación laboral (Bolsa de Trabajo, ferias de empleo, Portal del Empleo) y movilidad laboral (traslados dentro del país o al extranjero, sobre todo para jornaleros) [chunk 6652705]. La regla lo dice explícitamente: *\"los apoyos... son servicios de asesoría, orientación e información... sin que sean cuantificables en monto\"* y **\"Todos los apoyos y servicios... son gratuitos\"** [chunk 6652706].\n\nRequisitos de la persona buscadora: estar en búsqueda de empleo, tener 18 años cumplidos, y realizar el trámite **\"Apoyos para la búsqueda de empleo\"** autorizando el uso de datos personales [chunk 6652704]. Se puede hacer presencialmente en la Oficina del Servicio Nacional de Empleo, a distancia en el **Portal del Empleo (empleo.gob.mx)** o llamando al **CABI 079** [chunk 6652708].\n\n> Nota de vigencia: estas son las *Reglas de Operación del Programa de Apoyo al Empleo* publicadas el **31 de diciembre de 2025**, que rigen para el ejercicio fiscal **2026**. Es la evidencia más reciente del corpus y corresponde a una publicación próxima; no puedo confirmar que no haya habido cambios posteriores.\n\n## 2. Jóvenes Construyendo el Futuro (sólo si aplica por edad y situación)\nSi quien perdió el empleo **no estudia ni trabaja y tiene entre 18 y 29 años**, este programa sí entrega apoyo en dinero: una **beca equivalente a un salario mínimo general mensual, hasta por 12 emisiones**, entregada de forma directa, además de **seguro médico** del IMSS (enfermedades y maternidad, y riesgos de trabajo) durante la capacitación [chunk 6652674 y chunk 6652632]. Las reglas parten de atender a \"jóvenes que no estudian y no trabajan\" y se define como joven a la persona de entre 18 y 29 años [chunk 6652629 y chunk 6652626].\n\n## 3. Retiro de recursos por desempleo del SAR (cuenta individual)\nLa Ley del Seguro Social permite al trabajador **retirar recursos de su cuenta individual por \"situación de desempleo\"** (art. 191, fracción II, en relación con el art. 198), con requisitos como acreditarlo con estados de cuenta y **no haber hecho retiros en los cinco años anteriores** a la solicitud; el monto retirado se descuenta proporcionalmente de las semanas cotizadas [chunk 2020467].\n\n> Matiz importante: esta evidencia proviene de un **decreto de reforma del 26 de mayo de 2009**. Confirmo que el mecanismo existe y describe sus condiciones, pero no pude leer en este corpus el texto vigente de esa ley, por lo que **no puedo garantizar que ese texto exacto siga inalterado** hoy.\n\n## Lagunas que debes saber\n- **No encontré en este corpus** el texto vigente del \"seguro de desempleo\" del IMSS (la prestación en dinero por pérdida involuntaria del empleo) ni del apoyo por desempleo del INFONAVIT. Son mecanismos que suelen mencionarse, pero no dispongo aquí de pasajes citables para describir sus montos y requisitos, así que conviene verificarlos directamente (p. ej., en la Ley del Seguro Social vigente o en la ventanilla del IMSS/INFONAVIT). Tampoco puedo afirmar, por el solo hecho de no haberlos encontrado, que no existan otras disposiciones aplicables.\n\nEn resumen: para una persona que perdió su empleo, el apoyo federal general más directo es el **Programa de Apoyo al Empleo** (gratuito, para mayores de 18 años, a través del Portal del Empleo / oficinas del SNE / 079), que no da dinero sino gestión de empleo; el único apoyo económico recurrente para desempleados que sí aparece claramente es la **beca de Jóvenes Construyendo el Futuro**, pero solo para jóvenes de 18 a 29 años que no estudian ni trabajan; y existe el **retiro por desempleo de la cuenta del SAR** como apoyo patrimonial, con requisitos y vigencia del texto por confirmar.\n\n¿Quieres que profundice en alguno? Puedo, por ejemplo, detallar el paso a paso del trámite del Servicio Nacional de Empleo o los requisitos completos y montos del Jóvenes Construyendo el Futuro."
+}

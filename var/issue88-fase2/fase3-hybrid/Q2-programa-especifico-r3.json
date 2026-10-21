@@ -1,0 +1,120 @@
+{
+  "qid": "Q2-programa-especifico",
+  "rep": 3,
+  "question": "¿Cuáles son las reglas de operación vigentes del Programa Jóvenes Construyendo el Futuro y cuánto es el apoyo mensual que otorga?",
+  "elapsed_s": 102.097,
+  "stop_reason": "completed",
+  "model_turns": 13,
+  "tool_calls": 12,
+  "usage": {
+    "input_tokens": 189870,
+    "output_tokens": 5174,
+    "total_tokens": 195044
+  },
+  "citations": [
+    6652624,
+    6652627,
+    6652631,
+    6652632,
+    6652654,
+    6652655
+  ],
+  "reasoning_tokens": [
+    150,
+    130,
+    38,
+    241,
+    25,
+    193,
+    55,
+    6,
+    196,
+    70,
+    263,
+    496,
+    1390
+  ],
+  "searches": [
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "True",
+        "as_of": null,
+        "date_from": null,
+        "date_to": null,
+        "section": null,
+        "query": "Programa Jóvenes Construyendo el Futuro reglas de operación"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "True",
+        "as_of": null,
+        "date_from": "2026-01-01",
+        "date_to": "2026-10-15",
+        "section": null,
+        "query": "Jóvenes Construyendo el Futuro modifica reglas de operación apoyo beca"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "True",
+        "as_of": null,
+        "date_from": "2026-01-01",
+        "date_to": null,
+        "section": null,
+        "query": "Secretaría del Trabajo y Previsión Social Programa Jóvenes Construyendo el Futuro 2026"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "lexical",
+        "top_k": 10,
+        "prefer_recent": null,
+        "as_of": null,
+        "date_from": "2026-01-01",
+        "date_to": "2026-10-15",
+        "section": null,
+        "query": "\"Reglas de Operación del Programa Jóvenes Construyendo el Futuro\" modificación"
+      },
+      "strategy": "lexical",
+      "vector_candidates": 0,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "vector",
+        "top_k": 10,
+        "prefer_recent": "True",
+        "as_of": null,
+        "date_from": "2026-01-01",
+        "date_to": null,
+        "section": null,
+        "query": "Programa Jóvenes Construyendo el Futuro apoyo beca salario mínimo"
+      },
+      "strategy": "vector",
+      "vector_candidates": 300,
+      "documents": 4,
+      "ok": true
+    }
+  ],
+  "answer": "La norma vigente identificada en el corpus para 2026 son las **Reglas de Operación del Programa Jóvenes Construyendo el Futuro**, emitidas por la Secretaría del Trabajo y Previsión Social y publicadas en el **DOF del 31 de diciembre de 2025** (matutina) [chunk 6652624][chunk 6652627].\n\nPuntos esenciales:\n\n- **Objeto y cobertura:** regir la operación del programa en las 32 entidades federativas, con base en la disponibilidad presupuestal del ejercicio fiscal vigente [chunk 6652627][chunk 6652631].\n- **Población objetivo:** jóvenes de entre **18 y 29 años** que, bajo protesta de decir verdad, declaren **no estudiar y no trabajar** al momento de postularse y durante la capacitación. Se da prioridad a jóvenes en municipios con rezago social, alta incidencia delictiva o pertenecientes a grupos históricamente discriminados [chunk 6652631].\n- **Apoyos del programa:**  \n  1. **Capacitación** para el trabajo en un Centro de Trabajo, hasta por 12 meses.  \n  2. **Apoyo económico** entregado directamente y sin intermediarios, hasta por 12 emisiones.  \n  3. **Seguro médico** con cobertura del IMSS [chunk 6652631][chunk 6652632].\n- **Vigencia:** entraron en vigor el día siguiente de su publicación —es decir, el **1 de enero de 2026**— y mantienen vigencia en ejercicios fiscales subsecuentes mientras no se opongan al Presupuesto de Egresos correspondiente o sean sustituidas por otras reglas [chunk 6652654].\n- **Normas previas:** se abrogaron las reglas publicadas en el DOF el **31 de diciembre de 2024** [chunk 6652655].\n\nEl **apoyo mensual vigente para 2026** es:\n\n> **$9,582.47 M.N. al mes**  \n\nSe entrega directamente a la persona beneficiaria, es igual en todo el país y está vinculado al salario mínimo general vigente fijado por la CONASAMI para 2026; se otorga por hasta **12 meses o emisiones** [chunk 6652627][chunk 6652655].\n\nEn el corpus revisado no encontré, para el periodo posterior al 31 de diciembre de 2025 y hasta el 15 de octubre de 2026, una modificación publicada que actualice esas reglas o cambie el monto [chunk 6652654][chunk 6652655]."
+}

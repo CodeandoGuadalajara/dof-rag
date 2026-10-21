@@ -1,0 +1,196 @@
+{
+  "qid": "Q5-amplia-diferente",
+  "rep": 3,
+  "question": "¿Qué apoyos económicos directos a personas publicó el gobierno federal en 2025?",
+  "elapsed_s": 155.587,
+  "stop_reason": "completed",
+  "model_turns": 23,
+  "tool_calls": 22,
+  "usage": {
+    "input_tokens": 559178,
+    "output_tokens": 8733,
+    "total_tokens": 567911
+  },
+  "citations": [
+    6415208,
+    6418532,
+    6423616,
+    6426036,
+    6427307,
+    6430554,
+    6430597,
+    6436681
+  ],
+  "reasoning_tokens": [
+    97,
+    70,
+    70,
+    20,
+    255,
+    68,
+    178,
+    31,
+    303,
+    44,
+    436,
+    16,
+    105,
+    289,
+    82,
+    58,
+    480,
+    783,
+    91,
+    34,
+    726,
+    21,
+    688
+  ],
+  "searches": [
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "apoyo económico directo personas subsidio 2025"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "pensión bienestar adultos mayores discapacidad apoyo bimestral"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "pensión bienestar niñas niños hijos madres trabajadoras 2025"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 5,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "La Escuela es Nuestra reglas operación 2025"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 5,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "pensión bienestar personas adultas mayores 65 años 2025"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "pensión bienestar adultos mayores 65 68 años reglas operación"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "Jóvenes Construyendo el Futuro beca apoyos 2025"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 5,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "Sembrando Vida reglas operación 2025"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 5,
+      "ok": true
+    },
+    {
+      "arguments": {
+        "strategy": "hybrid",
+        "top_k": 10,
+        "prefer_recent": "true",
+        "as_of": null,
+        "date_from": "2025-01-01",
+        "date_to": "2025-12-31",
+        "section": null,
+        "query": "pensión personas adultas mayores 2025 monto apoyo bimestral"
+      },
+      "strategy": "hybrid",
+      "vector_candidates": 300,
+      "documents": 10,
+      "ok": true
+    }
+  ],
+  "answer": "Con base en la revisión del corpus del DOF para 2025, he identificado los siguientes programas federalmente publicados que otorgan **apoyos económicos directos a personas**:\n\n---\n\n## 1. Pensiones no contributivas (Secretaría de Bienestar)\n\n### Pensión para el Bienestar de las Personas Adultas Mayores\n- **Publicación:** 22 de enero de 2025 (Reglas de Operación)\n- **Monto:** $3,100.00 MXN mensuales, pagaderos bimestralmente\n- **Población:** Personas de 65 años o más, mexicanas, residentes en México\n- [chunk 6415208]\n\n### Pensión para el Bienestar de las Personas con Discapacidad Permanente\n- **Publicación:** 22 de enero de 2025 (Reglas de Operación)\n- **Monto:** $1,600.00 MXN mensuales, pagaderos bimestralmente\n- [cita no verificada]\n\n### Pensión Mujeres Bienestar\n- **Publicación:** 31 de enero de 2025 (Lineamientos de Operación)\n- **Monto:** $1,500.00 MXN mensuales, entregados bimestralmente\n- **Población:** Mujeres de 60 a 64 años en municipios/locals indígenas o afromexicanos, y de 63 a 64 años en los no indígenas\n- [chunk 6426036]\n\n---\n\n## 2. Apoyo a la infancia\n\n### Apoyo para el Bienestar de las Niñas y Niños, Hijos de Madres Trabajadoras\n- **Publicación:** 24 de enero de 2025\n- **Monto:**\n  - $1,650.00 MXN bimestral por niña/niño hasta 4 años\n  - $3,720.00 MXN bimestral por niña/niño con discapacidad hasta 6 años\n- Máximo 3 menores por hogar (salvo nacimientos múltiples)\n- [chunk 6418532]\n\n---\n\n## 3. Programas laborales y productivos\n\n### Sembrando Vida\n- **Publicación:** 21 de febrero de 2025 (Reglas de Operación)\n- **Monto:** $6,450.00 MXN mensuales (a mes vencido)\n- Población: Personas sujetas de derecho en proyectos agroforestales\n- [chunk 6436681]\n\n### Producción para el Bienestar\n- **Publicación:** 28 de enero de 2025 (Secretaría de Agricultura)\n- **Montos anuales por productor:**\n  - $6,400 a $10,000 (pequeña escala, granos, según superficie)\n  - $7,300 (café, cacao, caña, nopal o miel)\n  - $1,200 por hectárea (mediana escala >5 has)\n- Límites: mínimo $6,000 y máximo $24,000 por beneficiario\n- [chunk 6423616]\n\n### Jóvenes Construyendo el Futuro\n- **Publicación:** 31 de diciembre de 2025 (Reglas de Operación)\n- **Monto:** $9,582.47 MXN mensuales (equivalente a 1 salario mínimo general), hasta 12 emisiones\n- Para aprendices en capacitación laboral (18-29 años)\n- [cita no verificada]\n\n---\n\n## 4. Becas educativas (Coordinación Nacional de Becas Benito Juárez / SEP)\n\n### Beca Universal de Educación Básica Rita Cetina\n- **Publicación:** 5 de febrero de 2025\n- **Monto:** $1,900.00 MXN bimestrales por familia + $700 por cada becario adicional de secundaria\n- 10 meses del ciclo escolar\n- [chunk 6427307]\n\n### Beca Universal de Educación Media Superior Benito Juárez\n- **Publicación:** 13 de febrero de 2025\n- **Monto:** $1,900.00 MXN bimestrales\n- Para alumnos de bachillerato profesional técnico\n- Hasta 5 bimestres durante 2025\n- [chunk 6430597]\n\n### Jóvenes Escribiendo el Futuro\n- **Publicación:** 13 de febrero de 2025\n- **Monto:** $5,800.00 MXN bimestrales\n- Para alumnos de licenciatura/TSU en escuelas prioritarias o de bajos ingresos\n- Hasta 5 bimestres (45/55 mensualidades, según modalidad)\n- [chunk 6430554]\n\n---\n\n## Notas importantes:\n- **\"La Escuela es Nuestra\"** (13/02/2025): Otorga recursos para infraestructura escolar a los comités escolares, no transferencias directas a personas individuales.\n- **\"Salud Casa por Casa\"** (28/02/2025): Es un programa de atención médica domiciliaria complementario a las pensiones, no una transferencia económica directa.\n- Todos estos documentos son Reglas/Lineamientos de Operación para el **ejercicio fiscal 2025**, por lo que su vigencia está acotada al año natural 2025."
+}
