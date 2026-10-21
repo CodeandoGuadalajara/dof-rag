@@ -15,10 +15,10 @@ from human_eval.store import EvaluationStore
 
 
 def hit(chunk_id=7, **changes):
-    values = dict(chunk_id=chunk_id, document_id=1, path="private-local-path",
-                  publication_date="2025-01-23", section="Primera", chunk_index=chunk_id,
-                  heading_path=["Artículo <1>"], text="Texto <script>alert(1)</script>",
-                  score=0, source="read", title="Título <DOF>")
+    values = {"chunk_id": chunk_id, "document_id": 1, "path": "private-local-path",
+              "publication_date": "2025-01-23", "section": "Primera", "chunk_index": chunk_id,
+              "heading_path": ["Artículo <1>"], "text": "Texto <script>alert(1)</script>",
+              "score": 0, "source": "read", "title": "Título <DOF>"}
     return EvidenceHit(**(values | changes))
 
 
@@ -50,7 +50,7 @@ class PassageReaderTests(unittest.TestCase):
             service = EvaluationService(store)
             app = create_app(service, WebSettings(host="127.0.0.1", port=0, db_path=path,
                              session_secret="a-test-secret-with-at-least-32-characters"),
-                             lambda: {}, auth_backend=FakeAuthBackend(), passage_reader=reader)
+                             dict, auth_backend=FakeAuthBackend(), passage_reader=reader)
             with TestClient(app) as client:
                 response = client.get('/pasajes/7')
                 self.assertEqual(response.status_code, 200)
