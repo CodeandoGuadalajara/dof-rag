@@ -4,6 +4,8 @@ from html import escape
 
 from agent_tools.models import EvidenceHit
 
+from .markdown_render import render_markdown_html
+
 
 def passage_body(chunk_id: int, passages: list[EvidenceHit]) -> str:
     selected = next(hit for hit in passages if hit.chunk_id == chunk_id)
@@ -28,7 +30,8 @@ def passage_body(chunk_id: int, passages: list[EvidenceHit]) -> str:
         sections.append(
             f'<section class="card" id="pasaje-{hit.chunk_id}"{highlight}>'
             f'<h2>{label} · <a href="{link}">chunk {hit.chunk_id}</a></h2>'
-            f'<p class="meta">{heading}</p><p class="chunk-text">{escape(hit.text)}</p></section>'
+            f'<p class="meta">{heading}</p>'
+            f'<div class="markdown-body">{render_markdown_html(hit.text)}</div></section>'
         )
     return (
         f'<h1>{title}</h1><p>Fecha de publicación: {publication} · '

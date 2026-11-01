@@ -35,6 +35,18 @@ class PassageReaderTests(unittest.TestCase):
         self.assertIn("no el documento completo", text)
         self.assertIn("no determina la vigencia", text)
 
+    def test_markdown_is_formatted_for_selected_passage_and_context(self):
+        source = ('## Artículo\n\n**Obligación**\n\n- Primero\n- Segundo\n\n'
+                  '| Campo | Valor |\n| --- | --- |\n| A | B |\n\n'
+                  '<script>alert(1)</script>\n\n[Enlace](javascript:alert(1))')
+        text = passage_body(7, [hit(6, text=source), hit(text=source)])
+        self.assertEqual(text.count('class="markdown-body"'), 2)
+        for markup in ('<h2>Artículo</h2>', '<strong>Obligación</strong>',
+                       '<ul>', '<li>Primero</li>', '<table>'):
+            self.assertEqual(text.count(markup), 2, markup)
+        self.assertNotIn('<script>', text)
+        self.assertNotIn('href="javascript:', text)
+
     def test_missing_or_invalid_date_does_not_invent_official_link(self):
         for value in (None, "invalid", "2025-02-30"):
             with self.subTest(value=value):
