@@ -203,7 +203,14 @@ def _safe_next(raw: Any, default: str) -> str:
     if not isinstance(raw, str):
         return default
     raw = raw.strip()
-    if not raw.startswith("/") or raw.startswith("//"):
+    # Match _sanitize_login_next: browsers normalize network paths,
+    # backslashes and control characters differently from url parsing.
+    if (
+        not raw.startswith("/")
+        or raw.startswith("//")
+        or "\\" in raw
+        or any(ord(char) < 0x20 or ord(char) == 0x7F for char in raw)
+    ):
         return default
     return raw
 
@@ -215,6 +222,11 @@ async def _form(request: Request) -> Any:
     except ValueError as exc:
         raise ContractError("invalid Content-Length header") from exc
     if length > MAX_BODY_BYTES:
+        raise ContractError("request body is too large")
+    # Chunked requests carry no Content-Length; measure the actual body so the
+    # cap cannot be bypassed. ``request.form()`` reuses this cached body.
+    body = await request.body()
+    if len(body) > MAX_BODY_BYTES:
         raise ContractError("request body is too large")
     return await request.form()
 
@@ -1224,6 +1236,11 @@ def create_app(
         )
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Content-Type-Options"] = "nosniff"
+        if settings.secure_cookie:
+            # HTTPS deployments only (see DOF_SECURE_COOKIE): pin transport.
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains"
+            )
         return response
 
     unset = object()

@@ -175,6 +175,9 @@ modelos locales o autohospedados en hardware accesible, desde Apple Silicon
 hasta equipos con tarjetas NVIDIA. El
 [roadmap de producción](docs/production-roadmap.md) explica las prioridades y
 señala tareas en las que otras personas pueden contribuir.
+La [auditoría de seguridad para publicación](docs/human-eval-security-release.md)
+documenta los requisitos de despliegue seguro, privacidad/retención y los
+bloqueos pendientes antes de exponer el sitio públicamente.
 
 El modo de recuperación por defecto es `lexical`. Para usar el índice vec0 y
 embeddings GGUF, configura `DOF_RETRIEVAL_MODE=hybrid`.
