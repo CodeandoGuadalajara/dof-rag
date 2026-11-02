@@ -22,6 +22,7 @@ from human_eval.app import (
     _attach_chunk_html,
     _progress_chunk_html,
     _progress_timeline,
+    _safe_next,
     _sanitize_login_next,
     create_app,
 )
@@ -778,6 +779,76 @@ class StoreTests(unittest.TestCase):
         self.store.append_event(run["run_id"], "failed", {"code": "x", "message": "y"})
         self.store.delete_run(run["run_id"])
         self.assertIsNone(self.store.get_run(run["run_id"]))
+
+    def test_delete_run_removes_chat_and_token_data(self):
+        """Regression: admin deletion must not leave chat content behind."""
+        run, _ = self.store.create_run(
+            RunRequest("pregunta de chat", client_request_id="chat-del-1"),
+            user_id="chatter",
+            provenance=PROVENANCE,
+            chat=True,
+            reserved_tokens=1000,
+            conversation_id="11111111-1111-1111-1111-111111111111",
+        )
+        self.store.append_event(run["run_id"], "started")
+        self.store.append_event(
+            run["run_id"],
+            "succeeded",
+            {"answer": {"text": "respuesta"}, "usage": {"total_tokens": 5}},
+        )
+        self.store.delete_run(run["run_id"])
+        with sqlite3.connect(self.path) as connection:
+            for table in ("chat_messages", "chat_conversations", "token_reservations"):
+                count = connection.execute(
+                    f"SELECT COUNT(*) FROM {table}"
+                ).fetchone()[0]
+                self.assertEqual(count, 0, table)
+
+    def test_delete_run_keeps_nonempty_conversations(self):
+        conversation = "22222222-2222-2222-2222-222222222222"
+        first, _ = self.store.create_run(
+            RunRequest("primera de chat", client_request_id="chat-keep-1"),
+            user_id="chatter",
+            provenance=PROVENANCE,
+            chat=True,
+            reserved_tokens=1000,
+            conversation_id=conversation,
+        )
+        self.store.append_event(first["run_id"], "started")
+        self.store.append_event(
+            first["run_id"],
+            "succeeded",
+            {"answer": {"text": "respuesta"}, "usage": {"total_tokens": 5}},
+        )
+        second, _ = self.store.create_run(
+            RunRequest("segunda de chat", client_request_id="chat-keep-2"),
+            user_id="chatter",
+            provenance=PROVENANCE,
+            chat=True,
+            reserved_tokens=1000,
+            conversation_id=conversation,
+        )
+        self.store.append_event(second["run_id"], "started")
+        self.store.append_event(
+            second["run_id"],
+            "succeeded",
+            {"answer": {"text": "otra"}, "usage": {"total_tokens": 5}},
+        )
+        self.store.delete_run(first["run_id"])
+        with sqlite3.connect(self.path) as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM chat_conversations"
+                ).fetchone()[0],
+                1,
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM chat_messages WHERE run_id = ?",
+                    (second["run_id"],),
+                ).fetchone()[0],
+                2,
+            )
 
     def test_admin_runs_lists_all_runs_with_status(self):
         first, _ = self.store.create_run(
@@ -1616,6 +1687,70 @@ class AirAppTests(AirAppTestCase):
         self.assertNotIn(str(self.db_path), capabilities.text)
 
 
+class RequestLimitTests(AirAppTestCase):
+    def test_chunked_body_over_limit_is_rejected(self):
+        """Regression: Transfer-Encoding without Content-Length must not
+        bypass the request body cap."""
+        self.as_user("chunky")
+        payload = b"csrf_token=x&question=" + b"a" * (17 * 1024)
+        response = self.client.post(
+            "/runs",
+            content=iter([payload]),  # httpx sends this chunked
+            headers={"content-type": "application/x-www-form-urlencoded"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("too large", response.text)
+
+    def test_body_within_limit_is_accepted(self):
+        self.as_user("small", admin=True)  # admin: exempt from the review gate
+        page = self.client.get("/")
+        response = self.client.post(
+            "/runs",
+            data={
+                "csrf_token": self.hidden(page, "csrf_token"),
+                "client_request_id": self.hidden(page, "client_request_id"),
+                "question": "pregunta dentro del límite",
+                "as_of": "",
+                "required_hops": "1",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
+
+
+class SecurityHeaderTests(unittest.TestCase):
+    def build(self, *, secure_cookie: bool):
+        tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(tempdir.cleanup)
+        store = EvaluationStore(Path(tempdir.name) / "evaluation.sqlite")
+        store.initialize()
+        service = EvaluationService(store)
+        settings = WebSettings(
+            host="127.0.0.1",
+            port=0,
+            db_path=store.path,
+            session_secret="test-session-secret-that-is-at-least-32-bytes",
+            secure_cookie=secure_cookie,
+        )
+        app = create_app(
+            service, settings, lambda: PROVENANCE, auth_backend=FakeAuthBackend()
+        )
+        client_context = TestClient(app)
+        self.addCleanup(client_context.__exit__, None, None, None)
+        return client_context.__enter__()
+
+    def test_hsts_only_with_secure_cookies(self):
+        secure = self.build(secure_cookie=True)
+        self.assertEqual(
+            secure.get("/").headers.get("strict-transport-security"),
+            "max-age=31536000; includeSubDomains",
+        )
+        plain = self.build(secure_cookie=False)
+        self.assertNotIn(
+            "strict-transport-security", plain.get("/").headers
+        )
+
+
 class LoginPageTests(AirAppTestCase):
     def test_login_page_uses_app_layout_with_dev_fallback(self):
         response = self.client.get("/login")
@@ -1676,6 +1811,12 @@ class LoginPageTests(AirAppTestCase):
         self.assertEqual(
             _sanitize_login_next("/safe\nLocation: https://evil.example"), "/"
         )
+
+    def test_safe_next_rejects_browser_normalized_external_paths(self):
+        for raw in ("///evil.example", "/\\evil.example", "/safe\r\nX: y"):
+            self.assertEqual(_safe_next(raw, "/fallback"), "/fallback")
+        self.assertEqual(_safe_next("/runs/abc", "/fallback"), "/runs/abc")
+        self.assertEqual(_safe_next(None, "/fallback"), "/fallback")
 
     def test_signed_in_user_is_redirected_to_next(self):
         self.as_user("alice")

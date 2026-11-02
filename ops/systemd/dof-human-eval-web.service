@@ -15,6 +15,10 @@ Restart=always
 RestartSec=2
 StandardOutput=append:@DOF_REPO_DIR@/logs/human-eval-web.log
 StandardError=append:@DOF_REPO_DIR@/logs/human-eval-web.error.log
+# Process hardening: the app needs no privilege escalation and no shared /tmp.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
 
 [Install]
 WantedBy=default.target

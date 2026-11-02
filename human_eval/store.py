@@ -792,7 +792,8 @@ class EvaluationStore:
         ]
 
     def delete_run(self, run_id: str) -> None:
-        """Delete a terminal run with its events, progress, and feedback.
+        """Delete a terminal run with its events, progress, feedback, and any
+        chat message or token-reservation rows tied to it.
 
         Active runs (queued/running) are refused: the worker may still be
         writing events for them, and the foreign keys to ``runs`` would make
@@ -812,8 +813,21 @@ class EvaluationStore:
             ).fetchone()
             if latest is not None and latest[0] in ("queued", "started"):
                 raise ValueError("active runs cannot be deleted")
-            for table in ("run_progress", "run_events", "feedback", "runs"):
+            for table in (
+                "run_progress",
+                "run_events",
+                "feedback",
+                "chat_messages",
+                "token_reservations",
+                "runs",
+            ):
                 connection.execute(f"DELETE FROM {table} WHERE run_id = ?", (run_id,))
+            # Chat deletion must not strand now-empty conversations.
+            connection.execute(
+                "DELETE FROM chat_conversations WHERE NOT EXISTS "
+                "(SELECT 1 FROM chat_messages m "
+                "WHERE m.conversation_id = chat_conversations.conversation_id)"
+            )
 
     def check_health(self) -> bool:
         try:
